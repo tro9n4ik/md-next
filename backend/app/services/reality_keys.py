@@ -62,35 +62,56 @@ def resolve_key_pair(private_key: str, public_key: str) -> tuple[str, str]:
 
 
 async def ensure_reality_key_pair(db: AsyncSession) -> bool:
-    """Приводит пару ключей в базе к согласованному виду.
+    """Приводит пару ключей и параметры сервера в базе к согласованному виду.
 
-    Возвращает ``True``, если пара была исправлена. Вызывается на старте панели:
-    без этого рассинхронизация, занесённая в базу при установке, живёт вечно —
-    установщик тоже доверяет сохранённым значениям, не сверяя их между собой.
+    Возвращает ``True``, если пара или параметры были исправлены. Вызывается на старте панели.
     """
+    import os
+    keys_to_check = (
+        PRIVATE_KEY_SETTING,
+        PUBLIC_KEY_SETTING,
+        "protocol.reality.server_address",
+        "protocol.reality.server_name",
+    )
     result = await db.execute(
-        select(Setting).where(Setting.key.in_((PRIVATE_KEY_SETTING, PUBLIC_KEY_SETTING)))
+        select(Setting).where(Setting.key.in_(keys_to_check))
     )
     rows = {row.key: row for row in result.scalars().all()}
 
+    changed = False
     private_row = rows.get(PRIVATE_KEY_SETTING)
     public_row = rows.get(PUBLIC_KEY_SETTING)
     private_key = private_row.value if private_row else ""
     public_key = public_row.value if public_row else ""
 
     corrected = resolve_public_key(private_key, public_key)
-    if corrected == public_key:
-        return False
+    if corrected and corrected != public_key:
+        if public_row is None:
+            db.add(Setting(key=PUBLIC_KEY_SETTING, value=corrected))
+        else:
+            public_row.value = corrected
+        changed = True
+        logger.warning(
+            "Публичный ключ Reality не соответствует приватному: исправлено %s -> %s.",
+            (public_key or "")[:12],
+            corrected[:12],
+        )
 
-    if public_row is None:
-        db.add(Setting(key=PUBLIC_KEY_SETTING, value=corrected))
-    else:
-        public_row.value = corrected
-    await db.commit()
-    logger.warning(
-        "Публичный ключ Reality не соответствует приватному: исправлено %s -> %s. "
-        "Клиентские ссылки с прежним значением не работали.",
-        (public_key or "")[:12],
-        corrected[:12],
-    )
-    return True
+    server_host_env = os.getenv("SERVER_HOST", "").strip()
+    if server_host_env and server_host_env not in ("127.0.0.1", "localhost"):
+        addr_row = rows.get("protocol.reality.server_address")
+        if addr_row and addr_row.value in ("127.0.0.1", "localhost"):
+            addr_row.value = server_host_env
+            changed = True
+
+    server_name_env = os.getenv("XRAY_SERVER_NAME", "").strip()
+    if server_name_env:
+        sni_row = rows.get("protocol.reality.server_name")
+        if sni_row and not sni_row.value:
+            sni_row.value = server_name_env
+            changed = True
+
+    if changed:
+        await db.commit()
+
+    return changed
