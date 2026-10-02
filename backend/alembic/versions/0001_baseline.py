@@ -1,8 +1,8 @@
 """0001_baseline
 
-Revision ID: 0001_baseline
-Revises:
-Create Date: 2026-09-30
+Идентификатор миграции: 0001_baseline
+Предыдущая миграция:
+Дата создания: 2026-09-30
 
 """
 from typing import Sequence, Union

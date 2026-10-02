@@ -21,7 +21,7 @@ from app.services.cluster import apply_active_node, get_failover_settings, is_ma
 from app.services.client_service import ClientService
 from app.services.events import log_event
 
-router = APIRouter(prefix="/api/v1/nodes", tags=["Nodes"])
+router = APIRouter(prefix="/api/v1/nodes", tags=["Узлы"])
 logger = logging.getLogger(__name__)
 
 class NodeRegister(BaseModel):
@@ -86,7 +86,7 @@ async def reorder_nodes(data: NodeReorder, db: AsyncSession = Depends(get_db), c
     for priority, node_id in enumerate(data.ids):
         by_id[node_id].priority = priority
     await db.commit()
-    logger.info("cluster.nodes.reordered user=%s ids=%s", getattr(current_user, "id", None), data.ids)
+    logger.info("Изменён порядок узлов: пользователь=%s, идентификаторы=%s", getattr(current_user, "id", None), data.ids)
     return {"ids": data.ids}
 
 @router.put("/{node_id}/toggle", response_model=NodeResponse)
@@ -356,8 +356,8 @@ async def register_node(node_data: NodeRegister, db: AsyncSession = Depends(get_
             await db.rollback()
             raise HTTPException(status_code=502, detail=f"Ошибка перестройки конфигурации Xray при авто-активации ноды: {reason}")
     else:
-        # A re-registration rotates the Trojan password. Every enabled node
-        # also needs an outbound/probe even when another node is selected.
+        # Повторная регистрация меняет пароль Trojan. Каждому включённому узлу
+        # нужен исходящий маршрут и проверка, даже если выбран другой узел.
         success, reason = await ClientService.sync_xray_clients(db)
         if not success:
             await db.rollback()

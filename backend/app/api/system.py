@@ -22,7 +22,7 @@ from app.services.warp import WarpService
 from app.services.shell import run_cmd
 from app.bot.bot import bot_manager
 
-router = APIRouter(prefix="/api/v1/system", tags=["System"])
+router = APIRouter(prefix="/api/v1/system", tags=["Система"])
 
 LAST_NET_IO = None
 LAST_NET_TIME = None

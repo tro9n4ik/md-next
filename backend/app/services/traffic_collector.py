@@ -42,7 +42,7 @@ async def _collect_client_traffic() -> None:
                 amount = max(0, int(stat.get("value", 0)))
                 xray_deltas[parts[1]] = (amount if parts[3] == "uplink" else up, amount if parts[3] == "downlink" else down)
     except Exception as exc:
-        logger.warning("Xray client traffic collection failed: %s", exc)
+        logger.warning("Ошибка сбора трафика клиентов Xray: %s", exc)
 
     awg_deltas: dict[str, tuple[int, int]] = {}
     try:
@@ -60,7 +60,7 @@ async def _collect_client_traffic() -> None:
             awg_deltas[public_key] = (rx - old_rx if rx >= old_rx else rx, tx - old_tx if tx >= old_tx else tx)
         AWG_LAST_COUNTERS = current
     except Exception as exc:
-        logger.warning("AmneziaWG client traffic collection failed: %s", exc)
+        logger.warning("Ошибка сбора трафика клиентов AmneziaWG: %s", exc)
 
     quota_clients: list[tuple[int, str]] = []
     async with AsyncSessionLocal() as session:
@@ -87,7 +87,7 @@ async def _collect_client_traffic() -> None:
             if client.is_active and client.traffic_limit and client.traffic_total >= client.traffic_limit:
                 client.is_active = False
                 quota_clients.append((client.id, client.name))
-                logger.warning("Client %s (id=%s) exceeded traffic quota", client.name, client.id)
+                logger.warning("Клиент %s (идентификатор=%s) превысил лимит трафика", client.name, client.id)
                 log_event("warning", "traffic", "Клиент отключён из-за превышения лимита трафика", {"client_id": client.id, "name": client.name})
         await session.commit()
         if quota_clients:
@@ -101,7 +101,7 @@ async def _collect_client_traffic() -> None:
                 try:
                     await bot_manager.bot.send_message(tg_settings["admin_id"], f"Клиент {name} (ID {client_id}) отключён: превышен лимит трафика.")
                 except Exception as exc:
-                    logger.warning("Unable to send quota notification: %s", exc)
+                    logger.warning("Не удалось отправить уведомление о лимите: %s", exc)
 
 async def _collect_traffic_sample():
     global LAST_COUNTERS

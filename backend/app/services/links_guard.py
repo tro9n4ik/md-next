@@ -21,10 +21,10 @@ LINK_IDENTITY_FIELDS: Tuple[str, ...] = (
 FIELD_LABELS: Dict[str, str] = {
     "server_address": "публичный адрес",
     "server_name": "Reality SNI",
-    "fingerprint": "fingerprint",
-    "short_id": "short ID",
-    "public_key": "Reality public key",
-    "flow": "XTLS Flow",
+    "fingerprint": "отпечаток браузера",
+    "short_id": "короткий идентификатор",
+    "public_key": "открытый ключ Reality",
+    "flow": "режим XTLS",
 }
 
 
@@ -55,7 +55,7 @@ def describe_identity_change(changed: Dict[str, str]) -> str:
         return ""
     labels = ", ".join(FIELD_LABELS.get(field, field) for field in changed)
     return (
-        f"Изменение затронувает {labels}. Все клиентские ссылки и подписки "
+        f"Изменение затрагивает {labels}. Все клиентские ссылки и подписки "
         "перестроятся, ранее выданные ссылки перестанут работать."
     )
 

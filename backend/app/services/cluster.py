@@ -40,7 +40,7 @@ async def get_failover_settings(db: AsyncSession) -> dict:
 
 
 async def apply_active_node(db: AsyncSession, node: Optional[Node], *, source: str = "manual") -> tuple[bool, str]:
-    """Apply an Xray route first; commit the selected node only after Xray succeeds."""
+    """Сначала применяет маршрут Xray, затем сохраняет выбранный узел в базе данных."""
     ok, detail = await ClientService.sync_xray_clients(db, active_node=node)
     if not ok:
         return False, detail
@@ -54,7 +54,7 @@ async def apply_active_node(db: AsyncSession, node: Optional[Node], *, source: s
         setting.value = route_value
     await db.flush()
     await db.commit()
-    logger.info("cluster.route.changed node_id=%s", node.id if node else None)
+    logger.info("Изменён маршрут кластера: узел=%s", node.id if node else None)
     return True, detail
 
 

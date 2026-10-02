@@ -14,7 +14,7 @@ from app.services.client_service import ClientService
 from app.services.routing_rules import validate_rule_value
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/v1/routing", tags=["Routing Rules"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/api/v1/routing", tags=["Правила маршрутизации"], dependencies=[Depends(get_current_user)])
 
 
 @router.get("/rules", response_model=List[RoutingRuleResponse])
@@ -61,6 +61,6 @@ async def apply_routing_rules(db: AsyncSession = Depends(get_db)):
     success, message = await ClientService.sync_xray_clients(db)
     if not success:
         code = 400 if any(token in message.lower() for token in ("geosite.dat", "geoip.dat", "warp")) else 502
-        logger.error("Could not apply master Xray routing configuration: %s", message)
+        logger.error("Не удалось применить маршрутизацию Xray основного сервера: %s", message)
         raise HTTPException(status_code=code, detail=f"Не удалось применить правила маршрутизации: {message}")
-    return {"success": True, "message": "Routing rules applied to master Xray"}
+    return {"success": True, "message": "Правила маршрутизации применены к Xray основного сервера"}
