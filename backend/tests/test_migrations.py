@@ -50,6 +50,18 @@ def test_fresh_db_migration(alembic_config):
 
     conn.close()
 
+
+def test_client_limits_migration_preserves_existing_client(alembic_config):
+    cfg, db_file = alembic_config
+    command.upgrade(cfg, "0009_events")
+    with sqlite3.connect(db_file) as db:
+        db.execute("insert into clients (id,name,phone,email,is_active,traffic_total,traffic_limit,sub_token) values (1,?,?,?,?,?,?,?)",
+                   ("Существующий клиент", "", "", 1, 12345, 999999, "migration-test"))
+    command.upgrade(cfg, "head")
+    with sqlite3.connect(db_file) as db:
+        row = db.execute("select name,is_active,traffic_total,traffic_limit,expires_at,monthly_traffic_limit,monthly_traffic_up,monthly_traffic_down,access_blocked from clients where id=1").fetchone()
+        assert row == ("Существующий клиент", 1, 12345, 999999, None, 0, 0, 0, 0)
+
 def test_legacy_db_migration_0004_0005(alembic_config):
     cfg, db_file = alembic_config
 

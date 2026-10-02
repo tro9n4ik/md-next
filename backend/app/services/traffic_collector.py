@@ -15,11 +15,13 @@ from app.services.events import log_event
 from app.services.shell import run_cmd
 from app.services.telegram_settings import get_telegram_settings_from_db
 from app.bot.bot import bot_manager
+from app.services.client_limits import refresh_period, subscription_block_reason
 
 logger = logging.getLogger(__name__)
 
 LAST_COUNTERS = None
 AWG_LAST_COUNTERS: dict[str, tuple[int, int]] = {}
+LIMITS_SYNC_PENDING = False
 
 
 async def _run_command(*args: str) -> str:
@@ -29,7 +31,7 @@ async def _run_command(*args: str) -> str:
     return stdout
 
 async def _collect_client_traffic() -> None:
-    global AWG_LAST_COUNTERS
+    global AWG_LAST_COUNTERS, LIMITS_SYNC_PENDING
     xray_deltas: dict[str, tuple[int, int]] = {}
     try:
         output = await _run_command("xray", "api", "statsquery", "-s", "127.0.0.1:10085", "-pattern", "user>>>", "-reset")
@@ -63,9 +65,14 @@ async def _collect_client_traffic() -> None:
         logger.warning("Ошибка сбора трафика клиентов AmneziaWG: %s", exc)
 
     quota_clients: list[tuple[int, str]] = []
+    now = datetime.datetime.now(datetime.timezone.utc)
     async with AsyncSessionLocal() as session:
+        clients = (await session.execute(select(Client))).scalars().all()
+        for client in clients:
+            refresh_period(client, now)
         result = await session.execute(select(ClientProfile, Client).join(Client, Client.id == ClientProfile.client_id))
         for profile, client in result.all():
+            up = down = 0
             if profile.kind == "awg" and profile.public_key in awg_deltas:
                 up, down = awg_deltas[profile.public_key]
                 profile.traffic_up = (profile.traffic_up or 0) + up
@@ -76,7 +83,8 @@ async def _collect_client_traffic() -> None:
                     up, down = xray_deltas[key]
                     profile.traffic_up = (profile.traffic_up or 0) + up
                     profile.traffic_down = (profile.traffic_down or 0) + down
-        clients = (await session.execute(select(Client))).scalars().all()
+            client.monthly_traffic_up = (client.monthly_traffic_up or 0) + up
+            client.monthly_traffic_down = (client.monthly_traffic_down or 0) + down
         profs = (await session.execute(select(ClientProfile))).scalars().all()
         totals: dict[int, int] = {}
         for profile in profs:
@@ -89,10 +97,25 @@ async def _collect_client_traffic() -> None:
                 quota_clients.append((client.id, client.name))
                 logger.warning("Клиент %s (идентификатор=%s) превысил лимит трафика", client.name, client.id)
                 log_event("warning", "traffic", "Клиент отключён из-за превышения лимита трафика", {"client_id": client.id, "name": client.name})
+            if bool(client.access_blocked) != bool(subscription_block_reason(client, now)):
+                LIMITS_SYNC_PENDING = True
         await session.commit()
-        if quota_clients:
-            await ClientService.sync_xray_clients(session)
-            await AWGService.sync_server_config(session)
+        if quota_clients or LIMITS_SYNC_PENDING:
+            LIMITS_SYNC_PENDING = True
+            # При неудаче сохраняем счётчики, но повторяем применение в следующем
+            # цикле. Ручное отключение клиента не отменяется обновлением месяца.
+            xray_ok, xray_reason = await ClientService.sync_xray_clients(session)
+            awg_ok, awg_reason = await AWGService.sync_server_config(session)
+            if xray_ok and awg_ok:
+                for client in clients:
+                    blocked = bool(subscription_block_reason(client, now))
+                    if bool(client.access_blocked) != blocked:
+                        log_event("info", "client", "Доступ приостановлен по условиям подписки" if blocked else "Доступ возобновлён после обновления подписки", {"client_id": client.id, "reason": subscription_block_reason(client, now)})
+                    client.access_blocked = blocked
+                await session.commit()
+                LIMITS_SYNC_PENDING = False
+            else:
+                logger.error("Условия подписок не применены; повтор через минуту: Xray=%s, AmneziaWG=%s", xray_reason, awg_reason)
 
     if quota_clients and bot_manager.bot:
         tg_settings = await get_telegram_settings_from_db()

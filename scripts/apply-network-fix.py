@@ -161,6 +161,21 @@ def main():
         wait_for_panel()
         print("Прежняя версия восстановлена; панель отвечает.")
         return
+    # Текущие исходники могут зависеть от миграций, отсутствовавших в сетевом
+    # патче. Не копируем их в старую установку с несовместимой схемой базы.
+    if manifest.get("required_schema_revision"):
+        database = app_dir / "backend/md_next.db"
+        try:
+            with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as connection:
+                revision = connection.execute("select version_num from alembic_version").fetchone()
+        except sqlite3.Error as exc:
+            raise RuntimeError("Не удалось подтвердить схему базы данных; изменений нет.") from exc
+        if not revision or revision[0] != manifest["required_schema_revision"]:
+            raise RuntimeError("Сначала требуется полное обновление панели и миграция условий подписок. Для отдельного сетевого патча используйте зафиксированную версию из NETWORK_FIX.md.")
+        for item in manifest.get("required_files", []):
+            path = app_dir / item["path"]
+            if not path.is_file() or path.is_symlink() or digest(path) != item["sha256"]:
+                raise RuntimeError(f'Не установлена зависимость текущего сетевого патча: {item["path"]}. Изменений нет.')
     for item in manifest["files"]:
         source, target = SOURCE / item["path"], app_dir / item["path"]
         if digest(source) != item["after_sha256"]:
