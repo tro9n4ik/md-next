@@ -6,6 +6,7 @@ from app.models.node import Node
 from app.models.setting import Setting
 from app.db.database import AsyncSessionLocal
 from app.services.watchdog import WatchdogService
+from app.services.cluster import get_selected_node
 from app.services.xray import XrayService
 
 @pytest.mark.asyncio
@@ -95,7 +96,7 @@ async def test_watchdog_failover_and_recovery_hysteresis():
                 n_b = n_res.scalar_one_or_none()
                 print("BACKUP NODE AFTER FAILOVER:", n_b.id if n_b else None, "is_active:", getattr(n_b, 'is_active', None), "status:", getattr(n_b, 'status', None))
 
-                active_after = await watchdog._get_active_node(session)
+                active_after = await get_selected_node(session)
                 assert active_after is not None
                 assert active_after.id == b_id
 
@@ -113,6 +114,6 @@ async def test_watchdog_failover_and_recovery_hysteresis():
 
                 await watchdog._failback(session, res_p_rec)
 
-                active_final = await watchdog._get_active_node(session)
+                active_final = await get_selected_node(session)
                 assert active_final is not None
                 assert active_final.id == p_id
