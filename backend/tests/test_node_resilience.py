@@ -3,7 +3,6 @@ import json
 import pytest
 
 from app.services.xray import (
-    NODE_BALANCER_TAG,
     PROBE_INBOUND_PREFIX,
     XrayService,
     probe_port_for_node,
@@ -48,88 +47,51 @@ def test_without_active_node_no_balancer_and_direct_default():
     assert config["outbounds"][0]["tag"] == "direct"
 
 
-def test_active_node_routes_through_balancer_with_direct_fallback():
-    node = FakeNode(id=7)
-    config = build(active_node=node)
-
-    balancer = config["routing"]["balancers"][0]
-    assert balancer["tag"] == NODE_BALANCER_TAG
-    assert balancer["selector"] == ["node-7"]
-    assert balancer["fallbackTag"] == "direct"
+def test_selected_node_is_exact_and_available_without_observation():
+    config = build(active_node=FakeNode(id=1), nodes=[FakeNode(id=10), FakeNode(id=11)])
+    assert "balancers" not in config["routing"]
+    assert "burstObservatory" not in config
     assert config["routing"]["rules"][-1] == {
-        "type": "field",
-        "network": "tcp,udp",
-        "balancerTag": NODE_BALANCER_TAG,
+        "type": "field", "network": "tcp,udp", "outboundTag": "node-1",
     }
-    assert config["burstObservatory"]["subjectSelector"] == ["node-"]
+    assert config["outbounds"][0]["tag"] == "node-1"
 
 
-def test_balancer_is_referenced_by_balancer_tag_not_outbound_tag():
-    """Регрессия: outboundTag на балансере убивает трафик начиная с Xray 25.
-
-    На Xray 26 правило с outboundTag, указывающим на тег балансера, не резолвится,
-    dispatcher пишет "non existing outTag" и обрывает соединение. Поле balancerTag
-    работает и на новых, и на старых версиях, поэтому оно и используется.
-    """
-    config = build(active_node=FakeNode(id=7))
-    catch_all = config["routing"]["rules"][-1]
-    assert "outboundTag" not in catch_all
-    assert catch_all["balancerTag"] == NODE_BALANCER_TAG
+def test_keep_does_not_replace_selected_node_with_direct():
+    config = build(active_node=FakeNode(id=3), node_fallback_tag="block")
+    assert config["routing"]["rules"][-1]["outboundTag"] == "node-3"
 
 
-def test_no_rule_points_outbound_tag_at_the_balancer():
+def test_missing_selected_node_with_keep_blocks_instead_of_leaking_master_ip():
+    config = build(active_node=FakeNode(id=5, secret=None), node_fallback_tag="block")
+    assert config["outbounds"][0]["tag"] == "block"
+    assert config["routing"]["rules"][-1]["outboundTag"] == "block"
+
+
+def test_disabled_selected_node_with_keep_blocks():
+    config = build(unavailable_selected_node=True, node_fallback_tag="block")
+    assert config["outbounds"][0]["tag"] == "block"
+
+
+def test_missing_selected_node_with_direct_uses_direct():
+    config = build(active_node=FakeNode(id=5, secret=None))
+    assert config["outbounds"][0]["tag"] == "direct"
+
+
+def test_warp_all_takes_priority_over_selected_node():
+    config = build(active_node=FakeNode(id=7), warp_usage="all")
+    assert config["outbounds"][0]["tag"] == "warp"
+    assert config["routing"]["rules"][-1]["outboundTag"] == "warp"
+
+
+def test_user_routing_rules_run_before_exact_default():
     config = build(
         active_node=FakeNode(id=7),
-        routing_rules=[
-            {"type": "field", "domain": ["geosite:category-ads"], "outboundTag": "block"},
-            {"type": "field", "domain": ["domain:openai.com"], "outboundTag": "warp"},
-        ],
-    )
-    balancer = config["routing"]["balancers"][0]["tag"]
-    for rule in config["routing"]["rules"]:
-        assert rule.get("outboundTag") != balancer
-
-
-def test_fallback_tag_block_prevents_leaking_master_ip():
-    node = FakeNode(id=3)
-    config = build(active_node=node, node_fallback_tag="block")
-    assert config["routing"]["balancers"][0]["fallbackTag"] == "block"
-
-
-def test_unknown_fallback_tag_falls_back_to_direct():
-    node = FakeNode(id=3)
-    config = build(active_node=node, node_fallback_tag="что-то")
-    assert config["routing"]["balancers"][0]["fallbackTag"] == "direct"
-
-
-def test_active_node_without_secret_gets_no_balancer():
-    config = build(active_node=FakeNode(id=5, secret=None))
-    assert "balancers" not in config["routing"]
-    assert not any(item["tag"].startswith("node-") for item in config["outbounds"])
-
-
-def test_warp_all_disables_balancer():
-    """WARP на весь трафик остаётся единственным маршрутом: балансер не добавляется."""
-    node = FakeNode(id=7)
-    config = build(active_node=node, warp_usage="all")
-    assert "balancers" not in config["routing"]
-    assert config["outbounds"][0]["tag"] == "node-7"
-    assert config["routing"]["rules"][-1] != {
-        "type": "field",
-        "network": "tcp,udp",
-        "balancerTag": NODE_BALANCER_TAG,
-    }
-
-
-def test_user_routing_rules_run_before_catch_all():
-    node = FakeNode(id=7)
-    config = build(
-        active_node=node,
-        routing_rules=[{"type": "field", "domain": ["geosite:category-ads"], "outboundTag": "block"}],
+        routing_rules=[{"type": "field", "domain": ["domain:example.org"], "outboundTag": "block"}],
     )
     rules = config["routing"]["rules"]
     assert rules[1]["outboundTag"] == "block"
-    assert rules[-1]["balancerTag"] == NODE_BALANCER_TAG
+    assert rules[-1]["outboundTag"] == "node-7"
     assert config["routing"]["domainStrategy"] == "AsIs"
 
 

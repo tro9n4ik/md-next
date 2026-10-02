@@ -65,7 +65,6 @@ async def lifespan(app: FastAPI):
             logger.warning(warning)
             log_event("warning", "service", warning, {"command": command})
 
-    watchdog.start()
     event_cleanup_task = asyncio.create_task(event_cleanup_loop())
     log_event("info", "service", "Сервис панели запущен")
     try:
@@ -82,6 +81,8 @@ async def lifespan(app: FastAPI):
                 logger.error("Unable to apply AmneziaWG profiles on startup: %s", awg_message)
     except Exception:
         logger.exception("Unable to synchronize client profiles on startup")
+    # Health probes require the per-node inbounds created by the initial sync.
+    watchdog.start()
     traffic_task = asyncio.create_task(start_traffic_collector())
 
     try:
