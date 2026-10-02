@@ -76,3 +76,12 @@ def test_settings_output_recognizes_warp_proxy():
     assert parsed["mode"] == "proxy"
     assert parsed["port"] == 41000
     assert parsed["registered"]
+
+
+@pytest.mark.asyncio
+async def test_registration_waits_for_cloudflare_and_explains_api_error():
+    with patch.object(WarpService, "_run_process", return_value=(1, "", "Failed to communicate with the WARP API")) as process:
+        success, message = await WarpService.register()
+    assert not success
+    assert "Лицензионный ключ не требуется" in message
+    assert process.await_args.kwargs["timeout"] == WarpService.REGISTRATION_TIMEOUT
