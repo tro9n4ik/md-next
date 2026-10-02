@@ -104,6 +104,64 @@ PY
   systemctl reload nginx
 }
 
+clone_repo() {
+  local target="$1"
+  local askpass_script=""
+  local askpass_env=()
+
+  # Приватный репозиторий требует авторизации. Токен берётся из переменной
+  # окружения и не сохраняется ни в файле, ни в истории команд.
+  if [ -n "${MDNEXT_GITHUB_TOKEN:-}" ]; then
+    askpass_script="$(mktemp /tmp/md-next-askpass.XXXXXX)"
+    chmod 700 "$askpass_script"
+    cat > "$askpass_script" <<'EOF'
+#!/bin/sh
+case "$1" in
+  *Username*) echo "x-access-token" ;;
+  *) echo "$MDNEXT_GITHUB_TOKEN" ;;
+esac
+EOF
+    askpass_env=(GIT_ASKPASS="$askpass_script" MDNEXT_GITHUB_TOKEN="$MDNEXT_GITHUB_TOKEN")
+  fi
+
+  env "${askpass_env[@]}" GIT_TERMINAL_PROMPT=0 \
+    git -c credential.helper= clone --depth 1 "$REPOSITORY_URL" "$target"
+  local clone_status=$?
+
+  [ -n "$askpass_script" ] && rm -f "$askpass_script"
+  unset MDNEXT_GITHUB_TOKEN
+
+  if [ "$clone_status" -ne 0 ]; then
+    echo -e "${RED}Не удалось получить код с GitHub. Для приватного репозитория задайте токен:${NC}"
+    echo "  export MDNEXT_GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxx"
+    echo "  bash install.sh   # затем выберите «Обновить»"
+    exit 1
+  fi
+}
+
+ensure_probe_env() {
+  local env_file="$APP_DIR/backend/.env"
+  [ -f "$env_file" ] || return 0
+
+  # Значения дописываются построчно, а не перезаписываются: обновление не должно
+  # затирать домены, ключи и пароли, которые уже настроены на сервере.
+  local probe_line probe_key
+  for probe_line in \
+    "XRAY_PROBE_URL=${XRAY_PROBE_URL:-https://cp.cloudflare.com/generate_204}" \
+    "XRAY_PROBE_INTERVAL=${XRAY_PROBE_INTERVAL:-3m}" \
+    "NODE_PROBE_ENABLED=${NODE_PROBE_ENABLED:-true}" \
+    "NODE_PROBE_BASE_PORT=${NODE_PROBE_BASE_PORT:-10900}" \
+    "NODE_PROBE_TIMEOUT=${NODE_PROBE_TIMEOUT:-8}"; do
+    probe_key="${probe_line%%=*}"
+    if grep -q "^${probe_key}=" "$env_file"; then
+      sed -i "s|^${probe_key}=.*|${probe_line}|" "$env_file"
+    else
+      printf '%s\n' "$probe_line" >> "$env_file"
+    fi
+  done
+  chmod 600 "$env_file"
+}
+
 write_backend_service() {
   cat <<'EOF' > /etc/systemd/system/md-next-backend.service
 [Unit]
@@ -188,9 +246,10 @@ update_installation() {
   [ ! -f "$APP_DIR/backend/md_next.db" ] || cp -a "$APP_DIR/backend/md_next.db" "$backup_dir/"
 
   echo "Резервная копия настроек и базы: $backup_dir"
-  git clone --depth 1 "$REPOSITORY_URL" "$update_dir/repo"
+  clone_repo "$update_dir/repo"
   cp -a "$update_dir/repo/." "$APP_DIR/"
   rm -rf "$update_dir"
+  ensure_probe_env
   update_nginx_routes
   install_awg
 
@@ -447,20 +506,8 @@ TLS_KEY_PATH=/usr/local/etc/xray/tls/privkey.pem
 XRAY_PROBE_URL=${XRAY_PROBE_URL:-https://cp.cloudflare.com/generate_204}
 XRAY_PROBE_INTERVAL=${XRAY_PROBE_INTERVAL:-3m}
 EOF
-
-  # Переменные диагностики дописываются отдельно, чтобы не затирать файл при обновлении.
-  for probe_line in \
-    "NODE_PROBE_ENABLED=${NODE_PROBE_ENABLED:-true}" \
-    "NODE_PROBE_BASE_PORT=${NODE_PROBE_BASE_PORT:-10900}" \
-    "NODE_PROBE_TIMEOUT=${NODE_PROBE_TIMEOUT:-8}"; do
-    probe_key="${probe_line%%=*}"
-    if grep -q "^${probe_key}=" /opt/md-next/backend/.env; then
-      sed -i "s|^${probe_key}=.*|${probe_line}|" /opt/md-next/backend/.env
-    else
-      printf '%s\n' "$probe_line" >> /opt/md-next/backend/.env
-    fi
-  done
   chmod 600 /opt/md-next/backend/.env
+  ensure_probe_env
 
   # Применение миграций базы данных Alembic
   venv/bin/alembic upgrade head
