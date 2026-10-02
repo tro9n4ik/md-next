@@ -1,0 +1,31 @@
+# Нормализация переводов строк.
+# Проект работает на Linux-сервере: скрипты и конфиги должны иметь LF,
+# иначе bash и nginx ломаются на сервере.
+* text=auto eol=lf
+
+# Скрипты и конфиги, которые точно должны остаться с LF.
+*.sh text eol=lf
+*.conf text eol=lf
+*.py text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.css text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.html text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.txt text eol=lf
+.mako text eol=lf
+.gitignore text eol=lf
+.env.example text eol=lf
+
+# Двоичные файлы не трогаем.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.zip binary
+*.db binary

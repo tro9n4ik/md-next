@@ -1,0 +1,23 @@
+export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const token = localStorage.getItem('token');
+  const headers = new Headers(init.headers || {});
+
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  const response = await fetch(input, {
+    ...init,
+    headers,
+  });
+
+  const urlStr = typeof input === 'string' ? input : input.toString();
+
+  // При неверном пароле на эндпоинте /login не очищаем токен и не шлем auth:unauthorized
+  if ((response.status === 401 || response.status === 403) && !urlStr.includes('/api/v1/auth/login')) {
+    localStorage.removeItem('token');
+    window.dispatchEvent(new Event('auth:unauthorized'));
+  }
+
+  return response;
+}

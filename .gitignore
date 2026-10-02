@@ -1,0 +1,54 @@
+# Локальные настройки и секреты
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.pytest-tmp*/
+pytest-tmp/
+.coverage
+htmlcov/
+
+# Node.js и сборка frontend
+node_modules/
+dist/
+dist-ssr/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Локальная база, резервные копии и журналы
+*.db
+*.sqlite
+*.sqlite3
+*.bak
+*.log
+backend/backup/
+
+# IDE и ОС
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Локальные архивы
+*.zip
+*.tar.gz
+
+# Резервные копии MD-Next
+md-next-backup-*/
