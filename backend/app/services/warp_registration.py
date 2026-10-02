@@ -141,7 +141,12 @@ async def register(node_id: int, config_path: Path) -> int:
             # Порт слушает IPv4. Для IPv6 используем отдельный локальный слушатель.
             ipv6_server = None
             if any(family == socket.AF_INET6 for family, _ in addresses):
-                ipv6_server = await asyncio.start_server(relay, "::1", relay_port, family=socket.AF_INET6)
+                try:
+                    ipv6_server = await asyncio.start_server(relay, "::1", relay_port, family=socket.AF_INET6)
+                except OSError:
+                    # На серверах с выключенным IPv6 служба также не может
+                    # использовать такие назначения; остаются правила IPv4.
+                    addresses = {(family, address) for family, address in addresses if family == socket.AF_INET}
             try:
                 for family, address in sorted(addresses):
                     binary = "ip6tables" if family == socket.AF_INET6 else "iptables"
