@@ -200,4 +200,4 @@ async def test_auto_failover_failback_and_direct_when_all_nodes_fail():
         async with AsyncSessionLocal() as session:
             await watchdog._check_cycle(session)
             selected = await session.scalar(select(Setting).where(Setting.key == "active_node_id"))
-            assert selected.value == ""
+            assert selected.value == "direct:auto"
