@@ -90,20 +90,26 @@ async def test_client_creation_and_email_validation(auth_headers):
 
 @pytest.mark.asyncio
 async def test_create_vless_client_missing_env(auth_headers):
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
-        response = await ac.post(
-            "/api/v1/clients",
-            json={
-                "name": "test_vless_client",
-                "phone": "+79990000000",
-                "email": "test@example.com",
-                "protocol": "vless"
-            },
-            headers=auth_headers
-        )
-    assert response.status_code == 503
+    env_mock = {
+        "SERVER_HOST": "",
+        "XRAY_PUBLIC_KEY": "",
+        "XRAY_SERVER_NAME": ""
+    }
+    with mock.patch.dict("os.environ", env_mock):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as ac:
+            response = await ac.post(
+                "/api/v1/clients",
+                json={
+                    "name": "test_vless_client",
+                    "phone": "+79990000000",
+                    "email": "test@example.com",
+                    "protocol": "vless"
+                },
+                headers=auth_headers
+            )
+        assert response.status_code == 503
 
 @pytest.mark.asyncio
 async def test_create_vless_client_success(auth_headers):
