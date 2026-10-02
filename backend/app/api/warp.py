@@ -160,7 +160,11 @@ async def setup_warp(db: AsyncSession = Depends(get_db)):
     success, message = await WarpService.setup_warp_proxy(db)
     if not success:
         _command_error(message)
-    return {"status": "ok", "message": f"WARP SOCKS5 прокси настроен на порту {await WarpService.get_port(db)}"}
+    applied, reason = await ClientService.sync_xray_clients(db)
+    if not applied:
+        raise HTTPException(status_code=502, detail=f"WARP подключён, но не удалось применить конфигурацию Xray: {reason}")
+    log_event("info", "warp", "Бесплатный WARP включён и проверен через SOCKS5")
+    return {"status": "ok", "message": message}
 
 
 @router.get("/presets")
