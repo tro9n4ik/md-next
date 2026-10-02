@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 from typing import Any, Optional
@@ -12,6 +13,7 @@ from app.models.setting import Setting
 from app.services.shell import run_cmd, find_command
 
 logger = logging.getLogger(__name__)
+_setup_lock = asyncio.Lock()
 
 
 class WarpService:
@@ -51,7 +53,7 @@ class WarpService:
         combined = f"{status_output}\n{registration_output}"
         status_match = re.search(r"(?:status(?:\s+update)?|connection\s+status)\s*:\s*(connected|disconnected|connecting)", status_output, re.I)
         state = status_match.group(1).capitalize() if status_match else "Disconnected"
-        mode_match = re.search(r"(?:mode|service mode)\s*:\s*(proxy|warp(?:\+doh)?|doh|warpwithdns over https|warpproxy)", status_output, re.I)
+        mode_match = re.search(r"(?:mode|service mode)\s*:\s*(warpproxy|proxy|warpwithdns(?:\s+over\s+https|overhttps)|warp(?:\+doh)?|doh)\b", status_output, re.I)
         mode_raw = mode_match.group(1).lower() if mode_match else "unknown"
         mode = "proxy" if mode_raw in {"proxy", "warpproxy"} else "warp" if mode_raw.startswith("warp") else mode_raw
         port_match = re.search(r"(?:127\.0\.0\.1|localhost)\s*:\s*(\d{1,5})|(?:proxy(?:\s+listener)?\s+port)\s*:\s*(\d{1,5})", status_output, re.I)
@@ -78,6 +80,7 @@ class WarpService:
         try:
             status_code, status_output, status_error = await cls._run_process("status", timeout=cls.STATUS_TIMEOUT)
             reg_code, registration_output, registration_error = await cls._run_process("registration", "show", timeout=cls.STATUS_TIMEOUT)
+            _, settings_output, _ = await cls._run_process("settings", timeout=cls.STATUS_TIMEOUT)
         except (OSError, RuntimeError, TimeoutError) as exc:
             logger.warning("Не удалось получить состояние warp-cli: %s", exc)
             return {
@@ -85,7 +88,8 @@ class WarpService:
                 "state": "Disconnected", "mode": "unknown", "port": await cls.get_port(db),
                 "instruction": "Не удалось получить состояние warp-cli; проверьте службу warp-svc.",
             }
-        parsed = cls.parse_status(status_output or status_error, registration_output or registration_error, reg_code == 0)
+        parsed = cls.parse_status(f"{status_output or status_error}\n{settings_output}", registration_output or registration_error, reg_code == 0)
+        parsed["runtime_port"] = parsed["port"]
         parsed["port"] = await cls.get_port(db, parsed["port"])
         parsed.update({"installed": True, "service_active": service_active, "instruction": None})
         if status_code != 0:
@@ -138,7 +142,7 @@ class WarpService:
             return False, str(exc)
 
     @classmethod
-    async def set_mode(cls, db: AsyncSession, mode: str, port: int) -> tuple[bool, str]:
+    async def set_mode(cls, db: AsyncSession, mode: str, port: int, *, persist: bool = True) -> tuple[bool, str]:
         cli_mode = "proxy" if mode == "proxy" else "warp+doh"
         try:
             success, message = await cls._run_command("mode", cli_mode)
@@ -151,8 +155,9 @@ class WarpService:
                 success, message = await cls._run_command("set-proxy-port", str(port))
             if not success:
                 return False, message
-            await cls._save_setting(db, "warp.mode", mode)
-            await cls._save_setting(db, "warp.proxy_port", str(port))
+            if persist:
+                await cls._save_setting(db, "warp.mode", mode)
+                await cls._save_setting(db, "warp.proxy_port", str(port))
             return True, message
         except (OSError, RuntimeError, TimeoutError) as exc:
             logger.warning("Не удалось изменить режим WARP: %s", exc)
@@ -171,9 +176,9 @@ class WarpService:
             return False, "Не удалось применить лицензионный ключ WARP+. Проверьте warp-svc и регистрацию."
 
     @classmethod
-    async def test_proxy(cls, port: int) -> dict[str, str]:
+    async def test_proxy(cls, port: int, *, timeout: float = 15.0) -> dict[str, str]:
         proxy = f"socks5://127.0.0.1:{port}"
-        async with httpx.AsyncClient(proxy=proxy, timeout=15.0) as client:
+        async with httpx.AsyncClient(proxy=proxy, timeout=timeout) as client:
             response = await client.get("https://www.cloudflare.com/cdn-cgi/trace")
             response.raise_for_status()
         values = dict(line.split("=", 1) for line in response.text.splitlines() if "=" in line)
@@ -181,13 +186,72 @@ class WarpService:
 
     @classmethod
     async def setup_warp_proxy(cls, db: AsyncSession) -> tuple[bool, str]:
-        ok, reason = await cls.register()
-        if not ok and "already registered" not in reason.lower():
-            return False, reason
-        ok, reason = await cls.set_mode(db, "proxy", await cls.get_port(db))
-        if not ok:
-            return False, reason
-        return await cls.connect()
+        """Включает бесплатный WARP через SOCKS5, сохраняя существующую регистрацию."""
+        async with _setup_lock:
+            return await cls._setup_warp_proxy(db)
+
+    @classmethod
+    async def _setup_warp_proxy(cls, db: AsyncSession) -> tuple[bool, str]:
+        previous = await cls.status(db)
+        if not previous["installed"]:
+            return False, "Установите пакет cloudflare-warp. Лицензия для обычного WARP не требуется."
+        started_service = not previous["service_active"]
+        configured = False
+        try:
+            if started_service:
+                code, _, _ = await run_cmd("systemctl", "start", "warp-svc", timeout=cls.COMMAND_TIMEOUT)
+                if code:
+                    return False, "Не удалось запустить службу warp-svc."
+                previous = {**await cls.status(db), "service_active": False}
+            # Прокси-режим задаётся до регистрации: общий маршрут сервера не меняется.
+            port = await cls.get_port(db)
+            configured = True
+            ok, reason = await cls.set_mode(db, "proxy", port, persist=False)
+            if not ok:
+                raise RuntimeError(reason)
+            if not previous["registered"]:
+                code, stdout, stderr = await cls._run_process("registration", "show")
+                if code and not re.search(r"missing|not\s+(?:found|registered)|does not exist|registration\s+required", stdout + stderr, re.I):
+                    raise RuntimeError("Не удалось проверить регистрацию WARP; существующая учётная запись сохранена.")
+                if code:
+                    ok, reason = await cls.register()
+                    if not ok:
+                        raise RuntimeError(reason)
+            ok, reason = await cls.connect()
+            if not ok:
+                raise RuntimeError(reason)
+            for attempt in range(5):
+                try:
+                    trace = await cls.test_proxy(port, timeout=5.0)
+                    if trace["warp"] in {"on", "plus"}:
+                        # Настройки сохраняются только после проверки реального выхода.
+                        for key, value in (("warp.mode", "proxy"), ("warp.proxy_port", str(port))):
+                            setting = (await db.execute(select(Setting).where(Setting.key == key))).scalar_one_or_none()
+                            if setting is None:
+                                db.add(Setting(key=key, value=value))
+                            else:
+                                setting.value = value
+                        await db.commit()
+                        return True, "WARP включён без лицензии. Выберите нужные готовые правила."
+                except (httpx.HTTPError, OSError):
+                    pass
+                if attempt < 4:
+                    await asyncio.sleep(1)
+            raise RuntimeError("Прокси WARP не прошёл проверку подключения. Повторите включение или проверьте журнал warp-svc.")
+        except Exception as exc:
+            await db.rollback()
+            if configured:
+                if previous["state"] != "Connected":
+                    await cls.disconnect()
+                if previous["mode"] in {"proxy", "warp"}:
+                    restored, _ = await cls.set_mode(db, previous["mode"], previous.get("runtime_port", previous["port"]), persist=False)
+                    if not restored:
+                        logger.error("Не удалось восстановить прежний режим WARP")
+                if previous["state"] == "Connected":
+                    await cls.connect()
+            if started_service:
+                await run_cmd("systemctl", "stop", "warp-svc", timeout=cls.COMMAND_TIMEOUT)
+            return False, str(exc)
 
     @classmethod
     async def fetch_via_warp(cls, url: str, method: str = "GET", headers: Optional[dict[str, str]] = None, json_data: Optional[dict[str, Any]] = None, port: Optional[int] = None) -> httpx.Response:
