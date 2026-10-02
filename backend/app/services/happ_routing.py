@@ -1,11 +1,27 @@
 import base64
 import json
 import time
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
+import ipaddress
 
 
 def build_happ_routing_link(settings: dict[str, str]) -> str:
     """Формирует ссылку Happ с DNS-настройками профиля MD-Next."""
+    hosts = {}
+    for kind in ("remote", "domestic"):
+        dns_type = settings.get(f"dns.{kind}_type", "DoH" if kind == "remote" else "DoU")
+        domain = settings.get(f"dns.{kind}_domain", "https://cloudflare-dns.com/dns-query" if kind == "remote" else "")
+        address = settings.get(f"dns.{kind}_ip", "1.1.1.1" if kind == "remote" else "8.8.8.8")
+        if dns_type != "DoH":
+            continue
+        try:
+            hostname = urlparse(domain).hostname
+            ipaddress.ip_address(address)
+            if hostname:
+                # Bootstrap DoH without resolving its own hostname through DoH.
+                hosts.setdefault(hostname, address)
+        except ValueError:
+            continue
     profile = {
         "Name": "MD-Next DNS",
         "GlobalProxy": "true",
@@ -18,7 +34,7 @@ def build_happ_routing_link(settings: dict[str, str]) -> str:
         "Geoipurl": "",
         "Geositeurl": "",
         "LastUpdated": str(int(time.time())),
-        "DnsHosts": {},
+        "DnsHosts": hosts,
         "DirectSites": [],
         "DirectIp": [],
         "ProxySites": [],

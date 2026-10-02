@@ -1,4 +1,5 @@
 import os
+import logging
 from typing import Tuple
 
 from sqlalchemy import select
@@ -13,17 +14,31 @@ from app.services.profiles import create_profiles, enabled_profile_kinds, get_pr
 from app.services.xray import XrayService
 from app.services.routing_rules import to_xray_rule
 from app.services.events import log_event
+from app.services.nginx import apply_reality_sni
 
 _USE_STORED_ACTIVE_NODE = object()
+logger = logging.getLogger(__name__)
 
 
 class ClientService:
+    @classmethod
+    async def restore_committed_configs(cls, db: AsyncSession) -> None:
+        """Compensate external service changes after a database rollback."""
+        for label, sync in (("Xray", cls.sync_xray_clients), ("AmneziaWG", AWGService.sync_server_config)):
+            try:
+                ok, _ = await sync(db)
+                if not ok:
+                    logger.error("Unable to restore committed %s configuration", label)
+            except Exception:
+                logger.error("Unable to restore committed %s configuration", label)
+
     @staticmethod
     async def sync_xray_clients(db: AsyncSession, active_node=_USE_STORED_ACTIVE_NODE) -> Tuple[bool, str]:
         result = await db.execute(
             select(ClientProfile, Client)
             .join(Client, Client.id == ClientProfile.client_id)
             .where(Client.is_active.is_(True), ClientProfile.is_enabled.is_(True))
+            .order_by(ClientProfile.id)
         )
         profiles = result.all()
         kinds = await enabled_profile_kinds(db)
@@ -32,6 +47,11 @@ class ClientService:
         xhttp_tls_clients: list[dict] = []
         hysteria_clients: list[dict] = []
         settings = await get_profile_settings(db)
+        if "vless_reality_tcp" in kinds:
+            try:
+                await apply_reality_sni(settings["protocol.reality.server_name"])
+            except (OSError, RuntimeError, ValueError) as exc:
+                return False, f"Не удалось согласовать Reality SNI с Nginx: {exc}"
         reality_flow = settings.get("protocol.reality.flow", "xtls-rprx-vision")
         for profile, client in profiles:
             email = f"c{client.id}-{profile.kind}@md-next"
@@ -58,11 +78,11 @@ class ClientService:
         failover_values = {row.key.removeprefix("failover."): row.value for row in failover_rows}
         # fallback_action=keep запрещает выпускать клиентов через реальный IP мастер-сервера,
         # поэтому при смерти ноды трафик обрывается, а не утекает напрямую.
-        node_fallback_tag = "direct" if failover_values.get("fallback_action", "direct") == "direct" else "block"
+        node_fallback_tag = "direct" if failover_values.get("fallback_action", os.getenv("FAILOVER_FALLBACK_ACTION", "direct")) == "direct" else "block"
         routing_rules = (await db.execute(
             select(RoutingRule).where(RoutingRule.is_active.is_(True)).order_by(RoutingRule.id)
         )).scalars().all()
-        node_rows = (await db.execute(select(Node).where(Node.is_enabled.is_(True)))).scalars().all()
+        node_rows = (await db.execute(select(Node).where(Node.is_enabled.is_(True)).order_by(Node.id))).scalars().all()
         nodes_by_id = {node.id: node for node in node_rows}
         try:
             xray_routing_rules = [to_xray_rule(rule, nodes_by_id) for rule in routing_rules]
@@ -71,8 +91,10 @@ class ClientService:
         except ValueError as exc:
             log_event("error", "xray", "Не удалось подготовить правила маршрутизации", {"reason": str(exc)[:400]})
             return False, str(exc)
-        if active_node is _USE_STORED_ACTIVE_NODE:
+        use_stored_node = active_node is _USE_STORED_ACTIVE_NODE
+        if use_stored_node:
             active_node = await XrayService.get_active_node(db)
+        selected_setting = await db.get(Setting, "active_node_id")
         options = {
             "enabled": kinds,
             "vless_xhttp_reality_clients": xhttp_reality_clients,
@@ -95,6 +117,7 @@ class ClientService:
             "warp_usage": warp_usage,
             "warp_port": warp_port,
             "node_fallback_tag": node_fallback_tag,
+            "unavailable_selected_node": use_stored_node and active_node is None and bool(selected_setting and (selected_setting.value or "").isdecimal()),
             "routing_rules": xray_routing_rules,
             "nodes": [{"id": node.id, "host": node.host, "port": node.port, "protocol": node.protocol, "secret": node.secret} for node in node_rows if node.secret],
         }
@@ -132,6 +155,7 @@ class ClientService:
             return client, link
         except Exception:
             await db.rollback()
+            await cls.restore_committed_configs(db)
             raise
 
     @classmethod
@@ -146,4 +170,5 @@ class ClientService:
             return client, conf
         except Exception:
             await db.rollback()
+            await cls.restore_committed_configs(db)
             raise
