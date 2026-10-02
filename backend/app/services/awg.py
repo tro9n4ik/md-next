@@ -176,7 +176,7 @@ class AWGService:
             for host in settings["net"].hosts():
                 if str(host) not in used_ips:
                     return f"{host}/32"
-            raise ValueError("No free AmneziaWG addresses remain in the configured subnet")
+            raise ValueError("В настроенной подсети не осталось свободных адресов AmneziaWG")
 
     @classmethod
     async def sync_server_config(cls, db: AsyncSession, config_path: str = None) -> Tuple[bool, str]:

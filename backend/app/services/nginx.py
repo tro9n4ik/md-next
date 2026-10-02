@@ -43,7 +43,7 @@ async def _write_and_reload(config_path: str, original: str, updated: str) -> No
 
 
 async def apply_reality_sni(server_name: str) -> None:
-    """Route Reality's SNI to Xray, preserving the panel and existing aliases."""
+    """Направляет SNI Reality в Xray, сохраняя доступ к панели и существующие псевдонимы."""
     config_path = os.getenv("NGINX_STREAM_CONFIG", "/etc/nginx/stream-available/md-next-stream.conf")
     if not os.path.isfile(config_path):
         return

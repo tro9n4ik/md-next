@@ -30,7 +30,7 @@ RATE_LIMIT_USER_ATTEMPTS = 5
 RATE_LIMIT_IP_ATTEMPTS = 20
 RATE_LIMIT_WINDOW_SECONDS = 15 * 60
 
-router = APIRouter(prefix="/api/v1/auth", tags=["Auth & 2FA"])
+router = APIRouter(prefix="/api/v1/auth", tags=["Вход и двухфакторная аутентификация"])
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)

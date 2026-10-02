@@ -33,7 +33,7 @@ def test_partial_payload_does_not_wipe_untouched_fields():
 def test_changed_public_key_is_detected():
     changed = resolve_identity_fields(CURRENT, {**CURRENT, "public_key": "PublicKeyNew"})
     assert changed == {"public_key": "PublicKeyNew"}
-    assert "Reality public key" in describe_identity_change(changed)
+    assert "открытый ключ Reality" in describe_identity_change(changed)
 
 
 def test_empty_incoming_value_is_ignored():

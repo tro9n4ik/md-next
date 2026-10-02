@@ -127,20 +127,20 @@ const ProtocolSettingsTab: React.FC = () => {
         </label>)}
       </div>
       <p className="mt-4 rounded-xl bg-blue-50 px-4 py-3 text-xs leading-5 text-blue-800">Изменения применяются к серверной конфигурации. При включении канала профили создаются для клиентов, а ссылки и подписки строятся с текущими параметрами.</p>
-      <p className="mt-2 rounded-xl bg-emerald-50 px-4 py-3 text-xs leading-5 text-emerald-800">Замена ноды не затрагивает ссылки клиентов: адрес в ссылке, SNI, short ID и ключи задают панель, а нода — расходный выход. При смерти ноды трафик клиентов уходит на резервный маршрут, и подписки продолжают работать.</p>
+      <p className="mt-2 rounded-xl bg-emerald-50 px-4 py-3 text-xs leading-5 text-emerald-800">Замена ноды не затрагивает ссылки клиентов: адрес в ссылке, SNI, короткий идентификатор и ключи задают панель, а нода — расходный выход. При смерти ноды трафик клиентов уходит на резервный маршрут, и подписки продолжают работать.</p>
     </section>
 
     <section className={card}>
       <div className="mb-5 flex items-center gap-3"><Shield className="h-5 w-5 text-indigo-600" /><div><h2 className="font-bold text-neutral-900">Общие параметры Reality</h2><p className="mt-1 text-xs text-neutral-500">Используются в VLESS Reality TCP и VLESS XHTTP Reality.</p></div></div>
       <div className="grid gap-4 md:grid-cols-2">
         <label className={label}>Публичный адрес для ссылок<input className={input} value={value.reality.server_address} onChange={event => update('reality', 'server_address', event.target.value)} placeholder="vpn.example.com" /></label>
-        <label className={label}>Reality target<input className={input} value={value.reality.target} onChange={event => update('reality', 'target', event.target.value)} placeholder="127.0.0.1:8080" /></label>
+        <label className={label}>Адрес маскировки Reality<input className={input} value={value.reality.target} onChange={event => update('reality', 'target', event.target.value)} placeholder="127.0.0.1:8080" /></label>
         <label className={label}>Reality SNI<input className={input} value={value.reality.server_name} onChange={event => update('reality', 'server_name', event.target.value)} placeholder="example.com" /></label>
-        <label className={label}>Fingerprint клиента<select className={input} value={value.reality.fingerprint} onChange={event => update('reality', 'fingerprint', event.target.value)}>{['chrome', 'firefox', 'safari', 'ios', 'android', 'edge', 'randomized'].map(item => <option key={item} value={item}>{item}</option>)}</select></label>
-        <label className={label}>Reality public key<input className={`${input} font-mono`} value={value.reality.public_key} onChange={event => update('reality', 'public_key', event.target.value)} autoComplete="off" /></label>
-        <label className={label}>Short ID<input className={`${input} font-mono`} value={value.reality.short_id} onChange={event => update('reality', 'short_id', event.target.value)} placeholder="Пустое значение — без short ID" maxLength={16} /></label>
-        <label className={label}>Reality private key<input className={`${input} font-mono`} type="password" autoComplete="new-password" value={value.reality.private_key || ''} onChange={event => update('reality', 'private_key', event.target.value)} placeholder={value.reality.private_key_set ? 'Ключ задан, введите новый только для замены' : 'Вставьте закрытый ключ'} /><span className="mt-1 block font-normal text-neutral-400">{value.reality.private_key_set ? 'Ключ задан; API его не возвращает. Пустое поле оставит текущий ключ.' : 'Ключ будет сохранён и скрыт после применения.'}</span></label>
-        <label className={label}>XTLS Flow<select className={input} value={value.reality.flow} onChange={event => update('reality', 'flow', event.target.value)}><option value="xtls-rprx-vision">xtls-rprx-vision</option><option value="">Без Flow</option></select></label>
+        <label className={label}>Отпечаток браузера<select className={input} value={value.reality.fingerprint} onChange={event => update('reality', 'fingerprint', event.target.value)}>{['chrome', 'firefox', 'safari', 'ios', 'android', 'edge', 'randomized'].map(item => <option key={item} value={item}>{item === 'randomized' ? 'Случайный' : item}</option>)}</select></label>
+        <label className={label}>Открытый ключ Reality<input className={`${input} font-mono`} value={value.reality.public_key} onChange={event => update('reality', 'public_key', event.target.value)} autoComplete="off" /></label>
+        <label className={label}>Короткий идентификатор<input className={`${input} font-mono`} value={value.reality.short_id} onChange={event => update('reality', 'short_id', event.target.value)} placeholder="Пустое значение — без короткого идентификатора" maxLength={16} /></label>
+        <label className={label}>Закрытый ключ Reality<input className={`${input} font-mono`} type="password" autoComplete="new-password" value={value.reality.private_key || ''} onChange={event => update('reality', 'private_key', event.target.value)} placeholder={value.reality.private_key_set ? 'Ключ задан, введите новый только для замены' : 'Вставьте закрытый ключ'} /><span className="mt-1 block font-normal text-neutral-400">{value.reality.private_key_set ? 'Ключ задан; API его не возвращает. Пустое поле оставит текущий ключ.' : 'Ключ будет сохранён и скрыт после применения.'}</span></label>
+        <label className={label}>Режим XTLS (только Reality TCP)<select className={input} value={value.reality.flow} onChange={event => update('reality', 'flow', event.target.value)}><option value="xtls-rprx-vision">xtls-rprx-vision</option><option value="">Без Vision</option></select></label>
       </div>
     </section>
 
@@ -189,7 +189,7 @@ const ProtocolSettingsTab: React.FC = () => {
       </div>
     </div>}
     <div className="sticky bottom-4 flex flex-col items-start justify-between gap-3 rounded-2xl border border-neutral-200 bg-white/95 p-4 shadow-lg backdrop-blur sm:flex-row sm:items-center">
-      <p className="max-w-2xl text-xs leading-5 text-neutral-500"><Sparkles className="mr-1 inline h-3.5 w-3.5 text-emerald-600" />Панель проверит конфигурацию Xray до применения. Private key не возвращается в API и не показывается после сохранения.</p>
+      <p className="max-w-2xl text-xs leading-5 text-neutral-500"><Sparkles className="mr-1 inline h-3.5 w-3.5 text-emerald-600" />Панель проверит конфигурацию Xray до применения. Закрытый ключ не возвращается в API и не показывается после сохранения.</p>
       <button disabled={save.isPending || !value} onClick={() => { setMessage(null); setPendingIdentityChange(null); save.mutate({ ...value, confirm_link_identity_change: false }); }} className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"><Save className="h-4 w-4" />{save.isPending ? 'Проверка и применение…' : 'Проверить и применить'}</button>
     </div>
   </div>;

@@ -52,3 +52,11 @@ Thumbs.db
 
 # Резервные копии MD-Next
 md-next-backup-*/
+
+# Локальная диагностика и рабочие копии
+.diagnostics/
+.diagnostics-known-hosts
+.repo-work/
+*.pcap
+*.pcapng
+*.tsbuildinfo

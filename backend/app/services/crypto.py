@@ -10,7 +10,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 def _fernet_key() -> bytes:
     secret = os.getenv("JWT_SECRET_KEY")
     if not secret:
-        raise RuntimeError("JWT_SECRET_KEY is required to encrypt secrets")
+        raise RuntimeError("Для шифрования секретов требуется JWT_SECRET_KEY")
     derived = HKDF(
         algorithm=hashes.SHA256(),
         length=32,
@@ -32,7 +32,7 @@ def decrypt_secret(cipher_text: str) -> str:
     try:
         return Fernet(_fernet_key()).decrypt(cipher_text.encode("ascii")).decode("utf-8")
     except InvalidToken:
-        # Read secrets encrypted by the pre-HKDF implementation during migration.
+        # Во время перехода читаем секреты, зашифрованные прежней реализацией без HKDF.
         secret = os.getenv("JWT_SECRET_KEY")
         if not secret:
             return ""

@@ -24,7 +24,7 @@ DEFAULT_PROBE_URL = "https://cp.cloudflare.com/generate_204"
 
 
 def reality_target_xver(dest: str) -> int:
-    """Only the installer's local camouflage listener expects a PROXY header."""
+    """PROXY-заголовок нужен только локальной маскирующей заглушке установщика."""
     return 1 if dest in {"127.0.0.1:8080", "localhost:8080", "[::1]:8080"} else 0
 
 
@@ -154,10 +154,10 @@ class XrayService:
             "settings": {}
         })
         active_tag = f"node-{active_node.id}" if active_node and getattr(active_node, "is_enabled", True) and getattr(active_node, "secret", None) else None
-        # Watchdog owns failover. A second, observatory-driven balancer can block
-        # a working route after every restart while its probes are still pending.
-        # It also prefix-matches tags (node-1 includes node-10). Use the exact
-        # selected outbound, with user rules evaluated before this default.
+        # Резервированием управляет служба наблюдения. Дополнительный балансировщик
+        # может блокировать рабочий маршрут после перезапуска до завершения проверок.
+        # Он также сопоставляет теги по префиксу (node-1 включает node-10). Выбираем
+        # точный исходящий маршрут после обработки пользовательских правил.
         unavailable_selected = bool(active_node) or options.get("unavailable_selected_node", False)
         fallback_tag = node_fallback_tag if unavailable_selected else "direct"
         default_tag = "warp" if warp_usage == "all" else (active_tag or fallback_tag)
@@ -251,8 +251,8 @@ class XrayService:
         config["stats"] = {}
         for inbound in config["inbounds"]:
             if inbound["protocol"] == "vless" or inbound["protocol"] == "hysteria":
-                # Browser traffic often arrives with an IP destination. Recover
-                # its hostname for domain rules, retaining the original target.
+                # Браузер часто передаёт IP-адрес назначения. Восстанавливаем имя
+                # для доменных правил, сохраняя исходный адрес назначения.
                 inbound["sniffing"] = {
                     "enabled": True, "destOverride": ["http", "tls", "quic"], "routeOnly": True,
                 }

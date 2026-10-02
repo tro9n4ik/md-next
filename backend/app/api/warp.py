@@ -100,7 +100,7 @@ async def set_warp_mode(request: WarpModeRequest, db: AsyncSession = Depends(get
         if reverted:
             await ClientService.sync_xray_clients(db)
         else:
-            logger.error("Could not restore previous WARP proxy settings: %s", revert_reason)
+            logger.error("Не удалось восстановить прежние настройки прокси WARP: %s", revert_reason)
         raise HTTPException(status_code=502, detail=f"Не удалось применить режим WARP в конфигурации Xray: {reason}")
     log_event("info", "warp", "Изменены режим WARP и порт SOCKS5", {"mode": request.mode, "port": request.port})
     return {"status": "ok", "mode": request.mode, "port": request.port, "message": message}
@@ -128,7 +128,7 @@ async def set_warp_usage(request: WarpUsageRequest, db: AsyncSession = Depends(g
         raise HTTPException(status_code=code, detail=message)
     await db.commit()
     log_event("info", "warp", "Изменён режим использования WARP в Xray", {"usage": request.usage})
-    return {"usage": request.usage, "message": "WARP usage updated and Xray config applied"}
+    return {"usage": request.usage, "message": "Режим использования WARP обновлён, конфигурация Xray применена"}
 
 
 @router.post("/license")
@@ -137,7 +137,7 @@ async def set_warp_license(request: WarpLicenseRequest):
     success, message = await WarpService.set_license(request.key)
     if not success:
         _command_error(message)
-    logger.info("WARP+ license was submitted")
+    logger.info("Лицензия WARP+ отправлена")
     log_event("info", "warp", "Лицензия WARP+ применена")
     return {"status": "ok", "message": message}
 
@@ -149,7 +149,7 @@ async def test_warp(db: AsyncSession = Depends(get_db)):
     try:
         result = await WarpService.test_proxy(port)
     except Exception as exc:
-        logger.warning("WARP proxy test failed on port %s: %s", port, exc)
+        logger.warning("Ошибка проверки прокси WARP на порту %s: %s", port, exc)
         raise HTTPException(status_code=502, detail="Не удалось проверить WARP через SOCKS5. Убедитесь, что WARP подключён и работает в режиме proxy.") from exc
     return result
 
@@ -199,7 +199,7 @@ async def apply_warp_preset(request: WarpPresetRequest, db: AsyncSession = Depen
     if not applied:
         await db.rollback()
         code = 400 if any(token in reason.lower() for token in ("geosite.dat", "geoip.dat", "warp")) else 502
-        logger.error("Could not apply warp preset %s: %s", preset.key, reason)
+        logger.error("Не удалось применить набор правил WARP %s: %s", preset.key, reason)
         raise HTTPException(status_code=code, detail=f"Не удалось применить пресет «{preset.title}»: {reason}")
 
     await db.commit()
@@ -229,7 +229,7 @@ async def remove_warp_preset(request: WarpPresetRequest, db: AsyncSession = Depe
         applied, reason = await ClientService.sync_xray_clients(db)
         if not applied:
             await db.rollback()
-            logger.error("Could not remove warp preset %s: %s", preset.key, reason)
+            logger.error("Не удалось удалить набор правил WARP %s: %s", preset.key, reason)
             raise HTTPException(status_code=502, detail=f"Не удалось применить удаление пресета «{preset.title}»: {reason}")
     await db.commit()
     log_event("info", "warp", "Удалён пресет маршрутизации через WARP", {"preset": preset.key, "removed": len(result["removed"])})
@@ -247,5 +247,5 @@ async def proxy_gemini_request(req: GeminiRequest, db: AsyncSession = Depends(ge
         res.raise_for_status()
         return res.json()
     except Exception as exc:
-        logger.warning("Gemini request through WARP failed (%s)", type(exc).__name__)
+        logger.warning("Ошибка запроса Gemini через WARP (%s)", type(exc).__name__)
         raise HTTPException(status_code=502, detail="Ошибка обращения к Gemini через WARP") from exc

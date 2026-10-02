@@ -12,12 +12,12 @@ class Client(Base):
     name = Column(String, index=True, nullable=False)
     phone = Column(String, nullable=False)
     email = Column(String, nullable=False)
-    protocol = Column(String, nullable=True)  # deprecated legacy field
+    protocol = Column(String, nullable=True)  # Устаревшее поле для совместимости
     uuid = Column(String, unique=True, index=True, nullable=True)
     public_key = Column(String, nullable=True)
-    private_key_hash = Column(String, nullable=True)  # deprecated legacy field
+    private_key_hash = Column(String, nullable=True)  # Устаревшее поле для совместимости
     ip_address = Column(String, unique=True, index=True, nullable=True)
-    traffic_used = Column(Integer, default=0)  # backwards-compatible aggregate
+    traffic_used = Column(Integer, default=0)  # Суммарное значение для обратной совместимости
     traffic_total = Column(BigInteger, default=0, nullable=False)
     traffic_limit = Column(Integer, default=0)
     is_active = Column(Boolean, default=True)

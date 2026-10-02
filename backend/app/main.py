@@ -75,13 +75,13 @@ async def lifespan(app: FastAPI):
             await ensure_reality_key_pair(session)
             xray_ok, xray_message = await ClientService.sync_xray_clients(session)
             if not xray_ok:
-                logger.error("Unable to apply Xray client profiles on startup: %s", xray_message)
+                logger.error("Не удалось применить профили клиентов Xray при запуске: %s", xray_message)
             awg_ok, awg_message = await AWGService.sync_server_config(session)
             if not awg_ok:
-                logger.error("Unable to apply AmneziaWG profiles on startup: %s", awg_message)
+                logger.error("Не удалось применить профили AmneziaWG при запуске: %s", awg_message)
     except Exception:
-        logger.exception("Unable to synchronize client profiles on startup")
-    # Health probes require the per-node inbounds created by the initial sync.
+        logger.exception("Не удалось синхронизировать профили клиентов при запуске")
+    # Проверкам узлов нужны отдельные входы, созданные при первичной синхронизации.
     watchdog.start()
     traffic_task = asyncio.create_task(start_traffic_collector())
 
