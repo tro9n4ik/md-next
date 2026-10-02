@@ -149,6 +149,7 @@ async def create_client(client_data: ClientCreate, db: AsyncSession = Depends(ge
         }
     except Exception as exc:
         await db.rollback()
+        await ClientService.restore_committed_configs(db)
         logger.exception("Client creation failed")
         detail = str(exc) or exc.__class__.__name__
         raise HTTPException(status_code=502, detail=f"Не удалось создать и применить профили клиента: {detail}") from exc
@@ -186,6 +187,7 @@ async def update_client_profile(client_id: int, profile_id: int, data: dict, db:
         log_event("info", "profile", "Профиль клиента включён" if profile.is_enabled else "Профиль клиента отключён", {"client_id": client_id, "profile_id": profile_id, "kind": profile.kind})
     except Exception as exc:
         await db.rollback()
+        await ClientService.restore_committed_configs(db)
         raise HTTPException(status_code=502, detail=f"Не удалось применить профиль: {exc}") from exc
     return {"id": profile.id, "is_enabled": profile.is_enabled}
 
@@ -208,6 +210,7 @@ async def regenerate_profile(client_id: int, profile_id: int, db: AsyncSession =
         log_event("info", "profile", "Профиль клиента перевыпущен", {"client_id": client_id, "profile_id": profile_id, "kind": profile.kind})
     except Exception as exc:
         await db.rollback()
+        await ClientService.restore_committed_configs(db)
         raise HTTPException(status_code=502, detail=f"Не удалось перевыпустить профиль: {exc}") from exc
     return {"status": "ok"}
 
@@ -282,6 +285,7 @@ async def update_client(client_id: int, data: ClientUpdate, db: AsyncSession = D
         return {"id": client.id, "name": client.name, "is_active": client.is_active}
     except Exception as exc:
         await db.rollback()
+        await ClientService.restore_committed_configs(db)
         raise HTTPException(status_code=502, detail=f"Не удалось обновить клиента: {exc}") from exc
 
 
@@ -299,6 +303,7 @@ async def delete_client(client_id: int, db: AsyncSession = Depends(get_db)):
         log_event("info", "client", "Клиент удалён", {"client_id": client_id, "name": deleted_name})
     except Exception as exc:
         await db.rollback()
+        await ClientService.restore_committed_configs(db)
         raise HTTPException(status_code=502, detail=f"Не удалось удалить клиента из протоколов: {exc}") from exc
 
 
@@ -316,6 +321,7 @@ async def record_client_traffic(client_id: int, data: TrafficUpdate, db: AsyncSe
             log_event("warning", "traffic", "Клиент отключён из-за превышения лимита трафика", {"client_id": client.id, "name": client.name})
         except Exception as exc:
             await db.rollback()
+            await ClientService.restore_committed_configs(db)
             raise HTTPException(status_code=502, detail=f"Не удалось отключить клиента после превышения лимита: {exc}") from exc
     await db.commit()
     return {"id": client.id, "traffic_used": client.traffic_total, "is_active": client.is_active}

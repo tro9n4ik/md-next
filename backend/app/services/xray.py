@@ -23,6 +23,11 @@ PROBE_INBOUND_PREFIX = "probe-"
 DEFAULT_PROBE_URL = "https://cp.cloudflare.com/generate_204"
 
 
+def reality_target_xver(dest: str) -> int:
+    """Only the installer's local camouflage listener expects a PROXY header."""
+    return 1 if dest in {"127.0.0.1:8080", "localhost:8080", "[::1]:8080"} else 0
+
+
 def probe_enabled() -> bool:
     """Диагностические SOCKS-инбунды, через которые watchdog проверяет реальный выход в интернет."""
     return os.getenv("NODE_PROBE_ENABLED", "false").strip().lower() in ("true", "1", "yes")
@@ -94,7 +99,6 @@ class XrayService:
         node_fallback_tag = str(options.get("node_fallback_tag") or "direct")
         if node_fallback_tag not in ("direct", "block"):
             node_fallback_tag = "direct"
-        probe_url = str(options.get("xray_probe_url") or os.getenv("XRAY_PROBE_URL") or DEFAULT_PROBE_URL)
         node_tags: List[str] = []
         outbounds = []
         for node in options.get("nodes", []):
@@ -150,11 +154,13 @@ class XrayService:
             "settings": {}
         })
         active_tag = f"node-{active_node.id}" if active_node and getattr(active_node, "is_enabled", True) and getattr(active_node, "secret", None) else None
-        # Балансер подключается только когда трафик реально идёт через ноду. Он даёт
-        # мгновенный откат на резервный маршрут, если нода перестала пропускать трафик,
-        # поэтому замена ноды больше не требует ручной правки ссылок у клиентов.
-        balancer_tag = NODE_BALANCER_TAG if active_tag and warp_usage != "all" else None
-        default_tag = active_tag or ("warp" if warp_usage == "all" else "direct")
+        # Watchdog owns failover. A second, observatory-driven balancer can block
+        # a working route after every restart while its probes are still pending.
+        # It also prefix-matches tags (node-1 includes node-10). Use the exact
+        # selected outbound, with user rules evaluated before this default.
+        unavailable_selected = bool(active_node) or options.get("unavailable_selected_node", False)
+        fallback_tag = node_fallback_tag if unavailable_selected else "direct"
+        default_tag = "warp" if warp_usage == "all" else (active_tag or fallback_tag)
         outbounds.sort(key=lambda item: item["tag"] != default_tag)
 
         config = {
@@ -176,7 +182,7 @@ class XrayService:
                         "realitySettings": {
                             "show": False,
                             "dest": dest,
-                            "xver": 1,
+                            "xver": reality_target_xver(dest),
                             "serverNames": [server_name],
                             "privateKey": server_private_key,
                             "shortIds": reality_short_ids
@@ -214,6 +220,7 @@ class XrayService:
                     "network": "xhttp", "security": "reality",
                     "realitySettings": {
                         "show": False, "dest": dest, "serverNames": [server_name],
+                        "xver": reality_target_xver(dest),
                         "privateKey": server_private_key, "shortIds": reality_short_ids
                     },
                     "xhttpSettings": {"path": options.get("xhttp_reality_path", "/"), "mode": options.get("xhttp_reality_mode", "auto")}
@@ -242,6 +249,13 @@ class XrayService:
                 }
             })
         config["stats"] = {}
+        for inbound in config["inbounds"]:
+            if inbound["protocol"] == "vless" or inbound["protocol"] == "hysteria":
+                # Browser traffic often arrives with an IP destination. Recover
+                # its hostname for domain rules, retaining the original target.
+                inbound["sniffing"] = {
+                    "enabled": True, "destOverride": ["http", "tls", "quic"], "routeOnly": True,
+                }
         config["api"] = {"tag": "api", "services": ["StatsService"]}
         config["policy"] = {"levels": {"0": {"statsUserUplink": True, "statsUserDownlink": True}}}
         config["inbounds"].append({
@@ -280,30 +294,8 @@ class XrayService:
         ]
         config["routing"] = {"domainStrategy": "AsIs", "rules": rules}
 
-        if balancer_tag:
-            # burstObservatory реально проверяет ноду, а fallbackTag удерживает клиентов
-            # в сети в момент, когда нода выведена из строя или заменяется.
-            config["burstObservatory"] = {
-                "subjectSelector": [NODE_TAG_PREFIX],
-                "pingConfig": {
-                    "destination": probe_url,
-                    "connectivity": probe_url,
-                    "interval": str(options.get("xray_probe_interval") or os.getenv("XRAY_PROBE_INTERVAL") or "3m"),
-                    "sampling": 3,
-                    "timeout": "10s",
-                },
-            }
-            # Балансер подключается отдельным полем balancerTag, а не outboundTag.
-            # Начиная с Xray 25 правило с outboundTag, указывающим на балансер, не
-            # резолвится: dispatcher отвечает "non existing outTag" и роняет весь
-            # клиентский трафик. Поле balancerTag работает и на старых версиях тоже.
-            rules.append({"type": "field", "network": "tcp,udp", "balancerTag": balancer_tag})
-            config["routing"]["balancers"] = [{
-                "tag": balancer_tag,
-                "selector": [active_tag],
-                "fallbackTag": node_fallback_tag,
-                "strategy": {"type": "leastPing"},
-            }]
+        if unavailable_selected or warp_usage == "all":
+            rules.append({"type": "field", "network": "tcp,udp", "outboundTag": default_tag})
         return json.dumps(config, indent=2)
 
     @classmethod
@@ -345,8 +337,19 @@ class XrayService:
             backup_path = f"{config_path}.bak.{int(time.time())}"
 
             existed_before = os.path.exists(config_path)
+            replaced = False
 
             try:
+                if existed_before:
+                    try:
+                        with open(config_path, encoding="utf-8") as current:
+                            unchanged = json.load(current) == json.loads(config_str)
+                    except (OSError, ValueError):
+                        unchanged = False
+                    if unchanged:
+                        code, state, _ = await run_cmd("systemctl", "is-active", "xray", timeout=5)
+                        if code == 0 and state.strip() == "active":
+                            return True, "Конфигурация Xray не изменилась; перезапуск не требуется"
                 os.makedirs(os.path.dirname(config_path), exist_ok=True)
                 with open(tmp_path, "w", encoding="utf-8") as f:
                     f.write(config_str)
@@ -368,8 +371,11 @@ class XrayService:
 
                 # Атомарная замена
                 os.replace(tmp_path, config_path)
+                replaced = True
 
-                await run_cmd("systemctl", "restart", "xray", timeout=20)
+                restart_code, restart_out, restart_err = await run_cmd("systemctl", "restart", "xray", timeout=20)
+                if restart_code:
+                    raise RuntimeError(restart_err or restart_out or "Не удалось перезапустить Xray")
                 active_code, active_out, _ = await run_cmd("systemctl", "is-active", "xray", timeout=5)
                 if active_code != 0 or active_out.strip() != "active":
                     logger.error("Xray не запустился. Выполняется откат конфигурации.")
@@ -394,6 +400,11 @@ class XrayService:
                     os.remove(tmp_path)
                 if existed_before and os.path.exists(backup_path):
                     os.replace(backup_path, config_path)
+                    if replaced:
+                        try:
+                            await run_cmd("systemctl", "restart", "xray", timeout=20)
+                        except Exception:
+                            logger.exception("Не удалось запустить Xray после восстановления конфигурации")
                 elif not existed_before and os.path.exists(config_path):
                     os.remove(config_path)
                 return False, str(e)
