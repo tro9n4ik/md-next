@@ -293,7 +293,11 @@ class XrayService:
                     "timeout": "10s",
                 },
             }
-            rules.append({"type": "field", "network": "tcp,udp", "outboundTag": balancer_tag})
+            # Балансер подключается отдельным полем balancerTag, а не outboundTag.
+            # Начиная с Xray 25 правило с outboundTag, указывающим на балансер, не
+            # резолвится: dispatcher отвечает "non existing outTag" и роняет весь
+            # клиентский трафик. Поле balancerTag работает и на старых версиях тоже.
+            rules.append({"type": "field", "network": "tcp,udp", "balancerTag": balancer_tag})
             config["routing"]["balancers"] = [{
                 "tag": balancer_tag,
                 "selector": [active_tag],

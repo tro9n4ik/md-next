@@ -59,9 +59,35 @@ def test_active_node_routes_through_balancer_with_direct_fallback():
     assert config["routing"]["rules"][-1] == {
         "type": "field",
         "network": "tcp,udp",
-        "outboundTag": NODE_BALANCER_TAG,
+        "balancerTag": NODE_BALANCER_TAG,
     }
     assert config["burstObservatory"]["subjectSelector"] == ["node-"]
+
+
+def test_balancer_is_referenced_by_balancer_tag_not_outbound_tag():
+    """Регрессия: outboundTag на балансере убивает трафик начиная с Xray 25.
+
+    На Xray 26 правило с outboundTag, указывающим на тег балансера, не резолвится,
+    dispatcher пишет "non existing outTag" и обрывает соединение. Поле balancerTag
+    работает и на новых, и на старых версиях, поэтому оно и используется.
+    """
+    config = build(active_node=FakeNode(id=7))
+    catch_all = config["routing"]["rules"][-1]
+    assert "outboundTag" not in catch_all
+    assert catch_all["balancerTag"] == NODE_BALANCER_TAG
+
+
+def test_no_rule_points_outbound_tag_at_the_balancer():
+    config = build(
+        active_node=FakeNode(id=7),
+        routing_rules=[
+            {"type": "field", "domain": ["geosite:category-ads"], "outboundTag": "block"},
+            {"type": "field", "domain": ["domain:openai.com"], "outboundTag": "warp"},
+        ],
+    )
+    balancer = config["routing"]["balancers"][0]["tag"]
+    for rule in config["routing"]["rules"]:
+        assert rule.get("outboundTag") != balancer
 
 
 def test_fallback_tag_block_prevents_leaking_master_ip():
@@ -91,7 +117,7 @@ def test_warp_all_disables_balancer():
     assert config["routing"]["rules"][-1] != {
         "type": "field",
         "network": "tcp,udp",
-        "outboundTag": NODE_BALANCER_TAG,
+        "balancerTag": NODE_BALANCER_TAG,
     }
 
 
@@ -103,7 +129,7 @@ def test_user_routing_rules_run_before_catch_all():
     )
     rules = config["routing"]["rules"]
     assert rules[1]["outboundTag"] == "block"
-    assert rules[-1]["outboundTag"] == NODE_BALANCER_TAG
+    assert rules[-1]["balancerTag"] == NODE_BALANCER_TAG
     assert config["routing"]["domainStrategy"] == "AsIs"
 
 
