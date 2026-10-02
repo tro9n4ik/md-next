@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only MD-Next network report. Never prints credentials or subscription URLs."""
+"""Сетевой отчёт MD-Next без изменения настроек, вывода секретов и ссылок подписок."""
 
 import argparse
 import base64
@@ -34,7 +34,7 @@ def main():
     parser.add_argument(
         "--probe",
         action="store_true",
-        help="Also test HTTPS through the current Xray SOCKS route",
+        help="Также проверить HTTPS через текущий SOCKS-маршрут Xray",
     )
     args = parser.parse_args()
     working = run(
@@ -154,7 +154,7 @@ def main():
     report["dns"] = {
         key: value for key, value in settings.items() if key.startswith("dns.")
     }
-    # No raw config, privateKey, passwords, UUIDs, or tokens enter this report.
+    # Полная конфигурация, закрытые ключи, пароли, UUID и токены не попадают в отчёт.
     print(json.dumps(report, ensure_ascii=False, indent=2), flush=True)
     if args.probe:
         for url in ("https://www.cloudflare.com/cdn-cgi/trace", "https://example.com/"):

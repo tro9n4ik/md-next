@@ -35,7 +35,7 @@ class WarpService:
         code, stdout, stderr = await cls._run_process(*args, timeout=timeout)
         text = (stdout or stderr).strip()
         if code:
-            return False, text or "warp-cli command failed"
+            return False, text or "Ошибка выполнения команды warp-cli"
         return True, text or "OK"
 
     @classmethod
@@ -79,7 +79,7 @@ class WarpService:
             status_code, status_output, status_error = await cls._run_process("status", timeout=cls.STATUS_TIMEOUT)
             reg_code, registration_output, registration_error = await cls._run_process("registration", "show", timeout=cls.STATUS_TIMEOUT)
         except (OSError, RuntimeError, TimeoutError) as exc:
-            logger.warning("Unable to read warp-cli status: %s", exc)
+            logger.warning("Не удалось получить состояние warp-cli: %s", exc)
             return {
                 "installed": True, "service_active": service_active, "registered": False,
                 "state": "Disconnected", "mode": "unknown", "port": await cls.get_port(db),
@@ -118,7 +118,7 @@ class WarpService:
                 success, message = await cls._run_command("register")
             return success, message
         except (OSError, RuntimeError, TimeoutError) as exc:
-            logger.warning("WARP registration command failed: %s", exc)
+            logger.warning("Ошибка регистрации WARP: %s", exc)
             return False, str(exc)
 
     @classmethod
@@ -126,7 +126,7 @@ class WarpService:
         try:
             return await cls._run_command("connect")
         except (OSError, RuntimeError, TimeoutError) as exc:
-            logger.warning("WARP connect command failed: %s", exc)
+            logger.warning("Ошибка подключения WARP: %s", exc)
             return False, str(exc)
 
     @classmethod
@@ -134,7 +134,7 @@ class WarpService:
         try:
             return await cls._run_command("disconnect")
         except (OSError, RuntimeError, TimeoutError) as exc:
-            logger.warning("WARP disconnect command failed: %s", exc)
+            logger.warning("Ошибка отключения WARP: %s", exc)
             return False, str(exc)
 
     @classmethod
@@ -155,19 +155,19 @@ class WarpService:
             await cls._save_setting(db, "warp.proxy_port", str(port))
             return True, message
         except (OSError, RuntimeError, TimeoutError) as exc:
-            logger.warning("WARP mode update failed: %s", exc)
+            logger.warning("Не удалось изменить режим WARP: %s", exc)
             return False, str(exc)
 
     @classmethod
     async def set_license(cls, license_key: str) -> tuple[bool, str]:
         try:
-            # Never log the key or include it in an exception/response.
+            # Не записываем ключ в журнал и не включаем его в исключения или ответы.
             code, stdout, _ = await cls._run_process("registration", "license", license_key)
             if code:
                 return False, "Cloudflare не принял лицензионный ключ WARP+. Проверьте ключ и регистрацию."
-            return True, (stdout.strip().replace(license_key, "[redacted]") or "WARP+ license applied.")
+            return True, (stdout.strip().replace(license_key, "[redacted]") or "Лицензия WARP+ применена.")
         except (OSError, RuntimeError, TimeoutError):
-            logger.warning("WARP+ license command failed")
+            logger.warning("Не удалось применить лицензию WARP+")
             return False, "Не удалось применить лицензионный ключ WARP+. Проверьте warp-svc и регистрацию."
 
     @classmethod

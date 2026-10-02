@@ -10,7 +10,7 @@ from app.api.auth import get_current_user
 from app.db.database import get_db
 from app.models.event import Event
 
-router = APIRouter(prefix="/api/v1/events", tags=["Events"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/api/v1/events", tags=["События"], dependencies=[Depends(get_current_user)])
 
 
 class EventResponse(BaseModel):

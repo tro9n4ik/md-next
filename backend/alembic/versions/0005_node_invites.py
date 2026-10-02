@@ -1,8 +1,8 @@
-"""node_invites table
+"""Таблица приглашений узлов
 
-Revision ID: 0005_node_invites
-Revises: 0004_traffic_samples
-Create Date: 2025-03-30
+Идентификатор миграции: 0005_node_invites
+Предыдущая миграция: 0004_traffic_samples
+Дата создания: 2025-03-30
 """
 from alembic import op
 import sqlalchemy as sa

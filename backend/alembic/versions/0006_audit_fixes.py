@@ -1,8 +1,8 @@
 """audit_fixes
 
-Revision ID: 0006_audit_fixes
-Revises: 0005_node_invites
-Create Date: 2025-03-30
+Идентификатор миграции: 0006_audit_fixes
+Предыдущая миграция: 0005_node_invites
+Дата создания: 2025-03-30
 """
 from alembic import op
 import sqlalchemy as sa

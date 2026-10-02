@@ -35,14 +35,14 @@ async def _persist(level: str, category: str, message: str, meta: dict | None) -
 
 
 def log_event(level: str, category: str, message: str, meta: dict | None = None) -> None:
-    """Schedule event persistence without waiting on a separate database transaction."""
+    """Планирует сохранение события без ожидания отдельной транзакции базы данных."""
     try:
         normalized_level = level if level in {"info", "warning", "error"} else "info"
         task = asyncio.get_running_loop().create_task(_persist(normalized_level, category, message, meta))
         _pending.add(task)
         task.add_done_callback(_pending.discard)
     except Exception:
-        # Event logging must never affect the request being handled.
+        # Запись события не должна влиять на обработку запроса.
         return
 
 
@@ -53,7 +53,7 @@ async def flush_pending_events() -> None:
 
 
 async def cleanup_events(db=None) -> tuple[int, int]:
-    """Remove events older than 30 days and retain at most the newest 5000."""
+    """Удаляет события старше 30 дней, сохраняя не более 5000 последних записей."""
     own_session = db is None
     session_context = database.AsyncSessionLocal() if own_session else None
     session = await session_context.__aenter__() if session_context else db

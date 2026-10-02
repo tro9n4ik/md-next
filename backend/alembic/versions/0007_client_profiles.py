@@ -1,7 +1,7 @@
-"""Add protocol profiles, subscription tokens, and profile traffic counters.
+"""Добавляет профили протоколов, токены подписок и счётчики трафика профилей.
 
-Revision ID: 0007_client_profiles
-Revises: 0006_audit_fixes
+Идентификатор миграции: 0007_client_profiles
+Предыдущая миграция: 0006_audit_fixes
 """
 import secrets
 

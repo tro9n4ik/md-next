@@ -23,14 +23,14 @@ logger = logging.getLogger(__name__)
 class ClientService:
     @classmethod
     async def restore_committed_configs(cls, db: AsyncSession) -> None:
-        """Compensate external service changes after a database rollback."""
+        """Восстанавливает параметры внешних сервисов после отката базы данных."""
         for label, sync in (("Xray", cls.sync_xray_clients), ("AmneziaWG", AWGService.sync_server_config)):
             try:
                 ok, _ = await sync(db)
                 if not ok:
-                    logger.error("Unable to restore committed %s configuration", label)
+                    logger.error("Не удалось восстановить сохранённую конфигурацию %s", label)
             except Exception:
-                logger.error("Unable to restore committed %s configuration", label)
+                logger.error("Не удалось восстановить сохранённую конфигурацию %s", label)
 
     @staticmethod
     async def sync_xray_clients(db: AsyncSession, active_node=_USE_STORED_ACTIVE_NODE) -> Tuple[bool, str]:
@@ -61,10 +61,8 @@ class ClientService:
                     client_data["flow"] = reality_flow
                 tcp_clients.append(client_data)
             elif profile.kind == "vless_xhttp_reality" and profile.uuid:
-                client_data = {"id": profile.uuid, "email": email}
-                if reality_flow:
-                    client_data["flow"] = reality_flow
-                xhttp_reality_clients.append(client_data)
+                # XHTTP оборачивает TLS-соединение; Vision требует прямого TLS/Reality.
+                xhttp_reality_clients.append({"id": profile.uuid, "email": email})
             elif profile.kind == "vless_xhttp_tls" and profile.uuid:
                 xhttp_tls_clients.append({"id": profile.uuid, "email": email})
             elif profile.kind == "hysteria2" and profile.auth:
@@ -149,7 +147,7 @@ class ClientService:
             client, profiles, settings = await cls._create_client(db, name, phone, email)
             profile = next((item for item in profiles if item.kind == "vless_reality_tcp"), None)
             if profile is None:
-                raise ValueError("VLESS Reality TCP profile is disabled")
+                raise ValueError("Профиль VLESS Reality TCP отключён")
             link = make_profile_data(client, profile, settings)
             await db.commit()
             return client, link
@@ -164,7 +162,7 @@ class ClientService:
             client, profiles, settings = await cls._create_client(db, name, phone, email)
             profile = next((item for item in profiles if item.kind == "awg"), None)
             if profile is None:
-                raise ValueError("AmneziaWG profile is disabled")
+                raise ValueError("Профиль AmneziaWG отключён")
             conf = make_profile_data(client, profile, settings)
             await db.commit()
             return client, conf

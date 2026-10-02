@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, Search, Trash2, X } from 'lucide-react';
 import { apiFetch } from '../utils/api';
-import { formatBytes } from '../utils/ru';
+import { formatBytes, translateProfile } from '../utils/ru';
 
 type Profile = { id: number; kind: string; is_enabled: boolean };
 type Client = {
@@ -106,7 +106,7 @@ const ClientsTable: React.FC = () => {
           {error && <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>}
           <input required maxLength={64} value={name} onChange={(e) => setName(e.target.value)} placeholder="Имя клиента" className="w-full rounded-lg border p-3" />
           <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Телефон (необязательно)" className="w-full rounded-lg border p-3" />
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email (необязательно)" className="w-full rounded-lg border p-3" />
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Электронная почта (необязательно)" className="w-full rounded-lg border p-3" />
           <button disabled={createMutation.isPending} className="w-full rounded-lg bg-emerald-600 px-4 py-3 font-medium text-white disabled:opacity-50">Создать клиента</button>
         </form>
       </div>}
@@ -136,7 +136,7 @@ const ClientsTable: React.FC = () => {
               <td className="px-5 py-4 font-medium text-neutral-800">{client.name}</td>
               <td className="px-5 py-4 text-xs text-neutral-500">{client.phone || '—'}<br />{client.email || ''}</td>
               <td className="px-5 py-4 font-mono text-xs text-neutral-600">{formatTraffic(client.traffic_total)}{client.traffic_limit > 0 ? ` / ${formatTraffic(client.traffic_limit)}` : ''}</td>
-              <td className="px-5 py-4"><div className="flex flex-wrap gap-1">{client.profiles.filter((profile) => profile.is_enabled).map((profile) => <span key={profile.id} className="rounded-md bg-indigo-50 px-2 py-1 text-[10px] text-indigo-700">{profile.kind.replaceAll('_', ' ')}</span>)}</div></td>
+              <td className="px-5 py-4"><div className="flex flex-wrap gap-1">{client.profiles.filter((profile) => profile.is_enabled).map((profile) => <span key={profile.id} className="rounded-md bg-indigo-50 px-2 py-1 text-[10px] text-indigo-700">{translateProfile(profile.kind)}</span>)}</div></td>
               <td className="px-5 py-4"><div className="flex justify-end gap-2"><button onClick={() => navigate(`/clients/${client.id}/access`)} className="rounded-md bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700">Доступ</button><button title="Удалить" onClick={() => deleteMutation.mutate(client.id)} className="rounded p-1.5 text-neutral-400 hover:bg-red-50 hover:text-red-600"><Trash2 size={16} /></button></div></td>
             </tr>)}
             {clientsQuery.isLoading && <tr><td colSpan={6} className="p-10 text-center text-neutral-500">Загрузка клиентов…</td></tr>}

@@ -3,10 +3,10 @@ const statusText: Record<string, string> = {
   disabled: 'Отключено', not_configured: 'Не настроено',
   online: 'Онлайн', healthy: 'В порядке', unhealthy: 'Недоступна',
   unavailable: 'Недоступна',
-  [['con', 'nected'].join('')]: 'Работает',
-  [['dis', 'con', 'nected'].join('')]: 'Отключено',
-  [['off', 'line'].join('')]: 'Недоступна',
-  [ ['de', 'graded'].join('') ]: 'Есть проблемы',
+  connected: 'Работает',
+  disconnected: 'Отключено',
+  offline: 'Недоступна',
+  degraded: 'Есть проблемы',
   running: 'Работает', inactive: 'Отключено', failed: 'Ошибка',
   proxy: 'Прокси', warp: 'WARP',
   direct: 'Напрямую', block: 'Блокировать',
@@ -44,3 +44,9 @@ const categoryText: Record<string, string> = {
   xray: 'Xray', awg: 'AmneziaWG', warp: 'WARP', telegram: 'Telegram', service: 'Сервис',
 };
 export const translateCategory = (category: string): string => categoryText[category] || category;
+
+const profileText: Record<string, string> = {
+  vless_reality_tcp: 'VLESS Reality TCP', vless_xhttp_reality: 'VLESS XHTTP Reality',
+  vless_xhttp_tls: 'VLESS XHTTP TLS', hysteria2: 'Hysteria 2', awg: 'AmneziaWG',
+};
+export const translateProfile = (kind: string): string => profileText[kind] || kind;
