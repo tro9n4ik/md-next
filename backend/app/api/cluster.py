@@ -21,7 +21,7 @@ from app.services.shell import run_cmd
 from app.services.route_probe import probe_current_exit
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/v1/cluster", tags=["Cluster"])
+router = APIRouter(prefix="/api/v1/cluster", tags=["Кластер"])
 
 
 class ActiveNodeRequest(BaseModel):
@@ -43,7 +43,7 @@ async def _notify(text: str) -> None:
     try:
         await notify_admin(get_bot(), text, notification_type="failover")
     except Exception:
-        logger.exception("Unable to send cluster notification")
+        logger.exception("Не удалось отправить уведомление о кластере")
 
 
 @router.put("/active-node")
@@ -70,10 +70,10 @@ async def set_active_node(
         raise
     except Exception as exc:
         await db.rollback()
-        logger.exception("Manual cluster route update failed")
+        logger.exception("Не удалось переключить маршрут кластера вручную")
         raise HTTPException(status_code=502, detail=f"Не удалось применить маршрут Xray: {exc}") from exc
 
-    logger.info("cluster.manual_switch user=%s previous=%s selected=%s", getattr(current_user, "id", None), getattr(previous, "id", None), getattr(node, "id", None))
+    logger.info("Ручное переключение кластера: пользователь=%s, прежний узел=%s, выбранный узел=%s", getattr(current_user, "id", None), getattr(previous, "id", None), getattr(node, "id", None))
     log_event("info", "cluster", "Маршрут Xray переключён вручную", {"previous_node_id": getattr(previous, "id", None), "node_id": getattr(node, "id", None), "actor_id": getattr(current_user, "id", None)})
     destination = f"{node.name} ({node.host})" if node else "прямой выход с мастер-сервера"
     await _notify(f"Маршрут Xray переключён на {destination}.")
@@ -100,7 +100,7 @@ async def update_failover(request: FailoverRequest, db: AsyncSession = Depends(g
     except Exception:
         await db.rollback()
         raise
-    logger.info("cluster.failover_settings.updated user=%s settings=%s", getattr(current_user, "id", None), values)
+    logger.info("Обновлены настройки резервирования: пользователь=%s, параметры=%s", getattr(current_user, "id", None), values)
     return await get_failover_settings(db)
 
 
@@ -152,7 +152,7 @@ async def check_route(db: AsyncSession = Depends(get_db), current_user=Depends(g
     try:
         exit_info = await probe_current_exit()
     except Exception as exc:
-        logger.warning("cluster.route_probe.failed error=%s", type(exc).__name__)
+        logger.warning("Ошибка проверки маршрута кластера: %s", type(exc).__name__)
         log_event("warning", "cluster", "Не удалось проверить фактический выходной IP Xray", {"error": type(exc).__name__})
         raise HTTPException(status_code=502, detail="Не удалось получить ответ через текущий маршрут Xray. Проверьте подключение ноды и журнал Xray.") from exc
 

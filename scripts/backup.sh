@@ -126,7 +126,7 @@ with sqlite3.connect(source) as src:
         src.backup(dst)
         result = dst.execute("PRAGMA integrity_check;").fetchone()
 if not result or result[0] != "ok":
-    sys.exit(f"integrity_check failed: {result}")
+    sys.exit(f"Ошибка проверки целостности: {result}")
 PY
 }
 
@@ -149,7 +149,7 @@ backup_sqlite() {
     return 1
   fi
 
-  printf '  %s (backup API, целостность пройдена)\n' "$src"
+  printf '  %s (API резервного копирования, целостность подтверждена)\n' "$src"
   COPIED=$((COPIED + 1))
 }
 
@@ -183,7 +183,7 @@ fi
 
 # Манифест: что вошло в копию и когда она сделана.
 cat > "$WORK_DIR/manifest.txt" <<EOF
-MD-Next backup
+Резервная копия MD-Next
 Дата: $(date '+%Y-%m-%d %H:%M:%S %Z')
 Источник: $APP_DIR
 Версия приложения: $(cat "$APP_DIR/backend/VERSION" 2>/dev/null || echo 'неизвестно')

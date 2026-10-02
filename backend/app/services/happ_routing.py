@@ -18,7 +18,7 @@ def build_happ_routing_link(settings: dict[str, str]) -> str:
             hostname = urlparse(domain).hostname
             ipaddress.ip_address(address)
             if hostname:
-                # Bootstrap DoH without resolving its own hostname through DoH.
+                # Начальный запрос DoH не должен разрешать имя своего сервера через сам DoH.
                 hosts.setdefault(hostname, address)
         except ValueError:
             continue

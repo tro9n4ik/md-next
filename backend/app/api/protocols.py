@@ -21,7 +21,7 @@ from app.services.links_guard import (
 from app.services.profiles import PROFILE_KINDS, enabled_profile_kinds, get_profile_settings, create_profiles
 from app.services.nginx import apply_xhttp_tls_path
 
-router = APIRouter(prefix="/api/v1/settings/protocols", tags=["Settings"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/api/v1/settings/protocols", tags=["Настройки"], dependencies=[Depends(get_current_user)])
 
 
 class ProtocolSettingsRequest(BaseModel):

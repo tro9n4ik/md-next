@@ -23,8 +23,8 @@ from app.models.setting import Setting
 from app.services.happ_routing import build_happ_routing_link
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/v1/clients", tags=["Clients"], dependencies=[Depends(get_current_user)])
-subscription_router = APIRouter(prefix="/api/v1/sub", tags=["Subscriptions"])
+router = APIRouter(prefix="/api/v1/clients", tags=["Клиенты"], dependencies=[Depends(get_current_user)])
+subscription_router = APIRouter(prefix="/api/v1/sub", tags=["Подписки"])
 SUBSCRIPTION_REQUESTS: dict[str, list[float]] = {}
 SUBSCRIPTION_LIMIT = 120
 SUBSCRIPTION_WINDOW = 60
@@ -150,7 +150,7 @@ async def create_client(client_data: ClientCreate, db: AsyncSession = Depends(ge
     except Exception as exc:
         await db.rollback()
         await ClientService.restore_committed_configs(db)
-        logger.exception("Client creation failed")
+        logger.exception("Не удалось создать клиента")
         detail = str(exc) or exc.__class__.__name__
         raise HTTPException(status_code=502, detail=f"Не удалось создать и применить профили клиента: {detail}") from exc
 

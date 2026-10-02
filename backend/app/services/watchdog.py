@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class WatchdogService:
-    """Measures node health and applies configurable cluster failover."""
+    """Проверяет состояние узлов и выполняет настроенное резервирование кластера."""
 
     def __init__(self):
         self.interval = max(5, int(os.getenv("FAILOVER_INTERVAL_S", os.getenv("WATCHDOG_INTERVAL", "15"))))
@@ -111,7 +111,7 @@ class WatchdogService:
                             try:
                                 await notify_admin(get_bot(), f"Нода {node.name} недоступна или превысила порог задержки ({ping_ms} мс). Автопереключение отключено.", notification_type="node_down")
                             except Exception:
-                                logger.exception("Unable to notify about unhealthy node")
+                                logger.exception("Не удалось сообщить о недоступном узле")
             else:
                 was_unhealthy = node.status != "healthy"
                 node.last_seen = now
@@ -131,20 +131,20 @@ class WatchdogService:
             ok, detail = await apply_active_node(session, node, source="auto")
         except Exception:
             await session.rollback()
-            logger.exception("cluster.auto_switch.failed target=%s", getattr(node, "id", None))
+            logger.exception("Ошибка автоматического переключения кластера: целевой узел=%s", getattr(node, "id", None))
             return False
         if not ok:
             await session.rollback()
-            logger.error("cluster.auto_switch.failed target=%s reason=%s", getattr(node, "id", None), detail)
+            logger.error("Ошибка автоматического переключения кластера: целевой узел=%s, причина=%s", getattr(node, "id", None), detail)
             return False
         self.last_switch_time = time.monotonic()
-        logger.warning("cluster.auto_switch reason=%s from=%s to=%s", reason, getattr(current, "id", None), getattr(node, "id", None))
+        logger.warning("Автоматическое переключение кластера: причина=%s, прежний узел=%s, новый узел=%s", reason, getattr(current, "id", None), getattr(node, "id", None))
         target = f"{node.name} ({node.host})" if node else "прямой выход с мастер-сервера"
         log_event("warning" if reason != "failback" else "info", "cluster", "Автоматический failback выполнен" if reason == "failback" else "Автоматический failover выполнен", {"from_node_id": getattr(current, "id", None), "node_id": getattr(node, "id", None), "reason": reason})
         try:
             await notify_admin(get_bot(), f"Автоматическое переключение Xray: {target}.", notification_type="failover")
         except Exception:
-            logger.exception("Unable to notify about cluster route change")
+            logger.exception("Не удалось сообщить об изменении маршрута кластера")
         return True
 
     async def _failover(self, session: AsyncSession, current_node_id: int, current_node_name: str = ""):
@@ -164,7 +164,7 @@ class WatchdogService:
         elif settings["fallback_action"] == "direct":
             await self._switch(session, None, "all_nodes_unhealthy")
         else:
-            logger.error("cluster.all_nodes_unhealthy action=keep")
+            logger.error("Все узлы недоступны; сохранён текущий маршрут")
 
     async def _failback(self, session: AsyncSession, primary_node: Node):
         await self._switch(session, primary_node, "failback")
@@ -213,14 +213,14 @@ class WatchdogService:
             except asyncio.CancelledError:
                 raise
             except Exception:
-                logger.exception("Watchdog cycle failed")
+                logger.exception("Ошибка цикла наблюдения за узлами")
             await asyncio.sleep(self.interval)
 
     def start(self):
         if not self.is_running:
             self.is_running = True
             self._task = asyncio.create_task(self._loop())
-            logger.info("WatchdogService started")
+            logger.info("Служба наблюдения за узлами запущена")
 
     async def stop(self):
         self.is_running = False
@@ -230,7 +230,7 @@ class WatchdogService:
                 await self._task
             except asyncio.CancelledError:
                 pass
-            logger.info("WatchdogService stopped")
+            logger.info("Служба наблюдения за узлами остановлена")
 
 
 watchdog = WatchdogService()

@@ -1,8 +1,8 @@
 """0002_client_fields
 
-Revision ID: 0002_client_fields
-Revises: 0001_baseline
-Create Date: 2026-09-30
+Идентификатор миграции: 0002_client_fields
+Предыдущая миграция: 0001_baseline
+Дата создания: 2026-09-30
 
 """
 from typing import Sequence, Union

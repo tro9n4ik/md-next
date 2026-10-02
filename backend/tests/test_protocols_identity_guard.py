@@ -51,7 +51,7 @@ async def test_identity_change_requires_confirmation(auth_headers):
             json={"reality": {**REALITY, "short_id": "ffffffff"}},
         )
         assert blocked.status_code == 409
-        assert "short ID" in blocked.json()["detail"]
+        assert "короткий идентификатор" in blocked.json()["detail"]
 
         allowed = await _request(
             "PUT", "/api/v1/settings/protocols", auth_headers,

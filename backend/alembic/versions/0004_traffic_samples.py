@@ -1,8 +1,8 @@
-"""traffic_samples and node fields
+"""Снимки трафика и поля узлов
 
-Revision ID: 0004_traffic_samples
-Revises: 0003_totp_pending_secret
-Create Date: 2025-03-30
+Идентификатор миграции: 0004_traffic_samples
+Предыдущая миграция: 0003_totp_pending_secret
+Дата создания: 2025-03-30
 """
 from alembic import op
 import sqlalchemy as sa

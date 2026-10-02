@@ -118,8 +118,6 @@ def make_profile_data(client: Client, profile: ClientProfile, settings: dict[str
         }
         if short_id:
             params["sid"] = short_id
-        if flow:
-            params["flow"] = flow
         return f"vless://{profile.uuid}@{host}:{port}?{urllib.parse.urlencode(params)}#{name}"
     if profile.kind == "vless_xhttp_tls":
         path = settings.get("profiles.path.vless_xhttp_tls", "")

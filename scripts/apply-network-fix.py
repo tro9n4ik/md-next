@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply this patch to a matching MD-Next installation, with backup and rollback."""
+"""Обновление совместимой установки MD-Next с резервным копированием и откатом."""
 
 import argparse
 import hashlib
@@ -168,7 +168,7 @@ def main():
         if (
             target.is_symlink()
             or not target.is_file()
-            or digest(target) not in {item["before_sha256"], item["after_sha256"]}
+            or digest(target) not in {item["before_sha256"], item["after_sha256"], *item.get("accepted_sha256", [])}
         ):
             raise RuntimeError(
                 f'Версия файла отличается от присланного проекта: {item["path"]}. Обновление остановлено до внесения изменений.'
@@ -232,7 +232,7 @@ def main():
                 source.backup(target)
                 if target.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                     raise RuntimeError("Не удалось проверить копию базы данных")
-        # Code/configuration rollback does not replace the live database or .env.
+        # Откат кода и конфигурации не заменяет рабочую базу данных или .env.
         (backup / "restore.json").write_text(json.dumps(metadata, indent=2))
         for item in manifest["files"]:
             copy_file(SOURCE / item["path"], app_dir / item["path"])

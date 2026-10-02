@@ -154,4 +154,4 @@ async def notify_admin(bot, text: str, notification_type: str = "failover"):
         try:
             await bot.send_message(admin_id, f"⚠️ *ВНИМАНИЕ*\n\n{text}", parse_mode="Markdown")
         except Exception as e:
-            logging.error(f"Failed to send telegram notification: {e}")
+            logging.error(f"Не удалось отправить уведомление Telegram: {e}")

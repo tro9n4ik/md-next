@@ -1,4 +1,4 @@
-"""Patch safety: mismatch is read-only; apply and automatic rollback use mocks."""
+"""Безопасность патча: несовпадение версии не вызывает изменений, сервисы подменены."""
 
 import hashlib
 import importlib.util
@@ -70,7 +70,7 @@ def patch_environment(tmp_path, monkeypatch):
         )
     )
     monkeypatch.setattr(module, "SOURCE", source)
-    monkeypatch.setattr(module.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(module.os, "geteuid", lambda: 0, raising=False)
     monkeypatch.setattr(module, "wait_for_panel", lambda: None)
     return module, installed, backup_root, relative, old, new, cfg, old_config, env
 
@@ -121,6 +121,28 @@ def test_check_does_not_modify_installation(patch_environment, monkeypatch):
     module.main()
     assert (installed / relative).read_bytes() == old
     assert not backups.exists()
+
+
+def test_known_intermediate_version_is_accepted_read_only(patch_environment, monkeypatch):
+    module, installed, backups, relative, *_ = patch_environment
+    intermediate = b"VALUE = 3\n"
+    (installed / relative).write_bytes(intermediate)
+    manifest_path = module.SOURCE / "NETWORK_FIX_MANIFEST.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["files"][0]["accepted_sha256"] = [hashlib.sha256(intermediate).hexdigest()]
+    manifest_path.write_text(json.dumps(manifest))
+    monkeypatch.setattr("sys.argv", ["patch", "--app-dir", str(installed), "--check"])
+    monkeypatch.setattr(module, "command", lambda *args: pytest.fail("Проверка не должна менять сервисы"))
+    module.main()
+    assert (installed / relative).read_bytes() == intermediate
+    assert not backups.exists()
+
+
+def test_manifest_matches_repository_sources():
+    root = Path(__file__).resolve().parents[2]
+    manifest = json.loads((root / "NETWORK_FIX_MANIFEST.json").read_text())
+    for item in manifest["files"]:
+        assert hashlib.sha256((root / item["path"]).read_bytes()).hexdigest() == item["after_sha256"], item["path"]
 
 
 def test_apply_preserves_env_and_database_and_keeps_backup(

@@ -15,7 +15,7 @@ from app.services.telegram_settings import (
 from app.services.crypto import encrypt_secret
 from app.services.events import log_event
 
-router = APIRouter(prefix="/api/v1/settings", tags=["Settings"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/api/v1/settings", tags=["Настройки"], dependencies=[Depends(get_current_user)])
 
 class TelegramSettingsRequest(BaseModel):
     token: Optional[str] = None

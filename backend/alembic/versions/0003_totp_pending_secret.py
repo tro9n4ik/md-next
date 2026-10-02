@@ -1,8 +1,8 @@
 """0003_totp_pending_secret
 
-Revision ID: 0003_totp_pending_secret
-Revises: 0002_client_fields
-Create Date: 2026-09-30
+Идентификатор миграции: 0003_totp_pending_secret
+Предыдущая миграция: 0002_client_fields
+Дата создания: 2026-09-30
 
 """
 from typing import Sequence, Union
