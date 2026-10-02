@@ -19,6 +19,7 @@ _setup_lock = asyncio.Lock()
 class WarpService:
     DEFAULT_PORT = 40000
     COMMAND_TIMEOUT = 12
+    REGISTRATION_TIMEOUT = 30
     STATUS_TIMEOUT = 6
 
     @classmethod
@@ -117,9 +118,11 @@ class WarpService:
     @classmethod
     async def register(cls) -> tuple[bool, str]:
         try:
-            success, message = await cls._run_command("registration", "new")
+            success, message = await cls._run_command("registration", "new", timeout=cls.REGISTRATION_TIMEOUT)
             if not success and re.search(r"unknown\s+(?:command|subcommand)|unrecognized", message, re.I):
-                success, message = await cls._run_command("register")
+                success, message = await cls._run_command("register", timeout=cls.REGISTRATION_TIMEOUT)
+            if not success and "failed to communicate with the warp api" in message.lower():
+                message = "Не удалось связаться с регистрационным API Cloudflare. Лицензионный ключ не требуется; проверьте доступность API с сервера."
             return success, message
         except (OSError, RuntimeError, TimeoutError) as exc:
             logger.warning("Ошибка регистрации WARP: %s", exc)
