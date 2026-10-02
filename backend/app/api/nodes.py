@@ -111,6 +111,11 @@ async def toggle_node_enabled(
         node.status = "healthy"
         node.is_active = True
 
+    await db.flush()
+    success, reason = await ClientService.sync_xray_clients(db)
+    if not success:
+        await db.rollback()
+        raise HTTPException(status_code=502, detail=f"Не удалось применить состояние ноды: {reason}")
     await db.commit()
     await db.refresh(node)
     log_event("info", "node", "Узел включён" if node.is_enabled else "Узел отключён", {"node_id": node.id, "name": node.name})
@@ -350,6 +355,13 @@ async def register_node(node_data: NodeRegister, db: AsyncSession = Depends(get_
         if not success:
             await db.rollback()
             raise HTTPException(status_code=502, detail=f"Ошибка перестройки конфигурации Xray при авто-активации ноды: {reason}")
+    else:
+        # A re-registration rotates the Trojan password. Every enabled node
+        # also needs an outbound/probe even when another node is selected.
+        success, reason = await ClientService.sync_xray_clients(db)
+        if not success:
+            await db.rollback()
+            raise HTTPException(status_code=502, detail=f"Ошибка обновления конфигурации ноды: {reason}")
 
     await db.commit()
     await db.refresh(target_node)

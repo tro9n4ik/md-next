@@ -207,7 +207,13 @@ async def get_system_health(db: AsyncSession = Depends(get_db)):
     xray_port = await _port_listening(8444)
     checks.append({"key": "xray", "name": "Xray", "status": "ok" if xray_running and xray_port else "error", "description": f"Служба {'работает' if xray_running else 'остановлена'}; порт 8444 {'слушается' if xray_port else 'не слушается'}"})
 
-    interfaces = {name for _, name in socket.if_nameindex()}
+    try:
+        interfaces = {name for _, name in socket.if_nameindex()}
+    except OSError:
+        try:
+            interfaces = set(os.listdir("/sys/class/net"))
+        except OSError:
+            interfaces = set()
     awg_config = os.getenv("AWG_CONFIG_PATH", "/etc/amnezia/amneziawg/awg0.conf")
     if "awg0" not in interfaces and not os.path.exists(awg_config):
         awg_status, awg_description = "not_configured", "Интерфейс awg0 не настроен"

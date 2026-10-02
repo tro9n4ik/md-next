@@ -79,6 +79,7 @@ async def get_protocol_settings(db: AsyncSession = Depends(get_db)):
             "short_id": values["protocol.reality.short_id"],
             "public_key": values["protocol.reality.public_key"],
             "private_key_set": bool(values.get("protocol.reality.private_key", os.getenv("XRAY_PRIVATE_KEY", ""))),
+            "flow": values["protocol.reality.flow"],
         },
         "modes": {
             "vless_xhttp_reality": values["protocol.xhttp.reality_mode"],
@@ -149,6 +150,8 @@ async def update_protocol_settings(req: ProtocolSettingsRequest, db: AsyncSessio
     updates.update({f"protocol.xhttp.{kind.removeprefix('vless_xhttp_')}_mode": value for kind, value in req.modes.items()})
     if "flow" in reality:
         updates["protocol.reality.flow"] = reality["flow"]
+    nginx_path_applied = False
+    xray_applied = False
     try:
         for key, value in updates.items():
             setting = await db.get(Setting, key)
@@ -163,15 +166,25 @@ async def update_protocol_settings(req: ProtocolSettingsRequest, db: AsyncSessio
         if "vless_xhttp_tls" in current_enabled:
             values = await get_profile_settings(db)
             await apply_xhttp_tls_path(values["profiles.path.vless_xhttp_tls"])
+            nginx_path_applied = True
         ok, reason = await ClientService.sync_xray_clients(db)
         if not ok:
             raise RuntimeError(reason)
+        xray_applied = True
         ok, reason = await AWGService.sync_server_config(db)
         if not ok:
             raise RuntimeError(reason)
         await db.commit()
     except Exception as exc:
         await db.rollback()
+        if nginx_path_applied:
+            try:
+                await apply_xhttp_tls_path(current_values["profiles.path.vless_xhttp_tls"])
+            except Exception:
+                from app.services.events import log_event
+                log_event("error", "nginx", "Не удалось восстановить прежний путь XHTTP после ошибки сохранения")
+        if xray_applied:
+            await ClientService.restore_committed_configs(db)
         detail = str(exc)
         private_key = reality.get("private_key", "")
         if private_key:
