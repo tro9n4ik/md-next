@@ -4,9 +4,37 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Check, Copy, Download, RefreshCw } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { apiFetch } from '../utils/api';
+import SubscriptionFields from '../components/SubscriptionFields';
+import { clientStatus, formatSubscriptionDate, subscriptionPayload } from '../utils/subscriptions';
+import type { ClientLimits, SubscriptionValues } from '../utils/subscriptions';
+import { formatBytes } from '../utils/ru';
 
 type AccessProfile = { id: number; kind: string; label: string; is_enabled: boolean; data: string; key_available: boolean };
-type AccessData = { client: { id: number; name: string; is_active: boolean }; profiles: AccessProfile[]; subscription_url: string };
+type AccessData = { client: ClientLimits & { id: number; name: string; is_active: boolean }; profiles: AccessProfile[]; subscription_url: string };
+
+const SubscriptionEditor: React.FC<{ client: AccessData['client']; refresh: () => Promise<void> }> = ({ client, refresh }) => {
+  const [values, setValues] = React.useState<SubscriptionValues>({ period: 'keep', date: '', quotaGB: client.monthly_traffic_limit ? String(client.monthly_traffic_limit / 1024 ** 3) : '' });
+  const [notice, setNotice] = React.useState('');
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiFetch(`/api/v1/clients/${client.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(subscriptionPayload(values)) });
+      if (!response.ok) throw new Error(await readError(response, 'Не удалось обновить подписку'));
+    },
+    onSuccess: async () => { setNotice('Условия подписки сохранены'); setValues({ ...values, period: 'keep' }); await refresh(); },
+    onError: (error: Error) => setNotice(error.message),
+  });
+  return <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+    <h2 className="font-semibold text-neutral-800">Условия подписки</h2>
+    <div className="mt-3 grid gap-4 md:grid-cols-2">
+      <div className="space-y-2 text-sm text-neutral-600"><p>Состояние: <b>{clientStatus(client.blocked_reason)}</b></p><p>Окончание: <b>{formatSubscriptionDate(client.expires_at)}</b></p><p>За месяц: {formatBytes(client.monthly_traffic_used)} / {client.monthly_traffic_limit ? formatBytes(client.monthly_traffic_limit) : 'без ограничений'}</p><p>Следующее обновление: {formatSubscriptionDate(client.traffic_period_end)}</p></div>
+      <form onSubmit={event => { event.preventDefault(); setNotice(''); mutation.mutate(); }} className="space-y-3">
+        <SubscriptionFields value={values} onChange={setValues} editing />
+        <button disabled={mutation.isPending} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">Сохранить условия</button>
+        {notice && <p role="status" className="text-sm text-neutral-600">{notice}</p>}
+      </form>
+    </div>
+  </section>;
+};
 
 async function readError(response: Response, fallback: string) {
   const body = await response.json().catch(() => ({}));
@@ -72,6 +100,7 @@ const ClientAccessPage: React.FC = () => {
     <button onClick={() => navigate('/clients')} className="inline-flex items-center gap-2 text-sm text-neutral-500 hover:text-neutral-800"><ArrowLeft size={16} /> К клиентам</button>
     <div><h1 className="text-2xl font-bold text-neutral-800">Доступ: {data.client.name}</h1><p className="mt-1 text-sm text-neutral-500">Профили подключения и ссылка подписки</p></div>
     {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+    <SubscriptionEditor key={`${data.client.id}-${data.client.monthly_traffic_limit}-${data.client.expires_at}`} client={data.client} refresh={refresh} />
     {data.profiles.map((profile) => {
       const size = new TextEncoder().encode(profile.data).length;
       const canQr = Boolean(profile.data) && size <= 2900;

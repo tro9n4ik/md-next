@@ -15,6 +15,7 @@ from app.services.xray import XrayService
 from app.services.routing_rules import to_xray_rule
 from app.services.events import log_event
 from app.services.nginx import apply_reality_sni
+from app.services.client_limits import access_allowed
 
 _USE_STORED_ACTIVE_NODE = object()
 logger = logging.getLogger(__name__)
@@ -54,6 +55,8 @@ class ClientService:
                 return False, f"Не удалось согласовать Reality SNI с Nginx: {exc}"
         reality_flow = settings.get("protocol.reality.flow", "xtls-rprx-vision")
         for profile, client in profiles:
+            if not access_allowed(client):
+                continue
             email = f"c{client.id}-{profile.kind}@md-next"
             if profile.kind == "vless_reality_tcp" and profile.uuid:
                 client_data = {"id": profile.uuid, "email": email}

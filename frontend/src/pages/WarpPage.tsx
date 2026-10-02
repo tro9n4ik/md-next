@@ -81,7 +81,7 @@ const WarpPage: React.FC = () => {
       {status.isLoading ? <Loader2 className="h-5 w-5 animate-spin text-neutral-400" /> : <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {[["Установлен", status.data?.installed ? 'Да' : 'Нет'], ["Служба warp-svc", status.data?.service_active ? 'Работает' : 'Остановлена'], ["Зарегистрирован", status.data?.registered ? 'Да' : 'Нет'], ["Состояние", translateStatus(status.data?.state)], ["Режим", translateStatus(status.data?.mode)], ["Порт SOCKS5", String(status.data?.port || "—")]].map(([title, value]) => <div key={title} className="rounded-xl bg-neutral-50 p-3"><div className="text-xs text-neutral-500">{title}</div><div className="mt-1 flex items-center gap-2 font-semibold"><span className={`h-2 w-2 rounded-full ${value === 'Да' || value === 'Работает' || value === 'Подключено' ? 'bg-emerald-500' : 'bg-amber-500'}`} />{value}</div></div>)}
       </div>}
-      <p className="mt-4 text-sm text-neutral-500">Обычный WARP работает без лицензии. Регистрация и настройка локального прокси выполняются автоматически.</p>
+      <p className="mt-4 text-sm text-neutral-500">Обычный WARP работает без лицензии. Регистрация и настройка локального прокси выполняются автоматически. Если доступна нода, регистрация проходит через неё; сам WARP затем подключается с этого сервера.</p>
       {status.isError && <p role="alert" className="mt-4 text-sm text-red-700">Не удалось получить состояние WARP. Обновите страницу.</p>}
       {status.data?.instruction && <p className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">{status.data.instruction}</p>}
       <div className="mt-4 flex flex-wrap gap-2">
