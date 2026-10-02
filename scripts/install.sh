@@ -434,7 +434,7 @@ setup_backend() {
   # Ключи Reality переиспользуются из существующей базы. Переустановка панели не должна
   # ломать ссылки всех клиентов: новый ключ означает, что прошлые ссылки перестанут работать.
   KEYS=$(MD_NEXT_DB="$APP_DIR/backend/md_next.db" python3 -c "
-import base64, os, sqlite3
+import base64, os, sqlite3, sys
 from cryptography.hazmat.primitives.asymmetric import x25519
 from cryptography.hazmat.primitives import serialization
 
@@ -450,8 +450,19 @@ if path and os.path.isfile(path):
         finally:
             con.close()
         priv, pub = rows.get('protocol.reality.private_key', ''), rows.get('protocol.reality.public_key', '')
-        if priv and pub:
-            existing = f'{priv}:{pub}'
+        if priv:
+            # Публичный ключ обязан быть выведен из приватного. Сохранённую пару
+            # сверяем: иначе рассинхронизация из базы переживает переустановку,
+            # и все Reality-ссылки не проходят handshake без единой ошибки в панели.
+            derived = base64.urlsafe_b64encode(
+                x25519.X25519PrivateKey.from_private_bytes(
+                    base64.urlsafe_b64decode(priv + '=' * (-len(priv) % 4))
+                ).public_key().public_bytes(
+                    serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+            ).decode().rstrip('=')
+            existing = f'{priv}:{derived}'
+            if pub and pub != derived:
+                print(f'ИСПРАВЛЕНО: публичный ключ Reality не соответствовал приватному ({pub[:12]} -> {derived[:12]})', file=sys.stderr)
     except Exception:
         existing = None
 

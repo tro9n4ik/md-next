@@ -25,6 +25,7 @@ from app.services.traffic_collector import start_traffic_collector
 from app.services.telegram_settings import get_telegram_settings_from_db
 from app.bot import bot_manager
 from app.services.client_service import ClientService
+from app.services.reality_keys import ensure_reality_key_pair
 from app.services.awg import AWGService
 from app.services.events import event_cleanup_loop, flush_pending_events, log_event
 from app.services.shell import find_command
@@ -69,6 +70,10 @@ async def lifespan(app: FastAPI):
     log_event("info", "service", "Сервис панели запущен")
     try:
         async with AsyncSessionLocal() as session:
+            # Пара ключей Reality может остаться рассинхронизированной в базе:
+            # тогда все Reality-ссылки не проходят handshake, а панель не
+            # показывает ошибок. Приводим пару к верной до применения конфига.
+            await ensure_reality_key_pair(session)
             xray_ok, xray_message = await ClientService.sync_xray_clients(session)
             if not xray_ok:
                 logger.error("Unable to apply Xray client profiles on startup: %s", xray_message)

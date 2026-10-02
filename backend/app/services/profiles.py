@@ -11,6 +11,7 @@ from app.models.node import Node
 from app.models.setting import Setting
 from app.services.awg import AWGService
 from app.services.crypto import encrypt_secret, decrypt_secret
+from app.services.reality_keys import resolve_key_pair
 from app.services.xray import XrayService
 
 
@@ -43,7 +44,13 @@ async def get_profile_settings(db: AsyncSession) -> dict[str, str]:
     values.setdefault("protocol.reality.server_address", os.getenv("SERVER_HOST", "127.0.0.1"))
     values.setdefault("protocol.reality.target", os.getenv("XRAY_DEST", "127.0.0.1:8080"))
     values.setdefault("protocol.reality.server_name", os.getenv("XRAY_SERVER_NAME", ""))
+    values.setdefault("protocol.reality.private_key", os.getenv("XRAY_PRIVATE_KEY", ""))
     values.setdefault("protocol.reality.public_key", os.getenv("XRAY_PUBLIC_KEY", ""))
+    # Ссылка и конфиг обязаны опираться на одну пару ключей, иначе Reality
+    # не узнаёт клиента и отдаёт ему настоящий сертификат вместо handshake.
+    values["protocol.reality.private_key"], values["protocol.reality.public_key"] = resolve_key_pair(
+        values["protocol.reality.private_key"], values["protocol.reality.public_key"]
+    )
     values.setdefault("protocol.reality.fingerprint", "chrome")
     values.setdefault("protocol.reality.short_id", "")
     values.setdefault("protocol.reality.flow", "xtls-rprx-vision")
