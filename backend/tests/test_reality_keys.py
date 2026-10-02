@@ -178,3 +178,22 @@ async def test_generated_link_matches_private_key_used_in_config():
 
         assert f"pbk={PUBLIC_KEY}" in link
         assert foreign_public_key() not in link
+
+
+@pytest.mark.asyncio
+async def test_ensure_reality_key_pair_fixes_server_address_and_sni():
+    import unittest.mock as mock
+    with mock.patch.dict("os.environ", {"SERVER_HOST": "panel.example.com", "XRAY_SERVER_NAME": "example.com"}):
+        async with TestingSessionLocal() as db:
+            db.add(Setting(key="protocol.reality.server_address", value="127.0.0.1"))
+            db.add(Setting(key="protocol.reality.server_name", value=""))
+            await db.commit()
+
+            assert await ensure_reality_key_pair(db) is True
+
+            result = await db.execute(
+                select(Setting).where(Setting.key.in_(("protocol.reality.server_address", "protocol.reality.server_name")))
+            )
+            stored = {row.key: row.value for row in result.scalars().all()}
+            assert stored["protocol.reality.server_address"] == "panel.example.com"
+            assert stored["protocol.reality.server_name"] == "example.com"

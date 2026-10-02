@@ -41,9 +41,22 @@ async def get_profile_settings(db: AsyncSession) -> dict[str, str]:
         values.setdefault(f"profiles.port.{kind}", fallback)
     values.setdefault("profiles.path.vless_xhttp_reality", "/")
     values.setdefault("profiles.path.vless_xhttp_tls", os.getenv("XRAY_XHTTP_TLS_PATH", "/md-next-xhttp"))
-    values.setdefault("protocol.reality.server_address", os.getenv("SERVER_HOST", "127.0.0.1"))
+
+    server_host_env = os.getenv("SERVER_HOST", "")
+    current_address = values.get("protocol.reality.server_address", "")
+    if (not current_address or current_address in ("127.0.0.1", "localhost")) and server_host_env:
+        values["protocol.reality.server_address"] = server_host_env
+    else:
+        values.setdefault("protocol.reality.server_address", server_host_env or "127.0.0.1")
+
+    server_name_env = os.getenv("XRAY_SERVER_NAME", "")
+    current_sni = values.get("protocol.reality.server_name", "")
+    if not current_sni and server_name_env:
+        values["protocol.reality.server_name"] = server_name_env
+    else:
+        values.setdefault("protocol.reality.server_name", server_name_env)
+
     values.setdefault("protocol.reality.target", os.getenv("XRAY_DEST", "127.0.0.1:8080"))
-    values.setdefault("protocol.reality.server_name", os.getenv("XRAY_SERVER_NAME", ""))
     values.setdefault("protocol.reality.private_key", os.getenv("XRAY_PRIVATE_KEY", ""))
     values.setdefault("protocol.reality.public_key", os.getenv("XRAY_PUBLIC_KEY", ""))
     # Ссылка и конфиг обязаны опираться на одну пару ключей, иначе Reality
