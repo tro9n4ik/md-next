@@ -5,12 +5,14 @@ import os
 import time
 from typing import Optional, Tuple
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import AsyncSessionLocal
 from app.models.node import Node
 from app.services.cluster import apply_active_node, get_failover_settings, get_selected_node, is_manual_direct_route
+from app.services.xray import DEFAULT_PROBE_URL, probe_enabled, probe_port_for_node
 from app.bot.bot import get_bot
 from app.bot.handlers import notify_admin
 from app.services.events import log_event
@@ -31,6 +33,8 @@ class WatchdogService:
         self.last_switch_time = 0.0
         self.is_running = False
         self._task = None
+        self.probe_url = os.getenv("XRAY_PROBE_URL", DEFAULT_PROBE_URL)
+        self.probe_timeout = max(2.0, float(os.getenv("NODE_PROBE_TIMEOUT", "8")))
 
     async def _check_node_ping(self, host: str, port: int) -> Tuple[bool, int]:
         start = time.monotonic()
@@ -47,6 +51,28 @@ class WatchdogService:
                     await writer.wait_closed()
                 except Exception:
                     pass
+
+    async def _probe_node_egress(self, node: Node) -> Optional[Tuple[bool, int]]:
+        """Проверяет реальный выход в интернет через конкретную ноду.
+
+        Открытый порт ноды ничего не доказывает: нода может принимать соединение и при этом
+        не иметь доступа в сеть или не резолвить домены. Запрос идёт через персональный
+        SOCKS-инбунд, жёстко закреплённый за этой нодой, поэтому проверяется весь путь
+        Trojan -> gRPC -> интернет ноды вместе с её DNS.
+
+        Возвращает None, если диагностика выключена: тогда работает только проверка порта.
+        """
+        if not probe_enabled():
+            return None
+        proxy = f"socks5://127.0.0.1:{probe_port_for_node(node.id)}"
+        start = time.monotonic()
+        try:
+            async with httpx.AsyncClient(proxy=proxy, timeout=self.probe_timeout, follow_redirects=False) as client:
+                response = await client.get(self.probe_url)
+                return response.status_code < 500, int((time.monotonic() - start) * 1000)
+        except Exception as exc:
+            logger.debug("cluster.probe.failed id=%s host=%s reason=%s", node.id, node.host, exc)
+            return False, 0
 
     async def _update_all_nodes_ping(self, session: AsyncSession, settings: Optional[dict] = None):
         settings = settings or await get_failover_settings(session)
@@ -66,7 +92,11 @@ class WatchdogService:
 
             connected, ping_ms = await self._check_node_ping(node.host, node.port)
             node.ping_ms = ping_ms
-            bad = not connected or ping_ms > settings["ping_threshold_ms"]
+            probe = await self._probe_node_egress(node) if connected else None
+            egress_ok = probe[0] if probe is not None else True
+            # Диагностика не подменяет задержку: порог ping_threshold_ms отвечает только
+            # за доступность порта, а работоспособность выхода определяется отдельно.
+            bad = not (connected and egress_ok) or ping_ms > settings["ping_threshold_ms"]
             if bad:
                 self.consecutive_failures[node.id] = self.consecutive_failures.get(node.id, 0) + 1
                 self.consecutive_successes[node.id] = 0
@@ -75,8 +105,8 @@ class WatchdogService:
                     node.status = "unhealthy"
                     node.is_active = False
                     if was_healthy:
-                        logger.warning("cluster.node.unhealthy id=%s ping_ms=%s connected=%s", node.id, ping_ms, connected)
-                        log_event("warning", "node", "Узел стал недоступен", {"node_id": node.id, "name": node.name, "ping_ms": ping_ms, "connected": connected})
+                        logger.warning("cluster.node.unhealthy id=%s ping_ms=%s connected=%s egress=%s", node.id, ping_ms, connected, egress_ok if probe is not None else "skip")
+                        log_event("warning", "node", "Узел стал недоступен", {"node_id": node.id, "name": node.name, "ping_ms": ping_ms, "connected": connected, "egress_ok": egress_ok if probe is not None else None})
                         if settings["mode"] == "manual":
                             try:
                                 await notify_admin(get_bot(), f"Нода {node.name} недоступна или превысила порог задержки ({ping_ms} мс). Автопереключение отключено.", notification_type="node_down")

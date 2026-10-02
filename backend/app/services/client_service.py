@@ -54,6 +54,11 @@ class ClientService:
         setting_values = {item.key: item.value for item in stored_settings}
         warp_usage = setting_values.get("warp.usage", "off")
         warp_port = int(setting_values.get("warp.proxy_port", "40000"))
+        failover_rows = (await db.execute(select(Setting).where(Setting.key.like("failover.%")))).scalars().all()
+        failover_values = {row.key.removeprefix("failover."): row.value for row in failover_rows}
+        # fallback_action=keep запрещает выпускать клиентов через реальный IP мастер-сервера,
+        # поэтому при смерти ноды трафик обрывается, а не утекает напрямую.
+        node_fallback_tag = "direct" if failover_values.get("fallback_action", "direct") == "direct" else "block"
         routing_rules = (await db.execute(
             select(RoutingRule).where(RoutingRule.is_active.is_(True)).order_by(RoutingRule.id)
         )).scalars().all()
@@ -89,6 +94,7 @@ class ClientService:
             "tls_key": os.getenv("TLS_KEY_PATH", "/etc/letsencrypt/live/" + os.getenv("SERVER_HOST", "") + "/privkey.pem"),
             "warp_usage": warp_usage,
             "warp_port": warp_port,
+            "node_fallback_tag": node_fallback_tag,
             "routing_rules": xray_routing_rules,
             "nodes": [{"id": node.id, "host": node.host, "port": node.port, "protocol": node.protocol, "secret": node.secret} for node in node_rows if node.secret],
         }

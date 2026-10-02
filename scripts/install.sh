@@ -372,22 +372,64 @@ setup_backend() {
   source venv/bin/activate
   pip install --quiet -r requirements.txt
 
-  # Идемпотентная генерация пары ключей x25519 Reality через python cryptography
-  KEYS=$(python3 -c "
-import base64
+  # Ключи Reality переиспользуются из существующей базы. Переустановка панели не должна
+  # ломать ссылки всех клиентов: новый ключ означает, что прошлые ссылки перестанут работать.
+  KEYS=$(MD_NEXT_DB="$APP_DIR/backend/md_next.db" python3 -c "
+import base64, os, sqlite3
 from cryptography.hazmat.primitives.asymmetric import x25519
 from cryptography.hazmat.primitives import serialization
 
-priv = x25519.X25519PrivateKey.generate()
-pub = priv.public_key()
+path = os.environ.get('MD_NEXT_DB', '')
+existing = None
+if path and os.path.isfile(path):
+    try:
+        con = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
+        try:
+            rows = dict(con.execute(
+                \"select key, value from settings where key in ('protocol.reality.private_key','protocol.reality.public_key')\"
+            ).fetchall())
+        finally:
+            con.close()
+        priv, pub = rows.get('protocol.reality.private_key', ''), rows.get('protocol.reality.public_key', '')
+        if priv and pub:
+            existing = f'{priv}:{pub}'
+    except Exception:
+        existing = None
 
-priv_b64 = base64.urlsafe_b64encode(priv.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())).decode().rstrip('=')
-pub_b64 = base64.urlsafe_b64encode(pub.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode().rstrip('=')
-print(f'{priv_b64}:{pub_b64}')
+if existing:
+    print(existing)
+else:
+    priv = x25519.X25519PrivateKey.generate()
+    pub = priv.public_key()
+    priv_b64 = base64.urlsafe_b64encode(priv.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())).decode().rstrip('=')
+    pub_b64 = base64.urlsafe_b64encode(pub.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode().rstrip('=')
+    print(f'{priv_b64}:{pub_b64}')
 ")
   XRAY_PRIV=$(echo "$KEYS" | cut -d':' -f1)
   XRAY_PUB=$(echo "$KEYS" | cut -d':' -f2)
-  XRAY_XHTTP_TLS_PATH="/$(openssl rand -hex 16)"
+  if [ -f "$APP_DIR/backend/md_next.db" ] && [ -n "$XRAY_PRIV" ]; then
+    echo -e "${GREEN}Ключи Reality сохранены из существующей базы: ссылки клиентов не изменятся${NC}"
+  fi
+
+  # Секретный путь XHTTP TLS тоже должен пережить переустановку.
+  XHTTP_TLS_PATH=""
+  if [ -f "$APP_DIR/backend/md_next.db" ]; then
+    XHTTP_TLS_PATH=$(MD_NEXT_DB="$APP_DIR/backend/md_next.db" python3 -c "
+import os, sqlite3
+path = os.environ.get('MD_NEXT_DB', '')
+try:
+    con = sqlite3.connect(f'file:{path}?mode=ro', uri=True)
+    try:
+        row = con.execute(\"select value from settings where key = 'profiles.path.vless_xhttp_tls'\").fetchone()
+    finally:
+        con.close()
+    print(row[0] if row and row[0] else '')
+except Exception:
+    print('')
+")
+  fi
+  [ -n "$XHTTP_TLS_PATH" ] || XHTTP_TLS_PATH="/$(openssl rand -hex 16)"
+  XRAY_XHTTP_TLS_PATH="$XHTTP_TLS_PATH"
 
   cat <<EOF > /opt/md-next/backend/.env
 PANEL_PUBLIC_URL=https://$PANEL_DOMAIN
@@ -402,7 +444,22 @@ SERVER_HOST=$MAIN_DOMAIN
 XRAY_XHTTP_TLS_PATH=$XRAY_XHTTP_TLS_PATH
 TLS_CERT_PATH=/usr/local/etc/xray/tls/fullchain.pem
 TLS_KEY_PATH=/usr/local/etc/xray/tls/privkey.pem
+XRAY_PROBE_URL=${XRAY_PROBE_URL:-https://cp.cloudflare.com/generate_204}
+XRAY_PROBE_INTERVAL=${XRAY_PROBE_INTERVAL:-3m}
 EOF
+
+  # Переменные диагностики дописываются отдельно, чтобы не затирать файл при обновлении.
+  for probe_line in \
+    "NODE_PROBE_ENABLED=${NODE_PROBE_ENABLED:-true}" \
+    "NODE_PROBE_BASE_PORT=${NODE_PROBE_BASE_PORT:-10900}" \
+    "NODE_PROBE_TIMEOUT=${NODE_PROBE_TIMEOUT:-8}"; do
+    probe_key="${probe_line%%=*}"
+    if grep -q "^${probe_key}=" /opt/md-next/backend/.env; then
+      sed -i "s|^${probe_key}=.*|${probe_line}|" /opt/md-next/backend/.env
+    else
+      printf '%s\n' "$probe_line" >> /opt/md-next/backend/.env
+    fi
+  done
   chmod 600 /opt/md-next/backend/.env
 
   # Применение миграций базы данных Alembic

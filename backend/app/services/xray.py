@@ -17,6 +17,32 @@ from app.models.setting import Setting
 from app.models.node import Node
 from app.services.shell import run_cmd
 
+NODE_TAG_PREFIX = "node-"
+NODE_BALANCER_TAG = "node-balancer"
+PROBE_INBOUND_PREFIX = "probe-"
+DEFAULT_PROBE_URL = "https://cp.cloudflare.com/generate_204"
+
+
+def probe_enabled() -> bool:
+    """Диагностические SOCKS-инбунды, через которые watchdog проверяет реальный выход в интернет."""
+    return os.getenv("NODE_PROBE_ENABLED", "false").strip().lower() in ("true", "1", "yes")
+
+
+def probe_base_port() -> int:
+    try:
+        return max(1024, int(os.getenv("NODE_PROBE_BASE_PORT", "10900")))
+    except (TypeError, ValueError):
+        return 10900
+
+
+def probe_port_for_node(node_id: int, base_port: int = None) -> int:
+    return (probe_base_port() if base_port is None else base_port) + int(node_id)
+
+
+def probe_inbound_tag(node_id: int) -> str:
+    return f"{PROBE_INBOUND_PREFIX}{int(node_id)}"
+
+
 class XrayService:
     """
     Сервис для управления конфигурацией Xray (VLESS Reality + SOCKS5 + Failover outbound cascades)
@@ -65,6 +91,11 @@ class XrayService:
         reality_short_id = str(options.get("reality_short_id", ""))
         reality_short_ids = [reality_short_id] if reality_short_id else [""]
         warp_usage = options.get("warp_usage", "off")
+        node_fallback_tag = str(options.get("node_fallback_tag") or "direct")
+        if node_fallback_tag not in ("direct", "block"):
+            node_fallback_tag = "direct"
+        probe_url = str(options.get("xray_probe_url") or os.getenv("XRAY_PROBE_URL") or DEFAULT_PROBE_URL)
+        node_tags: List[str] = []
         outbounds = []
         for node in options.get("nodes", []):
             if active_node and int(node.get("id", -1)) == int(active_node.id):
@@ -74,6 +105,7 @@ class XrayService:
                 "settings": {"servers": [{"address": node["host"], "port": int(node["port"]), "password": node["secret"]}]},
                 "streamSettings": {"network": "grpc", "grpcSettings": {"serviceName": "MD-Next-Node"}},
             })
+            node_tags.append(f"node-{node['id']}")
 
         if active_node and getattr(active_node, 'is_enabled', True):
             node_secret = getattr(active_node, 'secret', None)
@@ -97,6 +129,7 @@ class XrayService:
                         }
                     }
                 })
+                node_tags.append(f"node-{active_node.id}")
             else:
                 logger.warning(f"Нода {getattr(active_node, 'id', 'unknown')} активна, но секрет ноды отсутствует. Outbound каскада не добавлен.")
 
@@ -117,6 +150,10 @@ class XrayService:
             "settings": {}
         })
         active_tag = f"node-{active_node.id}" if active_node and getattr(active_node, "is_enabled", True) and getattr(active_node, "secret", None) else None
+        # Балансер подключается только когда трафик реально идёт через ноду. Он даёт
+        # мгновенный откат на резервный маршрут, если нода перестала пропускать трафик,
+        # поэтому замена ноды больше не требует ручной правки ссылок у клиентов.
+        balancer_tag = NODE_BALANCER_TAG if active_tag and warp_usage != "all" else None
         default_tag = active_tag or ("warp" if warp_usage == "all" else "direct")
         outbounds.sort(key=lambda item: item["tag"] != default_tag)
 
@@ -211,7 +248,58 @@ class XrayService:
             "listen": "127.0.0.1", "port": 10085, "protocol": "dokodemo-door",
             "settings": {"address": "127.0.0.1"}, "tag": "api-in"
         })
-        config["routing"] = {"domainStrategy": "AsIs", "rules": [{"type": "field", "inboundTag": ["api-in"], "outboundTag": "api"}, *options.get("routing_rules", [])]}
+
+        # Диагностические SOCKS-инбунды: каждый жёстко закреплён за своей нодой,
+        # поэтому проверка идёт по настоящему пути Trojan -> gRPC -> интернет ноды.
+        probe_rules: List[Dict[str, Any]] = []
+        if probe_enabled():
+            base_port = probe_base_port()
+            for tag in node_tags:
+                node_id = int(tag.removeprefix(NODE_TAG_PREFIX))
+                port = probe_port_for_node(node_id, base_port)
+                if port > 65535:
+                    logger.warning("Не удалось выделить диагностический порт для ноды %s", node_id)
+                    continue
+                config["inbounds"].append({
+                    "tag": probe_inbound_tag(node_id),
+                    "listen": "127.0.0.1",
+                    "port": port,
+                    "protocol": "socks",
+                    "settings": {"auth": "noauth", "udp": False},
+                })
+                probe_rules.append({
+                    "type": "field",
+                    "inboundTag": [probe_inbound_tag(node_id)],
+                    "outboundTag": tag,
+                })
+
+        rules: List[Dict[str, Any]] = [
+            {"type": "field", "inboundTag": ["api-in"], "outboundTag": "api"},
+            *probe_rules,
+            *options.get("routing_rules", []),
+        ]
+        config["routing"] = {"domainStrategy": "AsIs", "rules": rules}
+
+        if balancer_tag:
+            # burstObservatory реально проверяет ноду, а fallbackTag удерживает клиентов
+            # в сети в момент, когда нода выведена из строя или заменяется.
+            config["burstObservatory"] = {
+                "subjectSelector": [NODE_TAG_PREFIX],
+                "pingConfig": {
+                    "destination": probe_url,
+                    "connectivity": probe_url,
+                    "interval": str(options.get("xray_probe_interval") or os.getenv("XRAY_PROBE_INTERVAL") or "3m"),
+                    "sampling": 3,
+                    "timeout": "10s",
+                },
+            }
+            rules.append({"type": "field", "network": "tcp,udp", "outboundTag": balancer_tag})
+            config["routing"]["balancers"] = [{
+                "tag": balancer_tag,
+                "selector": [active_tag],
+                "fallbackTag": node_fallback_tag,
+                "strategy": {"type": "leastPing"},
+            }]
         return json.dumps(config, indent=2)
 
     @classmethod

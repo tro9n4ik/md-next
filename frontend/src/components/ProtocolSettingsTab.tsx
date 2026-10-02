@@ -23,6 +23,8 @@ type ProtocolSettings = {
   modes: { vless_xhttp_reality: XhttpMode; vless_xhttp_tls: XhttpMode };
 };
 
+type SaveVariables = ProtocolSettings & { confirm_link_identity_change: boolean };
+
 const labels: Record<ProfileKind, string> = {
   vless_reality_tcp: 'VLESS Reality TCP',
   vless_xhttp_reality: 'VLESS XHTTP Reality',
@@ -62,8 +64,9 @@ const ProtocolSettingsTab: React.FC = () => {
       return settings;
     },
   });
-  const save = useMutation({
-    mutationFn: async (settings: ProtocolSettings) => {
+  const [pendingIdentityChange, setPendingIdentityChange] = React.useState<string | null>(null);
+  const save = useMutation<ProtocolSettings, Error, SaveVariables>({
+    mutationFn: async ({ confirm_link_identity_change, ...settings }) => {
       const response = await apiFetch('/api/v1/settings/protocols', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -72,17 +75,25 @@ const ProtocolSettingsTab: React.FC = () => {
           paths: settings.paths,
           reality: Object.fromEntries(Object.entries(settings.reality).filter(([key]) => key !== 'private_key_set')),
           modes: settings.modes,
+          confirm_link_identity_change,
         }),
       });
       if (!response.ok) {
         const result = await response.json().catch(() => ({}));
+        if (response.status === 409) setPendingIdentityChange(typeof result.detail === 'string' ? result.detail : 'Изменение затронет все клиентские ссылки.');
         throw new Error(result.detail || 'Не удалось применить параметры протоколов');
       }
       return response.json() as Promise<ProtocolSettings>;
     },
-    onSuccess: settings => {
+    onSuccess: (settings, variables) => {
       setValue(settings);
-      setMessage({ kind: 'success', text: 'Параметры сохранены, конфигурация Xray применена' });
+      setPendingIdentityChange(null);
+      setMessage({
+        kind: 'success',
+        text: variables.confirm_link_identity_change
+          ? 'Параметры сохранены. Ссылки клиентов перестроены, прежние ссылки больше не действуют.'
+          : 'Параметры сохранены, конфигурация Xray применена',
+      });
       client.invalidateQueries({ queryKey: ['clients'] });
       client.invalidateQueries({ queryKey: ['clusterRoute'] });
     },
@@ -116,6 +127,7 @@ const ProtocolSettingsTab: React.FC = () => {
         </label>)}
       </div>
       <p className="mt-4 rounded-xl bg-blue-50 px-4 py-3 text-xs leading-5 text-blue-800">Изменения применяются к серверной конфигурации. При включении канала профили создаются для клиентов, а ссылки и подписки строятся с текущими параметрами.</p>
+      <p className="mt-2 rounded-xl bg-emerald-50 px-4 py-3 text-xs leading-5 text-emerald-800">Замена ноды не затрагивает ссылки клиентов: адрес в ссылке, SNI, short ID и ключи задают панель, а нода — расходный выход. При смерти ноды трафик клиентов уходит на резервный маршрут, и подписки продолжают работать.</p>
     </section>
 
     <section className={card}>
@@ -168,9 +180,17 @@ const ProtocolSettingsTab: React.FC = () => {
     </div>
 
     {message && <div className={`rounded-xl border px-4 py-3 text-sm ${message.kind === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'}`}>{message.text}</div>}
+    {pendingIdentityChange && <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 shadow-sm">
+      <div className="text-sm font-bold text-amber-900">Требуется подтверждение</div>
+      <p className="mt-1 text-xs leading-5 text-amber-800">{pendingIdentityChange}</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button onClick={() => { const confirm = true; setPendingIdentityChange(null); setMessage(null); save.mutate({ ...value, confirm_link_identity_change: confirm }); }} className="inline-flex items-center gap-2 rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-700 disabled:opacity-50" disabled={save.isPending}>{save.isPending ? 'Применение…' : 'Подтверждаю смену ссылок'}</button>
+        <button onClick={() => setPendingIdentityChange(null)} className="rounded-xl border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-100">Отмена</button>
+      </div>
+    </div>}
     <div className="sticky bottom-4 flex flex-col items-start justify-between gap-3 rounded-2xl border border-neutral-200 bg-white/95 p-4 shadow-lg backdrop-blur sm:flex-row sm:items-center">
       <p className="max-w-2xl text-xs leading-5 text-neutral-500"><Sparkles className="mr-1 inline h-3.5 w-3.5 text-emerald-600" />Панель проверит конфигурацию Xray до применения. Private key не возвращается в API и не показывается после сохранения.</p>
-      <button disabled={save.isPending} onClick={() => { setMessage(null); save.mutate(value); }} className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"><Save className="h-4 w-4" />{save.isPending ? 'Проверка и применение…' : 'Проверить и применить'}</button>
+      <button disabled={save.isPending || !value} onClick={() => { setMessage(null); setPendingIdentityChange(null); save.mutate({ ...value, confirm_link_identity_change: false }); }} className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"><Save className="h-4 w-4" />{save.isPending ? 'Проверка и применение…' : 'Проверить и применить'}</button>
     </div>
   </div>;
 };

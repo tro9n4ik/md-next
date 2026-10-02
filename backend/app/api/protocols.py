@@ -8,9 +8,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.auth import get_current_user
 from app.db.database import get_db
 from app.models.client import Client
+from app.models.node import Node
 from app.models.setting import Setting
 from app.services.awg import AWGService
 from app.services.client_service import ClientService
+from app.services.links_guard import (
+    describe_identity_change,
+    find_node_host_conflict,
+    node_hosts,
+    resolve_identity_fields,
+)
 from app.services.profiles import PROFILE_KINDS, enabled_profile_kinds, get_profile_settings, create_profiles
 from app.services.nginx import apply_xhttp_tls_path
 
@@ -23,6 +30,7 @@ class ProtocolSettingsRequest(BaseModel):
     paths: dict[str, str] = Field(default_factory=dict)
     reality: dict[str, str] = Field(default_factory=dict)
     modes: dict[str, str] = Field(default_factory=dict)
+    confirm_link_identity_change: bool = False
 
 
 def _validate_path(path: str) -> str:
@@ -95,6 +103,25 @@ async def update_protocol_settings(req: ProtocolSettingsRequest, db: AsyncSessio
     if set(req.reality) - allowed_reality:
         raise HTTPException(status_code=422, detail="Неизвестный параметр Reality")
     reality = {key: value.strip() for key, value in req.reality.items()}
+    known_node_hosts = node_hosts(
+        (await db.execute(select(Node).where(Node.is_enabled.is_(True)))).scalars().all()
+    )
+    conflict = find_node_host_conflict(reality, known_node_hosts)
+    if conflict:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Публичный адрес и Reality SNI должны указывать на панель, а не на ноду. "
+                "Адрес ноды в ссылке приведёт к тому, что ссылка перестанет работать после замены ноды."
+            ),
+        )
+    current_values = await get_profile_settings(db)
+    changed_identity = resolve_identity_fields(
+        {field: current_values.get(f"protocol.reality.{field}") for field in ("server_address", "server_name", "fingerprint", "short_id", "public_key", "flow")},
+        reality,
+    )
+    if changed_identity and not req.confirm_link_identity_change:
+        raise HTTPException(status_code=409, detail=describe_identity_change(changed_identity))
     if "server_address" in reality:
         reality["server_address"] = _validate_host(reality["server_address"], "Публичный адрес")
     if "server_name" in reality:
