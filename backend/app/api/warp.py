@@ -10,6 +10,7 @@ from app.api.auth import get_current_user
 from app.db.database import get_db
 from app.services.warp import WarpService
 from app.services.client_service import ClientService
+from app.services import warp_presets
 from app.models.setting import Setting
 from app.services.events import log_event
 
@@ -33,6 +34,10 @@ class WarpLicenseRequest(BaseModel):
 
 class WarpUsageRequest(BaseModel):
     usage: Literal["off", "rules", "all"]
+
+
+class WarpPresetRequest(BaseModel):
+    key: str = Field(min_length=1, max_length=64)
 
 
 def _require_cli() -> None:
@@ -156,6 +161,79 @@ async def setup_warp(db: AsyncSession = Depends(get_db)):
     if not success:
         _command_error(message)
     return {"status": "ok", "message": f"WARP SOCKS5 прокси настроен на порту {await WarpService.get_port(db)}"}
+
+
+@router.get("/presets")
+async def list_warp_presets(db: AsyncSession = Depends(get_db)):
+    """Каталог пресетов и состояние каждого: что уже создано, чего не хватает."""
+    state = await warp_presets.preset_state(db)
+    return {
+        "presets": [
+            {
+                "key": preset.key,
+                "title": preset.title,
+                "description": preset.description,
+                "domains": preset.domains,
+                "state": state[preset.key],
+            }
+            for preset in warp_presets.list_presets()
+        ],
+    }
+
+
+@router.post("/presets/apply")
+async def apply_warp_preset(request: WarpPresetRequest, db: AsyncSession = Depends(get_db)):
+    """Создаёт правила пресета, включает WARP по правилам и применяет конфигурацию Xray.
+
+    Повторное применение не дублирует правила и не трогает созданные вручную.
+    """
+    try:
+        preset = warp_presets.get_preset(request.key)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Такого пресета нет. Доступные: " + ", ".join(warp_presets.PRESET_ORDER))
+
+    enabled_automatically = await warp_presets.ensure_warp_rules_enabled(db)
+    result = await warp_presets.apply_preset(db, preset.key)
+
+    applied, reason = await ClientService.sync_xray_clients(db)
+    if not applied:
+        await db.rollback()
+        code = 400 if any(token in reason.lower() for token in ("geosite.dat", "geoip.dat", "warp")) else 502
+        logger.error("Could not apply warp preset %s: %s", preset.key, reason)
+        raise HTTPException(status_code=code, detail=f"Не удалось применить пресет «{preset.title}»: {reason}")
+
+    await db.commit()
+    log_event("info", "warp", "Применён пресет маршрутизации через WARP", {
+        "preset": preset.key,
+        "created": len(result["created"]),
+        "removed": len(result["removed"]),
+        "warp_enabled_automatically": enabled_automatically,
+    })
+    return {
+        "status": "ok",
+        **result,
+        "warp_usage": "rules" if enabled_automatically else None,
+    }
+
+
+@router.post("/presets/remove")
+async def remove_warp_preset(request: WarpPresetRequest, db: AsyncSession = Depends(get_db)):
+    """Удаляет правила пресета и применяет конфигурацию Xray."""
+    try:
+        preset = warp_presets.get_preset(request.key)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Такого пресета нет. Доступные: " + ", ".join(warp_presets.PRESET_ORDER))
+
+    result = await warp_presets.remove_preset(db, preset.key)
+    if result["removed"]:
+        applied, reason = await ClientService.sync_xray_clients(db)
+        if not applied:
+            await db.rollback()
+            logger.error("Could not remove warp preset %s: %s", preset.key, reason)
+            raise HTTPException(status_code=502, detail=f"Не удалось применить удаление пресета «{preset.title}»: {reason}")
+    await db.commit()
+    log_event("info", "warp", "Удалён пресет маршрутизации через WARP", {"preset": preset.key, "removed": len(result["removed"])})
+    return {"status": "ok", **result}
 
 
 @router.post("/gemini/generate", status_code=status.HTTP_200_OK)

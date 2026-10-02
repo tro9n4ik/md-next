@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Activity, CheckCircle2, Cloud, Loader2, Play, Power, ShieldCheck } from 'lucide-react';
+import { Activity, Check, CheckCircle2, Cloud, Loader2, Play, Power, ShieldCheck, Sparkles, Trash2 } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import { translateStatus } from '../utils/ru';
 
@@ -9,6 +9,15 @@ interface WarpStatus {
   state: string; mode: string; port: number; instruction?: string | null;
 }
 interface WarpUsage { usage: 'off' | 'rules' | 'all' }
+interface WarpPresetState { total: number; missing: number; extra: number }
+interface WarpPreset {
+  key: string; title: string; description: string;
+  domains: string[]; state: WarpPresetState;
+}
+interface PresetApplyResult {
+  status: string; title: string; created: string[]; updated: string[];
+  removed: string[]; warp_usage: string | null;
+}
 
 async function request(path: string, method = 'GET', body?: unknown) {
   const response = await apiFetch(path, {
@@ -29,6 +38,7 @@ const WarpPage: React.FC = () => {
   const [testResult, setTestResult] = useState<{ ip: string; country: string; warp: string } | null>(null);
   const status = useQuery<WarpStatus>({ queryKey: ['warp-status'], queryFn: () => request('/api/v1/warp/status'), refetchInterval: 10000 });
   const usage = useQuery<WarpUsage>({ queryKey: ['warp-usage'], queryFn: () => request('/api/v1/warp/usage') });
+  const presets = useQuery<{ presets: WarpPreset[] }>({ queryKey: ['warp-presets'], queryFn: () => request('/api/v1/warp/presets') });
   React.useEffect(() => {
     if (status.data) { setMode(status.data.mode === 'warp' ? 'warp' : 'proxy'); setPort(status.data.port || 40000); }
   }, [status.data?.mode, status.data?.port]);
@@ -42,7 +52,23 @@ const WarpPage: React.FC = () => {
     onSuccess: (_data, value) => { setNotice('Настройка использования WARP сохранена'); client.setQueryData(['warp-usage'], { usage: value }); },
     onError: (error: Error) => setNotice(error.message)
   });
-  const busy = command.isPending || usageMutation.isPending;
+  const presetMutation = useMutation({
+    mutationFn: ({ key, action }: { key: string; action: 'apply' | 'remove' }) =>
+      request(`/api/v1/warp/presets/${action}`, 'POST', { key }),
+    onSuccess: (data: PresetApplyResult) => {
+      const parts: string[] = [];
+      if (data.created.length) parts.push(`добавлено правил: ${data.created.length}`);
+      if (data.updated.length) parts.push(`обновлено: ${data.updated.length}`);
+      if (data.removed.length) parts.push(`удалено: ${data.removed.length}`);
+      if (data.warp_usage) parts.push('режим WARP включён автоматически');
+      setNotice(`Пресет «${data.title}»: ${parts.length ? parts.join(', ') : 'изменений не потребовалось'}`);
+      client.invalidateQueries({ queryKey: ['warp-presets'] });
+      client.invalidateQueries({ queryKey: ['warp-usage'] });
+      client.invalidateQueries({ queryKey: ['routing-rules'] });
+    },
+    onError: (error: Error) => setNotice(error.message),
+  });
+  const busy = command.isPending || usageMutation.isPending || presetMutation.isPending;
   const card = 'rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm';
   const label = 'mb-1.5 block text-sm font-medium text-neutral-600';
   const input = 'w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100';
@@ -66,6 +92,36 @@ const WarpPage: React.FC = () => {
       <section className={card}><h2 className="mb-4 font-semibold">Режим и порт прокси</h2><div className="grid gap-4 sm:grid-cols-2"><div><label className={label}>Режим</label><select className={input} value={mode} onChange={e => setMode(e.target.value as 'proxy' | 'warp')}><option value="proxy">Прокси</option><option value="warp">WARP</option></select></div><div><label className={label}>Порт SOCKS5</label><input className={input} type="number" min={1} max={65535} value={port} onChange={e => setPort(Number(e.target.value))} /></div></div><button disabled={busy || !status.data?.installed} onClick={() => command.mutate({ path: '/api/v1/warp/mode', body: { mode, port } })} className="mt-4 rounded-xl bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">Сохранить режим</button></section>
       <section className={card}><h2 className="mb-4 font-semibold">Лицензия WARP+</h2><label className={label}>Лицензионный ключ</label><input className={input} type="password" autoComplete="off" value={license} onChange={e => setLicense(e.target.value)} placeholder="Ключ не сохраняется в панели" /><button disabled={busy || !license || !status.data?.installed} onClick={() => command.mutate({ path: '/api/v1/warp/license', body: { key: license } }, { onSuccess: () => setLicense('') })} className="mt-4 rounded-xl border border-neutral-300 px-4 py-2 text-sm font-medium disabled:opacity-50">Применить ключ</button></section>
     </div>
+
+    <section className={card}>
+      <div className="mb-4 flex items-center gap-3">
+        <Sparkles className="h-5 w-5 text-indigo-600" />
+        <div>
+          <h2 className="font-semibold">Готовые пресеты ИИ через WARP</h2>
+          <p className="text-sm text-neutral-500">Одно нажатие создаёт правила маршрутизации, включает режим «по правилам» и применяет конфигурацию Xray.</p>
+        </div>
+      </div>
+      {!status.data?.installed && <p className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">Пресеты можно создать и сейчас, но трафик пойдёт через WARP только после установки пакета cloudflare-warp и подключения.</p>}
+      {presets.isLoading ? <Loader2 className="h-5 w-5 animate-spin text-neutral-400" /> : <div className="grid gap-3 sm:grid-cols-2">
+        {(presets.data?.presets || []).map(preset => {
+          const applied = preset.state.total > 0 && preset.state.missing === 0;
+          const stale = preset.state.missing > 0 || preset.state.extra > 0;
+          return <div key={preset.key} className="flex flex-col rounded-xl border border-neutral-200 bg-neutral-50 p-4">
+            <div className="flex items-start justify-between gap-2">
+              <div className="text-sm font-semibold text-neutral-800">{preset.title}</div>
+              {applied && !stale && <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700"><Check className="h-3 w-3" />применён</span>}
+            </div>
+            <p className="mt-1.5 flex-1 text-xs leading-5 text-neutral-600">{preset.description}</p>
+            <p className="mt-2 text-xs text-neutral-500">{preset.domains.length} доменов{preset.state.total > 0 && ` · в базе ${preset.state.total}`}</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button disabled={busy} onClick={() => presetMutation.mutate({ key: preset.key, action: 'apply' })} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50">{preset.state.total > 0 ? 'Обновить' : 'Применить'}</button>
+              {preset.state.total > 0 && <button disabled={busy} onClick={() => presetMutation.mutate({ key: preset.key, action: 'remove' })} className="inline-flex items-center gap-1 rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-medium text-neutral-700 disabled:opacity-50"><Trash2 className="h-3 w-3" />Убрать</button>}
+            </div>
+          </div>;
+        })}
+      </div>}
+      <p className="mt-4 text-xs leading-5 text-neutral-500">Повторное применение не создаёт дублей: уже существующие правила обновляются, а правила, созданные вручную, не затрагиваются. Домены перечислены явно, поэтому пресеты работают без файлов geosite.</p>
+    </section>
 
     <section className={card}><div className="mb-4 flex items-center gap-3"><ShieldCheck className="h-5 w-5 text-indigo-600" /><h2 className="font-semibold">Использование WARP в Xray</h2></div><select className={input} value={usage.data?.usage || 'off'} disabled={busy} onChange={e => usageMutation.mutate(e.target.value as WarpUsage['usage'])}><option value="off">Выключен</option><option value="rules">По правилам маршрутизации</option><option value="all">Весь трафик</option></select><p className="mt-3 text-sm text-neutral-500">В режиме «По правилам» WARP применяется только для правил с действием «WARP». Режим «Весь трафик» использует WARP по умолчанию. Если выбрана активная нода выхода, Xray продолжит направлять трафик через неё. Трафик AmneziaWG всегда выходит напрямую с этого сервера.</p></section>
 
