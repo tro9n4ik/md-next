@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.setting import Setting
 from app.models.client import Client, ClientProfile
+from app.services.client_limits import access_allowed
 from app.services.events import log_event
 from app.services.shell import run_cmd
 
@@ -213,9 +214,11 @@ class AWGService:
             ]
 
             for profile, c in active_clients:
+                if not access_allowed(c):
+                    continue
                 lines.extend([
                     "[Peer]",
-                    f"# Client: {c.name} (ID: {c.id})",
+                    f"# Клиент: {c.name} (ID: {c.id})",
                     f"PublicKey = {profile.public_key}",
                     f"AllowedIPs = {profile.ip_address}",
                     ""

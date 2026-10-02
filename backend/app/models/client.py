@@ -20,6 +20,12 @@ class Client(Base):
     traffic_used = Column(Integer, default=0)  # Суммарное значение для обратной совместимости
     traffic_total = Column(BigInteger, default=0, nullable=False)
     traffic_limit = Column(Integer, default=0)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    monthly_traffic_limit = Column(BigInteger, nullable=False, default=0, server_default="0")
+    monthly_traffic_up = Column(BigInteger, nullable=False, default=0, server_default="0")
+    monthly_traffic_down = Column(BigInteger, nullable=False, default=0, server_default="0")
+    traffic_period_start = Column(DateTime(timezone=True), nullable=True)
+    access_blocked = Column(Boolean, nullable=False, default=False, server_default="0")
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     sub_token = Column(String(64), unique=True, index=True, nullable=False, default=lambda: secrets.token_urlsafe(32))

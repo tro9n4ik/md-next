@@ -1,4 +1,4 @@
-"""Create event journal."""
+"""Создание журнала событий."""
 from alembic import op
 import sqlalchemy as sa
 
