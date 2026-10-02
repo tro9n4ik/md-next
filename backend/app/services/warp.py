@@ -1,6 +1,9 @@
 import asyncio
 import logging
+import os
+from pathlib import Path
 import re
+import sys
 from typing import Any, Optional
 
 import httpx
@@ -9,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.setting import Setting
+from app.models.node import Node
 
 from app.services.shell import run_cmd, find_command
 
@@ -116,8 +120,21 @@ class WarpService:
         await db.commit()
 
     @classmethod
-    async def register(cls) -> tuple[bool, str]:
+    async def register(cls, db: AsyncSession | None = None) -> tuple[bool, str]:
         try:
+            if db is not None:
+                # Уже созданную регистрацию не заменяем повторной командой.
+                code, stdout, stderr = await cls._run_process("registration", "show")
+                if code == 0:
+                    return True, "Регистрация WARP уже существует."
+                if not re.search(r"missing|not\s+(?:found|registered)|does not exist|registration\s+required", stdout + stderr, re.I):
+                    return False, "Не удалось проверить существующую регистрацию WARP."
+                nodes = (await db.execute(select(Node).where(Node.is_enabled.is_(True), Node.status != "unhealthy").order_by(Node.priority, Node.id))).scalars().all()
+                selected = await db.get(Setting, "active_node_id")
+                nodes.sort(key=lambda node: str(node.id) != (selected.value if selected else ""))
+                node = next((node for node in nodes if node.secret), None)
+                if node:
+                    return await cls._register_via_node(node.id)
             success, message = await cls._run_command("registration", "new", timeout=cls.REGISTRATION_TIMEOUT)
             if not success and re.search(r"unknown\s+(?:command|subcommand)|unrecognized", message, re.I):
                 success, message = await cls._run_command("register", timeout=cls.REGISTRATION_TIMEOUT)
@@ -127,6 +144,24 @@ class WarpService:
         except (OSError, RuntimeError, TimeoutError) as exc:
             logger.warning("Ошибка регистрации WARP: %s", exc)
             return False, str(exc)
+
+    @classmethod
+    async def _register_via_node(cls, node_id: int) -> tuple[bool, str]:
+        """Отдельная служба удаляет временные правила даже при остановке панели."""
+        helper = Path(__file__).with_name("warp_registration.py")
+        config = os.getenv("XRAY_CONFIG_PATH", "/usr/local/etc/xray/config.json")
+        code, _, _ = await run_cmd(
+            "systemd-run", "--quiet", "--wait", "--collect", "--pipe",
+            "--unit=md-next-warp-registration", "--property=RuntimeMaxSec=60",
+            "--property=TimeoutStopSec=30", "--property=KillMode=control-group",
+            f"--property=ExecStopPost={sys.executable} {helper} --cleanup",
+            sys.executable, str(helper), "--node-id", str(node_id), "--config", config,
+            timeout=100,
+        )
+        if code:
+            return False, "Не удалось зарегистрировать WARP через ноду. Проверьте её доступность и журнал md-next-warp-registration."
+        logger.info("Бесплатный WARP зарегистрирован через ноду %s", node_id)
+        return True, "Бесплатный WARP зарегистрирован через ноду."
 
     @classmethod
     async def connect(cls) -> tuple[bool, str]:
@@ -217,7 +252,7 @@ class WarpService:
                 if code and not re.search(r"missing|not\s+(?:found|registered)|does not exist|registration\s+required", stdout + stderr, re.I):
                     raise RuntimeError("Не удалось проверить регистрацию WARP; существующая учётная запись сохранена.")
                 if code:
-                    ok, reason = await cls.register()
+                    ok, reason = await cls.register(db)
                     if not ok:
                         raise RuntimeError(reason)
             ok, reason = await cls.connect()

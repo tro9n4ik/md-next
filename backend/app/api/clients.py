@@ -4,10 +4,11 @@ import os
 import uuid
 import secrets
 import time
+from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +22,7 @@ from app.services.profiles import make_profile_data, get_profile_settings, creat
 from app.services.events import log_event
 from app.models.setting import Setting
 from app.services.happ_routing import build_happ_routing_link
+from app.services.client_limits import access_allowed, expiry_for_period, limit_info, refresh_period, utc
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/clients", tags=["Клиенты"], dependencies=[Depends(get_current_user)])
@@ -35,6 +37,9 @@ class ClientCreate(BaseModel):
     phone: str | None = None
     email: str | None = None
     protocol: str | None = None
+    subscription_period: Literal["week", "month", "year", "custom", "unlimited"] = "unlimited"
+    expires_at: datetime | None = None
+    monthly_traffic_limit: int = Field(default=0, ge=0, le=9007199254740991)
 
     @field_validator("name")
     @classmethod
@@ -58,6 +63,9 @@ class ClientUpdate(BaseModel):
     phone: str | None = None
     email: str | None = None
     is_active: bool | None = None
+    subscription_period: Literal["week", "month", "year", "custom", "unlimited"] | None = None
+    expires_at: datetime | None = None
+    monthly_traffic_limit: int | None = Field(default=None, ge=0, le=9007199254740991)
 
 
 class TrafficUpdate(BaseModel):
@@ -75,7 +83,7 @@ async def _sync_protocols(db: AsyncSession) -> None:
 
 def _client_sort_key(client: Client, sort: str, profiles: list[ClientProfile]):
     if sort == "status":
-        return int(bool(client.is_active))
+        return int(access_allowed(client))
     if sort == "traffic":
         return int(client.traffic_total or client.traffic_used or 0)
     if sort == "protocol":
@@ -97,11 +105,10 @@ async def get_clients(
         pattern = f"%{q.strip()}%"
         query = query.where(or_(Client.name.ilike(pattern), Client.phone.ilike(pattern), Client.email.ilike(pattern)))
     filter_status = status or status_filter or "all"
-    if filter_status == "active":
-        query = query.where(Client.is_active.is_(True))
-    elif filter_status == "disabled":
-        query = query.where(Client.is_active.is_(False))
     clients = list((await db.execute(query)).scalars().all())
+    now = datetime.now(timezone.utc)
+    if filter_status != "all":
+        clients = [client for client in clients if access_allowed(client, now) == (filter_status == "active")]
     profiles_result = await db.execute(select(ClientProfile).where(ClientProfile.client_id.in_([c.id for c in clients]))) if clients else None
     profiles_by_client: dict[int, list[ClientProfile]] = {}
     globally_enabled = await enabled_profile_kinds(db)
@@ -117,6 +124,7 @@ async def get_clients(
             "traffic_up": sum(p.traffic_up or 0 for p in profiles_by_client.get(c.id, [])),
             "traffic_down": sum(p.traffic_down or 0 for p in profiles_by_client.get(c.id, [])),
             "is_active": c.is_active, "created_at": c.created_at,
+            **limit_info(c, now),
             "profiles": [{"id": p.id, "kind": p.kind, "is_enabled": p.is_enabled} for p in profiles_by_client.get(c.id, [])],
         }
         for c in clients
@@ -129,7 +137,13 @@ async def create_client(client_data: ClientCreate, db: AsyncSession = Depends(ge
     protocol_settings = await get_profile_settings(db)
     if client_data.protocol == "vless" and any(kind.startswith("vless_") for kind in enabled) and not all(protocol_settings.get(key) for key in ("protocol.reality.server_address", "protocol.reality.public_key", "protocol.reality.server_name")):
         raise HTTPException(status_code=503, detail="Сервер не настроен для создания VLESS-профилей")
-    client = Client(name=client_data.name.strip(), phone=client_data.phone or "", email=client_data.email or "", protocol=None)
+    now = datetime.now(timezone.utc)
+    try:
+        expires = expiry_for_period(client_data.subscription_period, client_data.expires_at, now)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    client = Client(name=client_data.name.strip(), phone=client_data.phone or "", email=client_data.email or "", protocol=None,
+                    created_at=now, expires_at=expires, monthly_traffic_limit=client_data.monthly_traffic_limit, traffic_period_start=now)
     db.add(client)
     try:
         await db.flush()
@@ -143,6 +157,7 @@ async def create_client(client_data: ClientCreate, db: AsyncSession = Depends(ge
         log_event("info", "client", "Клиент создан", {"client_id": client.id, "name": client.name})
         return {
             "client": {"id": client.id, "name": client.name, "phone": client.phone, "email": client.email, "protocol": legacy_protocol,
+                       **limit_info(client),
                        "uuid": next((p.uuid for p in profiles if p.kind == "vless_reality_tcp"), None)},
             "profiles": [{"id": p.id, "kind": p.kind} for p in profiles],
             "link": legacy_link, "conf": legacy_conf,
@@ -164,7 +179,7 @@ async def get_client_profiles(client_id: int, db: AsyncSession = Depends(get_db)
     globally_enabled = await enabled_profile_kinds(db)
     settings = await get_profile_settings(db)
     return {
-        "client": {"id": client.id, "name": client.name, "is_active": client.is_active},
+        "client": {"id": client.id, "name": client.name, "is_active": client.is_active, **limit_info(client)},
         "profiles": [
             {"id": p.id, "kind": p.kind, "label": p.kind.replace("_", " ").upper(), "is_enabled": p.is_enabled,
              "data": make_profile_data(client, p, settings), "key_available": bool(decrypt_secret(p.private_key_enc or "")) if p.kind == "awg" else True}
@@ -242,7 +257,7 @@ async def get_subscription(token: str, request: Request, db: AsyncSession = Depe
     globally_enabled = await enabled_profile_kinds(db)
     settings = await get_profile_settings(db)
     links = []
-    if client.is_active:
+    if access_allowed(client):
         for profile in result.scalars().all():
             if profile.kind not in globally_enabled:
                 continue
@@ -259,9 +274,18 @@ async def get_subscription(token: str, request: Request, db: AsyncSession = Depe
     usage = list(totals.all())
     upload = sum(up or 0 for up, _ in usage)
     download = sum(down or 0 for _, down in usage)
+    limits = limit_info(client)
+    # Старый суммарный лимит сохраняет прежнее поведение для существующих клиентов.
+    total = client.traffic_limit or 0
+    if client.monthly_traffic_limit:
+        upload, download = limits["monthly_traffic_up"], limits["monthly_traffic_down"]
+        total = limits["monthly_traffic_limit"]
+    userinfo = f"upload={upload}; download={download}; total={total}"
+    if client.expires_at:
+        userinfo += f"; expire={int(utc(client.expires_at).timestamp())}"
     return Response(content=content, media_type="text/plain", headers={
         "profile-title": title,
-        "Subscription-Userinfo": f"upload={upload}; download={download}; total={client.traffic_limit or 0}",
+        "Subscription-Userinfo": userinfo,
         "profile-update-interval": "12",
         "routing": happ_dns,
     })
@@ -273,6 +297,17 @@ async def update_client(client_id: int, data: ClientUpdate, db: AsyncSession = D
     if client is None:
         raise HTTPException(status_code=404, detail="Клиент не найден")
     was_active = client.is_active
+    now = datetime.now(timezone.utc)
+    try:
+        if data.subscription_period is not None:
+            client.expires_at = expiry_for_period(data.subscription_period, data.expires_at, now, client.expires_at)
+        elif "expires_at" in data.model_fields_set:
+            client.expires_at = expiry_for_period("custom" if data.expires_at else "unlimited", data.expires_at, now)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if data.monthly_traffic_limit is not None:
+        client.monthly_traffic_limit = data.monthly_traffic_limit
+    refresh_period(client, now)
     for field in ("name", "phone", "email", "is_active"):
         value = getattr(data, field)
         if value is not None:
@@ -282,7 +317,7 @@ async def update_client(client_id: int, data: ClientUpdate, db: AsyncSession = D
         await db.commit()
         if was_active != client.is_active:
             log_event("info", "client", "Клиент включён" if client.is_active else "Клиент отключён", {"client_id": client.id, "name": client.name})
-        return {"id": client.id, "name": client.name, "is_active": client.is_active}
+        return {"id": client.id, "name": client.name, "is_active": client.is_active, **limit_info(client)}
     except Exception as exc:
         await db.rollback()
         await ClientService.restore_committed_configs(db)
@@ -314,8 +349,11 @@ async def record_client_traffic(client_id: int, data: TrafficUpdate, db: AsyncSe
         raise HTTPException(status_code=404, detail="Клиент не найден")
     client.traffic_total = max(client.traffic_total or 0, client.traffic_used or 0) + max(0, data.bytes_used)
     client.traffic_used = client.traffic_total
+    refresh_period(client)
+    client.monthly_traffic_down = (client.monthly_traffic_down or 0) + max(0, data.bytes_used)
     if client.traffic_limit and client.traffic_total >= client.traffic_limit:
         client.is_active = False
+    if not access_allowed(client):
         try:
             await _sync_protocols(db)
             log_event("warning", "traffic", "Клиент отключён из-за превышения лимита трафика", {"client_id": client.id, "name": client.name})
@@ -333,8 +371,16 @@ async def reset_client_traffic(client_id: int, db: AsyncSession = Depends(get_db
     if client is None:
         raise HTTPException(status_code=404, detail="Клиент не найден")
     client.traffic_total = client.traffic_used = 0
+    refresh_period(client)
+    client.monthly_traffic_up = client.monthly_traffic_down = 0
     result = await db.execute(select(ClientProfile).where(ClientProfile.client_id == client.id))
     for profile in result.scalars().all():
         profile.traffic_up = profile.traffic_down = 0
-    await db.commit()
+    try:
+        await _sync_protocols(db)
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        await ClientService.restore_committed_configs(db)
+        raise HTTPException(status_code=502, detail=f"Не удалось сбросить трафик и применить доступ: {exc}") from exc
     return {"id": client.id, "traffic_used": 0}

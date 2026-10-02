@@ -1,12 +1,13 @@
 {
-  "version": 2,
-  "source_commit": "819ae201366b38c04265998d1302b7278a133dfd",
+  "version": 3,
+  "source_commit": "b603fc4d6955de7247a23e59ef20f9e91fda6ad7",
   "files": [
     {
       "path": "backend/app/api/clients.py",
       "before_sha256": "a6adeaff56c26277a375ef49524f6e65ed6cbb755e924c98257197e3896189a7",
-      "after_sha256": "765ba5ecdc619c7954ba883f53fd4e632463ecab3481a1d222f4b4df898a1e8f",
+      "after_sha256": "4bf966c19dafbe402ecda6359333eb61c5709457fb64b5446cfbb4c121745483",
       "accepted_sha256": [
+        "765ba5ecdc619c7954ba883f53fd4e632463ecab3481a1d222f4b4df898a1e8f",
         "a6adeaff56c26277a375ef49524f6e65ed6cbb755e924c98257197e3896189a7",
         "c168562e55cc47c640298d02e6b0232050601a8a2ccab72c730c52ec57204cbb"
       ]
@@ -50,11 +51,12 @@
     {
       "path": "backend/app/services/client_service.py",
       "before_sha256": "f9552713f326c73c7e455e9506393455ca05647a6af3cb8e6d4ef4ef417676fa",
-      "after_sha256": "8ab263c55f7d19ee07385c5398ccb4ddf2bd22577255504f658421abf11aab19",
+      "after_sha256": "758b943afefe7acd9f5b10957d883ebdce899508c9ce3a5cffff064551a7f973",
       "accepted_sha256": [
         "1eda8ab5674f975b2792e6d82ac0cbf0c5e5b99f254203127e47504f8392ff11",
-        "f9552713f326c73c7e455e9506393455ca05647a6af3cb8e6d4ef4ef417676fa",
-        "d6857857d08ba7815f1e365642fce299714b52fce1e02b07f973c090ff5abbaa"
+        "8ab263c55f7d19ee07385c5398ccb4ddf2bd22577255504f658421abf11aab19",
+        "d6857857d08ba7815f1e365642fce299714b52fce1e02b07f973c090ff5abbaa",
+        "f9552713f326c73c7e455e9506393455ca05647a6af3cb8e6d4ef4ef417676fa"
       ]
     },
     {
@@ -92,6 +94,25 @@
         "440c0ec5b6088b5fec6639de0f2d2d1813dd0c2063c809793b2e5f7d5140e682"
       ],
       "after_sha256": "440c0ec5b6088b5fec6639de0f2d2d1813dd0c2063c809793b2e5f7d5140e682"
+    }
+  ],
+  "required_schema_revision": "0010_client_limits",
+  "required_files": [
+    {
+      "path": "backend/app/models/client.py",
+      "sha256": "21a7106139e52aab19f2d01a54c9065c2800934821325088116748c18ad1265b"
+    },
+    {
+      "path": "backend/app/services/client_limits.py",
+      "sha256": "672c00fa042ae3154ced91737be7727bbc5fc953232f774b772aaa2b5ca91235"
+    },
+    {
+      "path": "backend/app/services/awg.py",
+      "sha256": "913ff005d38b25c037d1a3d948908868af12cc23d265ba05d45b21be4a46f6eb"
+    },
+    {
+      "path": "backend/app/services/traffic_collector.py",
+      "sha256": "ccc576650a2b0e803bae61eff48ea9e5bc377c91c776a935f8e4ca7172ce43ad"
     }
   ]
 }

@@ -56,9 +56,13 @@ async def warp_status(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/register")
-async def register_warp():
+async def register_warp(db: AsyncSession = Depends(get_db)):
     _require_cli()
-    success, message = await WarpService.register()
+    # Тот же замок, что у автоматического включения: нельзя менять регистрацию
+    # параллельно с настройкой режима и временными правилами регистрации.
+    from app.services.warp import _setup_lock
+    async with _setup_lock:
+        success, message = await WarpService.register(db)
     if not success:
         _command_error(message)
     log_event("info", "warp", "Устройство WARP зарегистрировано")

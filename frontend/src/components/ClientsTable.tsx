@@ -4,9 +4,12 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, Search, Trash2, X } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import { formatBytes, translateProfile } from '../utils/ru';
+import SubscriptionFields from './SubscriptionFields';
+import { clientStatus, formatSubscriptionDate, subscriptionPayload } from '../utils/subscriptions';
+import type { ClientLimits, SubscriptionValues } from '../utils/subscriptions';
 
 type Profile = { id: number; kind: string; is_enabled: boolean };
-type Client = {
+type Client = ClientLimits & {
   id: number; name: string; phone?: string; email?: string; is_active: boolean;
   traffic_total: number; traffic_limit: number; traffic_up: number; traffic_down: number; profiles: Profile[];
 };
@@ -28,6 +31,7 @@ const ClientsTable: React.FC = () => {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
+  const [subscription, setSubscription] = useState<SubscriptionValues>({ period: 'month', date: '', quotaGB: '' });
   const [error, setError] = useState('');
 
   const q = params.get('q') || '';
@@ -58,13 +62,14 @@ const ClientsTable: React.FC = () => {
     mutationFn: async () => {
       const response = await apiFetch('/api/v1/clients', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, phone, email }),
+        body: JSON.stringify({ name, phone, email, ...subscriptionPayload(subscription) }),
       });
       if (!response.ok) throw new Error(await responseError(response, 'Не удалось создать клиента'));
       return response.json();
     },
     onSuccess: (result) => {
       setCreateOpen(false); setName(''); setPhone(''); setEmail(''); setError('');
+      setSubscription({ period: 'month', date: '', quotaGB: '' });
       navigate(`/clients/${result.client.id}/access`);
     },
     onError: (reason: Error) => setError(reason.message),
@@ -99,7 +104,7 @@ const ClientsTable: React.FC = () => {
   return (
     <section className="relative overflow-hidden rounded-xl border border-neutral-200/70 bg-white shadow-sm">
       {createOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/50 p-4">
-        <form onSubmit={(event) => { event.preventDefault(); setError(''); createMutation.mutate(); }} className="relative w-full max-w-md space-y-4 rounded-2xl bg-white p-6 shadow-xl">
+        <form onSubmit={(event) => { event.preventDefault(); setError(''); createMutation.mutate(); }} className="relative max-h-[90vh] w-full max-w-md space-y-4 overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
           <button type="button" onClick={() => setCreateOpen(false)} className="absolute right-4 top-4 text-neutral-400"><X size={20} /></button>
           <h3 className="text-xl font-semibold">Новый клиент</h3>
           <p className="text-sm text-neutral-500">Будут созданы профили всех включённых протоколов.</p>
@@ -107,6 +112,7 @@ const ClientsTable: React.FC = () => {
           <input required maxLength={64} value={name} onChange={(e) => setName(e.target.value)} placeholder="Имя клиента" className="w-full rounded-lg border p-3" />
           <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Телефон (необязательно)" className="w-full rounded-lg border p-3" />
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Электронная почта (необязательно)" className="w-full rounded-lg border p-3" />
+          <SubscriptionFields value={subscription} onChange={setSubscription} />
           <button disabled={createMutation.isPending} className="w-full rounded-lg bg-emerald-600 px-4 py-3 font-medium text-white disabled:opacity-50">Создать клиента</button>
         </form>
       </div>}
@@ -132,10 +138,10 @@ const ClientsTable: React.FC = () => {
           </tr></thead>
           <tbody className="divide-y divide-neutral-100">
             {clientsQuery.data?.map((client) => <tr key={client.id} className="hover:bg-neutral-50/60">
-              <td className="px-5 py-4"><span className={`inline-flex rounded-full px-2 py-1 text-xs ${client.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-neutral-100 text-neutral-500'}`}>{client.is_active ? 'Работает' : 'Отключён'}</span></td>
-              <td className="px-5 py-4 font-medium text-neutral-800">{client.name}</td>
+              <td className="px-5 py-4"><span className={`inline-flex rounded-full px-2 py-1 text-xs ${client.access_allowed ? 'bg-emerald-50 text-emerald-700' : 'bg-neutral-100 text-neutral-500'}`}>{clientStatus(client.blocked_reason)}</span></td>
+              <td className="px-5 py-4 font-medium text-neutral-800">{client.name}<div className="mt-1 text-xs font-normal text-neutral-500">{formatSubscriptionDate(client.expires_at)}</div></td>
               <td className="px-5 py-4 text-xs text-neutral-500">{client.phone || '—'}<br />{client.email || ''}</td>
-              <td className="px-5 py-4 font-mono text-xs text-neutral-600">{formatTraffic(client.traffic_total)}{client.traffic_limit > 0 ? ` / ${formatTraffic(client.traffic_limit)}` : ''}</td>
+              <td className="px-5 py-4 text-xs text-neutral-600"><div>{formatTraffic(client.monthly_traffic_used)} / {client.monthly_traffic_limit > 0 ? formatTraffic(client.monthly_traffic_limit) : '∞'} за месяц</div><div className="mt-1 text-neutral-400">Всего: {formatTraffic(client.traffic_total)}</div><div className="mt-1 text-neutral-400">Обновление: {formatSubscriptionDate(client.traffic_period_end)}</div></td>
               <td className="px-5 py-4"><div className="flex flex-wrap gap-1">{client.profiles.filter((profile) => profile.is_enabled).map((profile) => <span key={profile.id} className="rounded-md bg-indigo-50 px-2 py-1 text-[10px] text-indigo-700">{translateProfile(profile.kind)}</span>)}</div></td>
               <td className="px-5 py-4"><div className="flex justify-end gap-2"><button onClick={() => navigate(`/clients/${client.id}/access`)} className="rounded-md bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700">Доступ</button><button title="Удалить" onClick={() => deleteMutation.mutate(client.id)} className="rounded p-1.5 text-neutral-400 hover:bg-red-50 hover:text-red-600"><Trash2 size={16} /></button></div></td>
             </tr>)}
