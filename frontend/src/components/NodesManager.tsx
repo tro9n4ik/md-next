@@ -1,6 +1,8 @@
+import Switch from './ui/Switch';
 import React, { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Server, Copy, Check, Plus, Trash2, X, AlertTriangle, ArrowRight, ArrowUp, ArrowDown, Radio, Network } from 'lucide-react';
+import CountryFlag from './ui/CountryFlag';
 import { apiFetch } from '../utils/api';
 
 interface NodeData {
@@ -15,6 +17,7 @@ interface NodeData {
   priority: number;
   ping_ms: number;
   last_seen?: string;
+  country_code?: string | null;
 }
 
 interface FailoverSettings {
@@ -277,9 +280,7 @@ export const NodesManager: React.FC = () => {
           <span className={`sm:ml-auto rounded-full px-2.5 py-1 text-xs font-semibold ${route?.failover_mode === 'auto' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
             Автопереключение: {route?.failover_mode === 'auto' ? 'включено' : 'ручной режим'}
           </span>
-          <button onClick={() => routeCheckMutation.mutate()} disabled={routeCheckMutation.isPending} className="ui-button ui-button-secondary w-full sm:w-auto">
-            {routeCheckMutation.isPending ? 'Проверка…' : 'Проверить внешний IP'}
-          </button>
+
         </div>
         <div className="flex flex-col md:flex-row md:items-stretch gap-2">
           <RouteStep title="Клиент" detail="VPN-профиль" state="ok" />
@@ -326,8 +327,8 @@ export const NodesManager: React.FC = () => {
             <NumberField label="Стабильных проверок для возврата" value={failoverForm.failback_stable_checks} onChange={value => setFailoverForm({ ...failoverForm, failback_stable_checks: value })} />
             <NumberField label="Пауза после переключения, сек" value={failoverForm.cooldown_s} onChange={value => setFailoverForm({ ...failoverForm, cooldown_s: value })} />
             <label className="flex items-center gap-2 text-sm text-neutral-700 sm:pt-6">
-              <input type="checkbox" checked={failoverForm.failback} onChange={e => setFailoverForm({ ...failoverForm, failback: e.target.checked })} />
-              Возвращаться на primary при восстановлении
+              <Switch label="Возвращаться на основную ноду" checked={failoverForm.failback} onChange={checked => setFailoverForm({ ...failoverForm, failback: checked })} />
+              Возвращаться на основную ноду при восстановлении
             </label>
             <label className="text-xs font-medium text-neutral-600">Если все ноды недоступны
               <select className="mt-1 w-full rounded-lg border border-neutral-200 p-2 text-sm" value={failoverForm.fallback_action} onChange={e => setFailoverForm({ ...failoverForm, fallback_action: e.target.value as FailoverSettings['fallback_action'] })}>
@@ -337,9 +338,7 @@ export const NodesManager: React.FC = () => {
           </div>
           <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs text-neutral-500">В ручном режиме watchdog только фиксирует сбои и отправляет уведомления.</p>
-            <button onClick={() => failoverMutation.mutate(failoverForm)} disabled={failoverMutation.isPending} className="ui-button ui-button-primary">
-              {failoverMutation.isPending ? 'Сохранение…' : 'Сохранить'}
-            </button>
+
           </div>
         </section>
       )}
@@ -392,7 +391,7 @@ export const NodesManager: React.FC = () => {
                       {route?.active_node?.id === node.id && ' · Активная'}
                     </span>
                   </td>
-                  <td className="px-4 py-3 font-medium text-neutral-800">{node.name}</td>
+                  <td className="px-4 py-3 font-medium text-neutral-800"><span className="inline-flex items-center gap-2"><CountryFlag code={node.country_code} />{node.name}</span></td>
                   <td className="px-4 py-3 font-mono text-neutral-600">{node.host}</td>
                   <td className="px-4 py-3 text-neutral-500">{node.port} / <span className="uppercase">{node.protocol}</span></td>
                   <td className="px-4 py-3 text-right font-mono text-neutral-500">{node.ping_ms ? `${node.ping_ms} ms` : '-'}</td>
@@ -646,6 +645,11 @@ export const NodesManager: React.FC = () => {
           </div>
         </div>
       )}
+<div className="ui-actionbar"><p className="text-sm text-neutral-500">Настройки резервирования и проверка текущего выхода</p><div className="flex flex-col gap-2 sm:flex-row">          <button onClick={() => routeCheckMutation.mutate()} disabled={routeCheckMutation.isPending} className="ui-button ui-button-secondary w-full sm:w-auto">
+            {routeCheckMutation.isPending ? 'Проверка…' : 'Проверить внешний IP'}
+          </button>{failoverForm && (            <button onClick={() => failoverMutation.mutate(failoverForm)} disabled={failoverMutation.isPending} className="ui-button ui-button-primary">
+              {failoverMutation.isPending ? 'Сохранение…' : 'Сохранить'}
+            </button>)}</div></div>
     </div>
   );
 };

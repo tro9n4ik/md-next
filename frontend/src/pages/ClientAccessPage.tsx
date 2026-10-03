@@ -1,3 +1,4 @@
+import Switch from '../components/ui/Switch';
 import React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -30,7 +31,7 @@ const SubscriptionEditor: React.FC<{ client: AccessData['client']; refresh: () =
       <div className="space-y-2 text-sm text-neutral-600"><p>Состояние: <b>{clientStatus(client.blocked_reason)}</b></p><p>Окончание: <b>{formatSubscriptionDate(client.expires_at)}</b></p><p>За месяц: {formatBytes(client.monthly_traffic_used)} / {client.monthly_traffic_limit ? formatBytes(client.monthly_traffic_limit) : 'без ограничений'}</p><p>Следующее обновление: {formatSubscriptionDate(client.traffic_period_end)}</p></div>
       <form onSubmit={event => { event.preventDefault(); setNotice(''); mutation.mutate(); }} className="space-y-3">
         <SubscriptionFields value={values} onChange={setValues} editing />
-        <button disabled={mutation.isPending} className="ui-button ui-button-primary">Сохранить условия</button>
+        <div className="ui-actionbar"><span className="text-xs text-neutral-500">Изменения применяются ко всем профилям подписки</span><button disabled={mutation.isPending} className="ui-button ui-button-primary">Сохранить условия</button></div>
         {notice && <p role="status" className="text-sm text-neutral-600">{notice}</p>}
       </form>
     </div>
@@ -101,7 +102,7 @@ const ClientAccessPage: React.FC = () => {
   return <PageLayout title={`Доступ: ${data.client.name}`} description="Условия подписки, профили подключения и конфигурации" icon={Users}
     actions={<button onClick={() => navigate('/clients')} className="ui-button ui-button-secondary"><ArrowLeft size={16} />К клиентам</button>}>
     {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
-    <SubscriptionEditor key={`${data.client.id}-${data.client.monthly_traffic_limit}-${data.client.expires_at}`} client={data.client} refresh={refresh} />
+
     {data.profiles.map((profile) => {
       const size = new TextEncoder().encode(profile.data).length;
       const canQr = Boolean(profile.data) && size <= 2900;
@@ -113,7 +114,7 @@ const ClientAccessPage: React.FC = () => {
         </div>
         <div className="min-w-0 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-semibold text-neutral-800">{profile.label}</h2><p className="text-xs text-neutral-500">{profile.is_enabled ? 'Профиль включён' : 'Профиль отключён'}</p></div>
-            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={profile.is_enabled} onChange={(event) => { setError(''); profileMutation.mutate({ profileId: profile.id, action: 'toggle', is_enabled: event.target.checked }); }} /> Включён</label>
+            <label className="flex items-center gap-2 text-sm"><Switch label={`Включить ${profile.label}`} checked={profile.is_enabled} disabled={profileMutation.isPending} onChange={checked => { setError(''); profileMutation.mutate({ profileId: profile.id, action: 'toggle', is_enabled: checked }); }} /> Включён</label>
           </div>
           {!profile.key_available && isAwg ? <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">Ключ недоступен, нажмите «Перевыпустить»</p> : <textarea readOnly value={profile.data} className="h-28 w-full resize-y rounded-lg border bg-neutral-50 p-3 font-mono text-xs text-neutral-700" />}
           <div className="flex flex-wrap gap-2">{profile.data && <CopyButton value={profile.data} />}<button onClick={() => { if (window.confirm('Перевыпустить профиль? Старые данные перестанут работать.')) { setError(''); profileMutation.mutate({ profileId: profile.id, action: 'regenerate' }); } }} className="inline-flex items-center gap-1 rounded-lg border border-amber-200 px-3 py-2 text-xs font-medium text-amber-800 hover:bg-amber-50"><RefreshCw size={14} /> Перевыпустить</button></div>
@@ -124,6 +125,7 @@ const ClientAccessPage: React.FC = () => {
       <div className="flex items-center justify-center rounded-xl bg-neutral-50 p-4">{data.subscription_url && <QRCodeSVG value={data.subscription_url} size={160} level="L" includeMargin />}</div>
       <div className="space-y-3"><h2 className="font-semibold text-neutral-800">Ссылка подписки</h2><p className="text-xs text-neutral-500">В подписку входят включённые VLESS и Hysteria 2. AmneziaWG выдаётся отдельным .conf файлом.</p><textarea readOnly value={data.subscription_url} className="h-20 w-full resize-none rounded-lg border bg-neutral-50 p-3 font-mono text-xs" /><div className="flex flex-wrap gap-2"><CopyButton value={data.subscription_url} /><button onClick={() => { if (window.confirm('Перевыпустить ссылку? Старая ссылка перестанет работать.')) { setError(''); subscriptionMutation.mutate(); } }} className="inline-flex items-center gap-1 rounded-lg border border-amber-200 px-3 py-2 text-xs font-medium text-amber-800 hover:bg-amber-50"><RefreshCw size={14} /> Перевыпустить ссылку</button></div></div>
     </section>
+    <SubscriptionEditor key={`${data.client.id}-${data.client.monthly_traffic_limit}-${data.client.expires_at}`} client={data.client} refresh={refresh} />
   </PageLayout>;
 };
 

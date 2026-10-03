@@ -93,14 +93,7 @@ export const RoutingRules: React.FC = () => {
           </div>
         </div>
 
-        <button
-          onClick={() => applyRulesMutation.mutate()}
-          disabled={applyRulesMutation.isPending}
-          className="ui-button ui-button-primary"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${applyRulesMutation.isPending ? 'animate-spin' : ''}`} />
-          <span>Применить правила</span>
-        </button>
+
       </div>
 
       <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-5 gap-3 mb-6 p-4 bg-neutral-50/50 rounded-xl border border-neutral-100">
@@ -161,7 +154,7 @@ export const RoutingRules: React.FC = () => {
         </div>
       </form>
       {(createRuleMutation.isError || applyRulesMutation.isError) && <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{(createRuleMutation.error || applyRulesMutation.error as Error)?.message}</p>}
-      {applyRulesMutation.isSuccess && <p className="mb-4 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700">{applyRulesMutation.data?.message || "Rules applied"}</p>}
+      {applyRulesMutation.isSuccess && <p className="mb-4 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700">{applyRulesMutation.data?.message || "Правила применены"}</p>}
 
       <div className="overflow-x-auto">
         <table className="w-full text-xs text-left">
@@ -206,6 +199,14 @@ export const RoutingRules: React.FC = () => {
           </tbody>
         </table>
       </div>
+<div className="ui-actionbar mt-6"><p className="text-sm text-neutral-500">Применить сохранённые правила к подключённым клиентам</p>        <button
+          onClick={() => applyRulesMutation.mutate()}
+          disabled={applyRulesMutation.isPending}
+          className="ui-button ui-button-primary"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${applyRulesMutation.isPending ? 'animate-spin' : ''}`} />
+          <span>Применить правила</span>
+        </button></div>
     </div>
   );
 };

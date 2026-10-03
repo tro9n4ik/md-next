@@ -16,6 +16,7 @@ from app.models.setting import Setting
 from app.services.telegram_settings import get_telegram_settings_from_db
 from app.services.client_service import ClientService
 from app.services.cluster import apply_active_node
+from . import subscriptions
 
 router = Router()
 
@@ -29,7 +30,8 @@ def keyboard(*rows):
 
 def main_menu():
     return keyboard(
-        [("📊 Статус", "md:status"), ("👥 Клиенты", "md:clients")],
+        [("➕ Новая подписка", "sub:new")],
+        [("📋 Подписки", "md:clients"), ("📊 Статус", "md:status")],
         [("🌐 Ноды", "md:nodes"), ("❔ Помощь", "md:help")],
     )
 
@@ -109,8 +111,9 @@ async def check_admin_middleware(handler, event, data):
 @router.message(CommandStart())
 @router.message(Command("menu"))
 async def cmd_start(message: Message):
+    subscriptions.drafts.pop((message.from_user.id, message.chat.id), None)
     await show_screen(message, "<b>MD-Next · Панель управления</b>\n\n"
-                      "Управляйте клиентами и выходом в интернет.\nВыберите раздел ниже 👇", main_menu())
+                      "Подписки, сроки, трафик и выход через ноды.\nВыберите раздел ниже 👇", main_menu())
 
 
 @router.message(Command("status"))
@@ -177,12 +180,12 @@ async def cmd_failover(message: Message):
 
 @router.message(Command("add_vless"))
 async def cmd_add_vless(message: Message):
-    await create_client(message, message.from_user.id, "vless")
+    await subscriptions.start(message, message.from_user.id)
 
 
 @router.message(Command("add_awg"))
 async def cmd_add_awg(message: Message):
-    await create_client(message, message.from_user.id, "awg")
+    await subscriptions.start(message, message.from_user.id)
 
 
 async def create_client(message, actor_id, kind):
@@ -238,6 +241,7 @@ async def nodes_screen(message):
 async def menu_callback(callback: CallbackQuery):
     action = callback.data
     message = callback.message
+    subscriptions.drafts.pop((callback.from_user.id, message.chat.id), None)
     if action.startswith("md:confirm:"):
         pending = consume_action(callback)
         if not pending:
@@ -273,12 +277,9 @@ async def menu_callback(callback: CallbackQuery):
     elif action == "md:status":
         await show_screen(message, await status_text(), keyboard([("🔄 Обновить", "md:status")], [("🏠 Главное меню", "md:home")]), edit=True)
     elif action == "md:clients":
-        await show_screen(message, "<b>👥 Новый клиент</b>\n\nВыберите протокол. Бот создаст клиента и отправит данные подключения.", keyboard(
-            [("🔐 VLESS · QR-код", "md:new:vless")], [("🛡 AmneziaWG · файл", "md:new:awg")], [("🏠 Главное меню", "md:home")]), edit=True)
+        await subscriptions.listing(message)
     elif action in ("md:new:vless", "md:new:awg"):
-        kind = action.split(":")[-1]
-        await show_screen(message, f"<b>👥 Создать клиента {'VLESS' if kind == 'vless' else 'AmneziaWG'}?</b>\n\n"
-                          "Клиент появится в панели. Данные подключения будут отправлены в этот диалог.", prepare_action(callback, kind), edit=True)
+        await subscriptions.start(message, callback.from_user.id, edit=True)
     elif action == "md:nodes":
         await nodes_screen(message)
     elif action.startswith("md:node:"):
@@ -296,9 +297,9 @@ async def menu_callback(callback: CallbackQuery):
                               "Маршрут клиентов изменится. Подключения могут кратковременно прерваться.", prepare_action(callback, "node", node.id), edit=True)
     elif action == "md:help":
         await show_screen(message, "<b>❔ Возможности бота</b>\n\n"
-                          "📊 Состояние нод и текущий выход\n👥 Создание клиентов и выдача подключения\n🌐 Переключение выхода клиентов\n🔔 Уведомления о сбоях и лимитах\n\n"
-                          "<b>Команды</b>\n/menu — открыть меню\n/status — состояние\n/failover — следующая активная нода\n/add_vless — создать VLESS\n/add_awg — создать AmneziaWG\n\n"
-                          "Настройки бота, сроки подписки и лимиты изменяются в панели MD-Next. Подтверждения действуют 2 минуты.", back_menu(), edit=True)
+                          "📋 Список подписок и карточки доступа\n➕ Мастер: имя, телефон, почта, срок и трафик\n🔗 Ссылка подписки и QR-код\n🛡 Файл AmneziaWG\n📊 Состояние и выбор выхода\n🔔 Уведомления о сбоях и лимитах\n\n"
+                          "<b>Команды</b>\n/menu — меню\n/subscriptions — подписки\n/new_subscription — новая подписка\n/status — состояние\n/failover — следующая нода\n\n"
+                          "Телефон и почту можно пропустить. Месячный трафик по умолчанию без ограничений. Создание требует подтверждения; черновик хранится 15 минут. /add_vless и /add_awg открывают мастер подписки.", back_menu(), edit=True)
     else:
         await show_screen(message, "Кнопка устарела. Откройте меню заново.", back_menu(), edit=True)
 
@@ -317,3 +318,6 @@ async def notify_admin(bot, text: str, notification_type: str = "failover"):
             await bot.send_message(admin_id, f"⚠️ *ВНИМАНИЕ*\n\n{text}", parse_mode="Markdown")
         except Exception as e:
             logging.error(f"Не удалось отправить уведомление Telegram: {e}")
+
+
+subscriptions.register(router)
