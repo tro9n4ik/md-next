@@ -11,6 +11,7 @@ class Node(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True, nullable=False)
     host = Column(String, nullable=False)
+    country_code = Column(String(2), nullable=True)
     port = Column(Integer, nullable=False)
     protocol = Column(String, nullable=False) # 'vless' или 'trojan'
     public_key = Column(String, nullable=True) # Публичный ключ для Reality

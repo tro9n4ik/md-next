@@ -18,19 +18,19 @@ const DashboardBottom: React.FC = () => {
   return <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
     <section className="flex h-96 flex-col overflow-hidden ui-card">
       <div className="flex items-center gap-2 border-b border-neutral-100 px-5 py-4"><TerminalSquare className="h-4 w-4 text-neutral-500" /><h3 className="text-sm font-semibold text-neutral-800">Последние события</h3></div>
-      <div className="flex-1 space-y-2 overflow-y-auto p-4">
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
         {events.isLoading && <p className="p-3 text-sm text-neutral-500">Загрузка событий…</p>}
         {!events.isLoading && (events.data || []).length === 0 && <p className="p-3 text-sm text-neutral-500">Событий пока нет</p>}
-        {events.data?.map(event => <div key={event.id} className="flex items-start gap-3 rounded-xl border border-neutral-100 p-3">
+        {events.data?.map(event => <div key={event.id} className="flex flex-col items-start gap-2 sm:flex-row sm:gap-3 rounded-xl border border-neutral-100 p-3">
           <span className={`mt-0.5 rounded-md px-2 py-1 text-[10px] font-semibold uppercase ${levelClass[event.level]}`}>{event.level === 'info' ? 'Информация' : event.level === 'warning' ? 'Предупреждение' : 'Ошибка'}</span>
           <div className="min-w-0 flex-1"><p className="text-sm text-neutral-800">{event.message}</p><p className="mt-1 text-xs text-neutral-400">{formatDateTime(event.ts)} · {translateCategory(event.category)}</p></div>
         </div>)}
       </div>
     </section>
 
-    <section className="ui-card ui-panel">
-      <div className="mb-4 flex items-center gap-2 border-b border-neutral-100 pb-3"><Activity className="h-4 w-4 text-neutral-500" /><h3 className="text-sm font-semibold text-neutral-800">Состояние сервера</h3></div>
-      <div className="max-h-[21rem] space-y-2 overflow-y-auto">
+    <section className="flex h-96 flex-col overflow-hidden ui-card">
+      <div className="flex items-center gap-2 border-b border-neutral-100 px-5 py-4"><Activity className="h-4 w-4 text-neutral-500" /><h3 className="text-sm font-semibold text-neutral-800">Состояние сервера</h3></div>
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
         {health.isLoading && <p className="p-3 text-sm text-neutral-500">Проверка компонентов…</p>}
         {health.data?.checks.map(check => { const Icon = StatusIcon(check.status); return <div key={check.key} className="flex items-start justify-between gap-3 rounded-xl bg-neutral-50 p-3"><div className="flex min-w-0 items-start gap-3"><Icon className={`mt-0.5 h-4 w-4 shrink-0 ${check.status === 'ok' ? 'text-emerald-600' : check.status === 'error' ? 'text-red-600' : 'text-amber-600'}`} /><div className="min-w-0"><p className="text-sm font-medium text-neutral-800">{check.name}</p><p className="text-xs text-neutral-500">{check.description}</p></div></div><span className={`shrink-0 rounded-md px-2 py-1 text-xs font-medium ${statusClass[check.status] || 'text-neutral-600 bg-neutral-100'}`}>{translateStatus(check.status)}</span></div>; })}
       </div>

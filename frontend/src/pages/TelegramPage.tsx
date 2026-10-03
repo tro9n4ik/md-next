@@ -3,20 +3,25 @@ import PageLayout from '../components/ui/PageLayout';
 import { TelegramSettings } from '../components/TelegramSettings';
 
 export default function TelegramPage() {
-  return <PageLayout title="Telegram-бот" description="Подключение, выход через ноду и уведомления администратора" icon={Send}>
-    <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+  return <PageLayout title="Telegram-бот" description="Подписки, инлайн-меню, выход через ноду и уведомления" icon={Send}>
+    <section className="ui-card ui-panel grid gap-5 md:grid-cols-2">
+      <div><h2 className="ui-card-title mb-3">Управление из Telegram</h2>
+        <p className="text-sm leading-6 text-neutral-600">Подписки с контактами, сроком и месячным трафиком. Перед созданием — итоговая карточка. В списке — состояние, расход и данные подключения.</p>
+        <details className="mt-3 text-sm"><summary className="cursor-pointer font-medium text-emerald-700">Команды и возможности</summary>
+          <dl className="mt-3 space-y-2 text-neutral-600">
+            <div><dt className="font-mono text-neutral-800">/menu</dt><dd>Главное меню.</dd></div>
+            <div><dt className="font-mono text-neutral-800">/new_subscription</dt><dd>Имя, телефон, почта, срок и лимит. Контакты можно пропустить.</dd></div>
+            <div><dt className="font-mono text-neutral-800">/subscriptions</dt><dd>Карточки подписок, ссылка с QR-кодом и файл AmneziaWG.</dd></div>
+            <div><dt className="font-mono text-neutral-800">/status · /failover</dt><dd>Состояние и переключение выхода.</dd></div>
+          </dl>
+          <p className="mt-3 text-xs text-neutral-500">Трафик по умолчанию без ограничений. Месячный период — от даты создания. /add_vless и /add_awg также открывают мастер.</p>
+        </details>
+      </div>
+      <div aria-label="Предпросмотр меню бота" className="grid grid-cols-2 gap-2 rounded-xl bg-neutral-50 p-4 text-center text-sm text-emerald-900">
+        <span className="col-span-2 rounded-lg bg-emerald-100 p-3">➕ Новая подписка</span>
+        {['📋 Подписки', '📊 Статус', '🌐 Ноды', '❔ Помощь'].map(item => <span key={item} className="rounded-lg bg-emerald-100 p-3">{item}</span>)}
+      </div>
+    </section>
     <TelegramSettings />
-    <div className="ui-card ui-panel">
-      <h3 className="font-bold mb-3">Что умеет бот</h3>
-      <dl className="text-sm space-y-3">
-        <div><dt className="font-mono">/start · /menu</dt><dd className="text-neutral-500">Инлайн-меню: статус, клиенты, выбор ноды и помощь. Создание клиента и переключение требуют подтверждения.</dd></div>
-        <div><dt className="font-mono">/status</dt><dd className="text-neutral-500">Текущий выход и состояние нод.</dd></div>
-        <div><dt className="font-mono">/failover</dt><dd className="text-neutral-500">Переключение клиентов на другую активную ноду.</dd></div>
-        <div><dt className="font-mono">/add_vless</dt><dd className="text-neutral-500">Создание VLESS-клиента: ссылка подключения и QR-код.</dd></div>
-        <div><dt className="font-mono">/add_awg</dt><dd className="text-neutral-500">Создание AmneziaWG-клиента: файл конфигурации.</dd></div>
-      </dl>
-      <p className="text-xs text-neutral-500 mt-4">Уведомления: недоступность ноды, автоматическое переключение выхода и отключение клиента при превышении лимита трафика. Управление сроками подписки, оплатами и месячными лимитами через команды бота пока не реализовано.</p>
-    </div>
-    </div>
   </PageLayout>;
 }

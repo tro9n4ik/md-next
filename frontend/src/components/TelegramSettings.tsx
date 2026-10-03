@@ -1,3 +1,4 @@
+import Switch from './ui/Switch';
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Send, Check, AlertCircle, Loader2 } from 'lucide-react';
@@ -146,9 +147,7 @@ const TelegramForm: React.FC<{ tgSettings: TelegramSettings; tgMessage: Telegram
               <div className="p-4 bg-neutral-50 border border-neutral-200 rounded-xl space-y-3">
                 <label className="flex items-center justify-between cursor-pointer gap-3">
                   <span className="text-sm font-semibold">Работать через ноду</span>
-                  <button type="button" role="switch" aria-checked={useNode} aria-label="Работать через ноду" onClick={() => setUseNode(!useNode)} className={`relative h-6 w-11 rounded-full transition-colors ${useNode ? 'bg-emerald-600' : 'bg-neutral-300'}`}>
-                    <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${useNode ? 'left-5.5' : 'left-0.5'}`} />
-                  </button>
+                  <Switch label="Работать через ноду" checked={useNode} onChange={setUseNode} />
                 </label>
                 <p className="text-xs text-neutral-500">Запросы и уведомления бота выходят через выбранную ноду. Маршруты клиентов остаются прежними. При сбое ноды прямой выход автоматически не включается.</p>
                 {useNode && <>
@@ -200,31 +199,21 @@ const TelegramForm: React.FC<{ tgSettings: TelegramSettings; tgMessage: Telegram
               <div className="pt-2 border-t border-neutral-100 space-y-2">
                 <label className="block text-xs font-semibold text-neutral-500 uppercase mb-1">Типы уведомлений</label>
                 <label className="flex items-center space-x-2 text-xs text-neutral-700 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={notifyNodeDown}
-                    onChange={(e) => setNotifyNodeDown(e.target.checked)}
-                    className="rounded border-neutral-300 text-emerald-600 focus:ring-emerald-500"
-                  />
+                  <Switch label="Нода недоступна" checked={notifyNodeDown} onChange={setNotifyNodeDown} />
                   <span>Нода недоступна</span>
                 </label>
                 <label className="flex items-center space-x-2 text-xs text-neutral-700 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={notifyFailover}
-                    onChange={(e) => setNotifyFailover(e.target.checked)}
-                    className="rounded border-neutral-300 text-emerald-600 focus:ring-emerald-500"
-                  />
+                  <Switch label="Переключение на другую ноду" checked={notifyFailover} onChange={setNotifyFailover} />
                   <span>Переключение на другую ноду (Failover)</span>
                 </label>
               </div>
 
               <label className="flex cursor-pointer items-center space-x-2 text-xs text-neutral-700">
-                <input type="checkbox" checked={notifyQuota} onChange={(e) => setNotifyQuota(e.target.checked)} className="rounded border-neutral-300 text-emerald-600 focus:ring-emerald-500" />
+                <Switch label="Превышение лимита трафика" checked={notifyQuota} onChange={setNotifyQuota} />
                 <span>Отключение клиента при превышении лимита трафика</span>
               </label>
 
-              <div className="flex flex-wrap items-center gap-3 pt-2">
+              <div className="ui-actionbar mt-6">
                 <button
                   type="submit"
                   disabled={saveTgMutation.isPending || (useNode && (!nodeId || !!nodesError))}

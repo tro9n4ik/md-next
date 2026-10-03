@@ -240,8 +240,9 @@ async def get_system_health(db: AsyncSession = Depends(get_db)):
     else:
         try:
             state = await asyncio.wait_for(WarpService.status(db), timeout=8)
-            connected = state.get("installed") and state.get("service_active") and state.get("state") == "Connected"
-            checks.append({"key": "warp", "name": "WARP", "status": "ok" if connected else "warning", "description": "Подключён" if connected else "Не подключён"})
+            connected = state.get("installed") and (state.get("remote") or state.get("service_active")) and state.get("state") == "Connected"
+            description = (f"Подключён через {state.get('name', 'ноду')}" if state.get("remote") else "Подключён") if connected else "Не подключён"
+            checks.append({"key": "warp", "name": "WARP", "status": "ok" if connected else "warning", "description": description})
         except Exception as exc:
             checks.append({"key": "warp", "name": "WARP", "status": "warning", "description": f"Статус недоступен ({type(exc).__name__})"})
 
