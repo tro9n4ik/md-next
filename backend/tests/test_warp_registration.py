@@ -8,7 +8,7 @@ import pytest
 from app.models.node import Node
 from app.models.setting import Setting
 from app.services.warp import WarpService
-from app.services.warp_registration import COMMENT, cleanup, node_config
+from app.services.warp_registration import COMMENT, cleanup, close_servers, node_config
 from conftest import TestingSessionLocal
 
 
@@ -47,3 +47,30 @@ async def test_register_uses_selected_node_and_preserves_existing_registration()
              patch.object(WarpService, "_register_via_node", new=AsyncMock()) as register:
             assert (await WarpService.register(db))[0]
             register.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_cancels_active_connections_before_waiting_for_server():
+    import asyncio
+    connections = set()
+    accepted = asyncio.Event()
+
+    async def relay(reader, writer):
+        task = asyncio.current_task()
+        connections.add(task)
+        accepted.set()
+        try:
+            await reader.read()
+        finally:
+            writer.close()
+            connections.discard(task)
+
+    server = await asyncio.start_server(relay, "127.0.0.1", 0)
+    _, writer = await asyncio.open_connection("127.0.0.1", server.sockets[0].getsockname()[1])
+    try:
+        await accepted.wait()
+        await asyncio.wait_for(close_servers((server,), connections), 1)
+        assert not connections
+    finally:
+        writer.close()
+        await writer.wait_closed()
