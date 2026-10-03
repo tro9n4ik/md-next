@@ -71,10 +71,13 @@ class ClientService:
             elif profile.kind == "hysteria2" and profile.auth:
                 hysteria_clients.append({"auth": profile.auth, "email": email})
 
-        stored_settings = (await db.execute(select(Setting).where(Setting.key.in_(["warp.usage", "warp.proxy_port"])))).scalars().all()
+        stored_settings = (await db.execute(select(Setting).where(Setting.key.in_(["warp.usage", "warp.proxy_port", "warp.node_id", "warp.node_port"])))).scalars().all()
         setting_values = {item.key: item.value for item in stored_settings}
         warp_usage = setting_values.get("warp.usage", "off")
         warp_port = int(setting_values.get("warp.proxy_port", "40000"))
+        warp_node_id = int(setting_values["warp.node_id"]) if setting_values.get("warp.node_id") else None
+        if warp_node_id:
+            warp_port = int(setting_values.get("warp.node_port", "40000"))
         failover_rows = (await db.execute(select(Setting).where(Setting.key.like("failover.%")))).scalars().all()
         failover_values = {row.key.removeprefix("failover."): row.value for row in failover_rows}
         # fallback_action=keep запрещает выпускать клиентов через реальный IP мастер-сервера,
@@ -86,6 +89,8 @@ class ClientService:
         node_rows = (await db.execute(select(Node).where(Node.is_enabled.is_(True)).order_by(Node.id))).scalars().all()
         nodes_by_id = {node.id: node for node in node_rows}
         try:
+            if warp_usage != "off" and warp_node_id and (warp_node_id not in nodes_by_id or not nodes_by_id[warp_node_id].secret):
+                raise ValueError("Выбранная нода WARP отключена или отсутствует; переключите выход WARP")
             xray_routing_rules = [to_xray_rule(rule, nodes_by_id) for rule in routing_rules]
             if warp_usage == "off" and any(rule.action == "warp" for rule in routing_rules):
                 raise ValueError("Включите использование WARP (по правилам или для всего трафика), чтобы применить правила WARP")
@@ -117,6 +122,7 @@ class ClientService:
             "tls_key": os.getenv("TLS_KEY_PATH", "/etc/letsencrypt/live/" + os.getenv("SERVER_HOST", "") + "/privkey.pem"),
             "warp_usage": warp_usage,
             "warp_port": warp_port,
+            "warp_node_id": warp_node_id,
             "node_fallback_tag": node_fallback_tag,
             "unavailable_selected_node": use_stored_node and active_node is None and bool(selected_setting and (selected_setting.value or "").isdecimal()),
             "routing_rules": xray_routing_rules,
