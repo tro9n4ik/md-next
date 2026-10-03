@@ -61,3 +61,22 @@ async def test_awg_policy_failure_restores_previous_xray_config(tmp_path):
         ok, _ = await XrayService.apply_config([], config_path=str(target), profile_options={'awg_routing': True})
     assert not ok
     assert json.loads(target.read_text()) == {'previous':True}
+
+
+@pytest.mark.asyncio
+async def test_validation_does_not_reopen_running_tun(tmp_path):
+    target = tmp_path/'xray.json'
+    tested = []
+    async def command(*args, **kwargs):
+        if '-test' in args:
+            payload = json.loads(Path(args[-1]).read_text())
+            name = next(i['settings']['name'] for i in payload['inbounds'] if i['protocol'] == 'tun')
+            tested.append(name)
+            return (1, '', 'device busy') if name == 'mdawg' else (0, '', '')
+        return 0, 'active', ''
+    with patch.dict('os.environ', {'XRAY_PRIVATE_KEY':'private','XRAY_SERVER_NAME':'example.com'}), \
+         patch('app.services.xray.run_cmd', side_effect=command), \
+         patch('app.services.xray.sync_awg_routing'):
+        ok, _ = await XrayService.apply_config([], config_path=str(target), profile_options={'awg_routing': True})
+    assert ok and len(tested) == 1 and tested[0] != 'mdawg'
+    assert next(i['settings']['name'] for i in json.loads(target.read_text())['inbounds'] if i['protocol'] == 'tun') == 'mdawg'
