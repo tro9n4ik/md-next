@@ -30,16 +30,17 @@ _PRESETS: List[WarpPreset] = [
         key="gemini",
         title="Gemini и Google AI Studio",
         description=(
-            "Gemini в веб-интерфейсе и Google AI Studio вместе с API generativelanguage. "
-            "Нужен для доступа к Google AI из регионов, где Google ограничивает аккаунты."
+            "Gemini, Google AI Studio и службы Google используют единый выход WARP, "
+            "включая авторизацию, API и загрузку ресурсов. Пресет также направляет "
+            "через WARP другие сервисы на этих доменах Google. Доступность зависит от "
+            "того, как Google определяет регион выхода и условия аккаунта."
         ),
         domains=[
-            "generativelanguage.googleapis.com",
-            "aiplatform.googleapis.com",
-            "gemini.google.com",
-            "bard.google.com",
-            "clients6.google.com",
-            "sheets.googleapis.com",
+            "google.com",
+            "googleapis.com",
+            "googleusercontent.com",
+            "gstatic.com",
+            "gemini.app.google",
         ],
     ),
     WarpPreset(

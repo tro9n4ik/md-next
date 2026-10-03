@@ -17,11 +17,25 @@ def test_every_preset_key_is_unique_and_ordered():
 
 
 def test_presets_cover_requested_services():
-    joined = " ".join(
+    domains = [
         domain for preset in PRESETS.values() for domain in preset.domains
-    )
-    for needle in ("generativelanguage.googleapis.com", "openai.com", "anthropic.com", "perplexity.ai", "x.ai"):
-        assert needle in joined
+    ]
+    for host in ("generativelanguage.googleapis.com", "openai.com", "anthropic.com", "perplexity.ai", "x.ai"):
+        assert any(host == domain or host.endswith('.' + domain) for domain in domains)
+
+
+def test_gemini_auth_api_and_resources_share_warp_domains():
+    # Эти службы видны в действительных ответах Gemini/AI Studio и участвуют
+    # в авторизации приложения. Основная страница одна не подтверждает доступ.
+    domains = PRESETS["gemini"].domains
+    for host in ("gemini.google.com", "aistudio.google.com", "accounts.google.com",
+                 "myaccount.google.com", "www.google.com", "oauth2.googleapis.com",
+                 "content.googleapis.com", "generativelanguage.googleapis.com",
+                 "geminiweb-pa.clients6.google.com", "alkalimakersuite-pa.clients6.google.com",
+                 "gemini.gstatic.com", "fonts.gstatic.com", "lh3.googleusercontent.com",
+                 "gemini.app.google"):
+        assert any(host == domain or host.endswith('.' + domain) for domain in domains), host
+    assert not any("evilgoogle.com" == domain or "evilgoogle.com".endswith('.' + domain) for domain in domains)
 
 
 def test_domains_are_deduplicated_within_a_preset():
