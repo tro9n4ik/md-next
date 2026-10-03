@@ -74,6 +74,20 @@ class WarpService:
 
     @classmethod
     async def status(cls, db: AsyncSession) -> dict[str, Any]:
+        target = await cls.target(db)
+        if target["node_id"]:
+            try:
+                trace = await cls.test_target(db)
+                ready = trace["warp"] in {"on", "plus"}
+                country_ok = not target["expected_country"] or trace["country"] == target["expected_country"]
+                return {**target, **trace, "remote": True, "installed": True,
+                        "service_active": None, "registered": None, "mode": "proxy",
+                        "state": "Connected" if ready and country_ok else "Disconnected",
+                        "instruction": None if ready and country_ok else "Выход ноды не прошёл проверку WARP или страны."}
+            except (ValueError, RuntimeError, OSError, httpx.HTTPError, TimeoutError):
+                return {**target, "remote": True, "installed": True, "service_active": None,
+                        "registered": None, "mode": "proxy", "state": "Disconnected",
+                        "instruction": "WARP выбранной ноды недоступен. Проверьте warp-svc на ноде; резервный выход через российский сервер не используется."}
         cli = cls.cli_path()
         if not cli:
             return {
@@ -100,6 +114,26 @@ class WarpService:
         if status_code != 0:
             parsed["state"] = "Disconnected"
         return parsed
+
+    @classmethod
+    async def target(cls, db: AsyncSession) -> dict[str, Any]:
+        rows = (await db.execute(select(Setting).where(Setting.key.in_(
+            ["warp.node_id", "warp.node_port", "warp.expected_country"])))).scalars().all()
+        values = {row.key: row.value for row in rows}
+        node_id = int(values["warp.node_id"]) if values.get("warp.node_id") else None
+        node = await db.get(Node, node_id) if node_id else None
+        return {"node_id": node_id, "name": node.name if node else "Сервер панели",
+                "port": int(values.get("warp.node_port", "40000")) if node_id else await cls.get_port(db),
+                "expected_country": values.get("warp.expected_country", "")}
+
+    @classmethod
+    async def test_target(cls, db: AsyncSession, target: dict | None = None) -> dict[str, str]:
+        target = target if target is not None else await cls.target(db)
+        if not target["node_id"]:
+            return await cls.test_proxy(target["port"])
+        from app.services.warp_node import test_node_proxy
+        node = await db.get(Node, target["node_id"])
+        return await test_node_proxy(node, target["port"], cls.test_proxy)
 
     @classmethod
     async def get_port(cls, db: AsyncSession, fallback: Optional[int] = None) -> int:
@@ -226,6 +260,17 @@ class WarpService:
     async def setup_warp_proxy(cls, db: AsyncSession) -> tuple[bool, str]:
         """Включает бесплатный WARP через SOCKS5, сохраняя существующую регистрацию."""
         async with _setup_lock:
+            target = await cls.target(db)
+            if target["node_id"]:
+                try:
+                    trace = await cls.test_target(db, target)
+                    if trace["warp"] not in {"on", "plus"}:
+                        return False, "Выход ноды работает без WARP. Подключите warp-svc на ноде."
+                    if target["expected_country"] and trace["country"] != target["expected_country"]:
+                        return False, "Страна выхода WARP не совпадает с выбранной. Маршрут сохранён без изменений."
+                    return True, f"WARP ноды «{target['name']}» проверен: {trace['country']}. Выберите готовые правила."
+                except (ValueError, RuntimeError, OSError, httpx.HTTPError, TimeoutError):
+                    return False, "Не удалось проверить WARP ноды. Установите и подключите cloudflare-warp на ноде в режиме proxy."
             return await cls._setup_warp_proxy(db)
 
     @classmethod
