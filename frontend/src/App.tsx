@@ -54,9 +54,9 @@ const App: React.FC = () => {
 
   return (
     <HashRouter>
-      <div className="flex min-h-screen bg-[#f4f5f7]">
+      <div className="app-shell">
         <Sidebar onLogout={handleLogout} />
-        <main className="flex-1 p-4 lg:p-8 overflow-y-auto min-w-0">
+        <main className="app-main" id="main-content">
           <Suspense fallback={<PageSkeleton />}>
             <Routes>
               <Route path="/" element={<DashboardPage />} />

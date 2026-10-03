@@ -1,6 +1,7 @@
 import React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Globe2, Loader2, Save, ShieldCheck } from 'lucide-react';
+import PageLayout from '../components/ui/PageLayout';
 import { apiFetch } from '../utils/api';
 
 type DnsSettings = {
@@ -20,7 +21,7 @@ const defaults: DnsSettings = {
   domain_strategy: 'IPIfNonMatch', fake_dns: false,
 };
 
-const card = 'rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm';
+const card = 'ui-card ui-panel';
 const input = 'mt-1 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2.5 text-sm text-neutral-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10';
 const label = 'block text-xs font-semibold text-neutral-600';
 
@@ -77,11 +78,7 @@ const DnsPage: React.FC = () => {
   if (query.isLoading) return <div className={`${card} text-sm text-neutral-500`}>Загрузка настроек DNS…</div>;
   if (query.isError && !query.data) return <div className={`${card} text-sm text-red-700`}>{(query.error as Error).message}</div>;
 
-  return <div className="mx-auto max-w-5xl space-y-6">
-    <header>
-      <h2 className="text-2xl font-bold tracking-tight text-neutral-900">DNS</h2>
-      <p className="mt-1 text-sm text-neutral-500">DNS-профиль Happ будет передаваться вместе с подпиской. Он задаёт удалённый и локальный DNS для маршрутизации.</p>
-    </header>
+  return <PageLayout title="DNS" description="Удалённый и локальный DNS для профилей Happ и клиентской маршрутизации" icon={Globe2}>
     <section className={card}>
       <div className="mb-5 flex items-center gap-3"><Globe2 className="h-5 w-5 text-sky-600" /><div><h3 className="font-bold text-neutral-900">Удалённый DNS</h3><p className="mt-1 text-xs text-neutral-500">Используется Happ для запросов сайтов, которые идут через прокси.</p></div></div>
       {dnsFields('remote_type', 'remote_domain', 'remote_ip')}
@@ -106,14 +103,14 @@ const DnsPage: React.FC = () => {
       </div>
     </section>
     {notice && <div className={`rounded-xl border px-4 py-3 text-sm ${notice.error ? 'border-red-200 bg-red-50 text-red-700' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>{notice.text}</div>}
-    <div className="sticky bottom-4 flex items-center justify-between gap-4 rounded-2xl border border-neutral-200 bg-white/95 p-4 shadow-lg backdrop-blur">
+    <div className="ui-actionbar sticky bottom-4">
       <p className="text-xs leading-5 text-neutral-500">Профиль DNS передаётся Happ через заголовок подписки `routing`; ссылки VLESS остаются совместимыми с другими клиентами.</p>
-      <button disabled={save.isPending} onClick={() => { setNotice(null); save.mutate(); }} className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
+      <button disabled={save.isPending} onClick={() => { setNotice(null); save.mutate(); }} className="ui-button ui-button-primary shrink-0">
         {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : notice && !notice.error ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
         {save.isPending ? 'Сохранение…' : 'Сохранить'}
       </button>
     </div>
-  </div>;
+  </PageLayout>;
 };
 
 export default DnsPage;
