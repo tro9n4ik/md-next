@@ -10,7 +10,7 @@ export default function TelegramPage() {
     <div className="max-w-3xl bg-white border border-neutral-200 rounded-xl p-6">
       <h3 className="font-bold mb-3">Что умеет бот</h3>
       <dl className="text-sm space-y-3">
-        <div><dt className="font-mono">/start</dt><dd className="text-neutral-500">Справка по командам.</dd></div>
+        <div><dt className="font-mono">/start · /menu</dt><dd className="text-neutral-500">Инлайн-меню: статус, клиенты, выбор ноды и помощь. Создание клиента и переключение требуют подтверждения.</dd></div>
         <div><dt className="font-mono">/status</dt><dd className="text-neutral-500">Текущий выход и состояние нод.</dd></div>
         <div><dt className="font-mono">/failover</dt><dd className="text-neutral-500">Переключение клиентов на другую активную ноду.</dd></div>
         <div><dt className="font-mono">/add_vless</dt><dd className="text-neutral-500">Создание VLESS-клиента: ссылка подключения и QR-код.</dd></div>
