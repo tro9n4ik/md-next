@@ -297,7 +297,7 @@ export const NodesManager: React.FC = () => {
           <RouteStep title="Интернет" detail="Выходной трафик Xray" state="ok" />
         </div>
         <p className="mt-4 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-800">
-          Переключение выходной ноды влияет только на клиентов Xray. AmneziaWG всегда выходит напрямую с мастер-сервера.
+          Выбранная нода используется клиентами Xray и AmneziaWG. Правила маршрутизации и WARP применяются к обоим типам подключения.
           Проверка внешнего IP выполняется с сервера через текущий маршрут Xray и не заменяет проверку соединения на устройстве.
           {route?.next_candidate && <> Следующий кандидат: <b>{route.next_candidate.name}</b> ({route.next_candidate.ip}, {route.next_candidate.ping_ms} мс).</>}
           {route?.manual_direct && <> Прямой выход выбран вручную и не будет автоматически заменён нодой.</>}
