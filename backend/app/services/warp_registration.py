@@ -33,6 +33,20 @@ def cleanup() -> None:
                 subprocess.run([binary, "-w", "5", "-t", "nat", "-D", *args[1:]], check=True, timeout=10)
 
 
+async def close_servers(servers, connections) -> None:
+    """Сначала завершить соединения: wait_closed ожидает также их закрытия."""
+    for server in servers:
+        if server:
+            server.close()
+    pending = list(connections)
+    for task in pending:
+        task.cancel()
+    await asyncio.gather(*pending, return_exceptions=True)
+    for server in servers:
+        if server:
+            await server.wait_closed()
+
+
 def node_config(config: dict, node_id: int, port: int) -> dict:
     outbound = next((item for item in config.get("outbounds", []) if item.get("tag") == f"node-{node_id}"), None)
     if not outbound or outbound.get("protocol") not in {"trojan", "vless"}:
@@ -79,6 +93,7 @@ async def register(node_id: int, config_path: Path) -> int:
     connections = set()
     xray = None
     server = None
+    ipv6_server = None
 
     async def relay(reader, writer):
         task = asyncio.current_task()
@@ -160,15 +175,9 @@ async def register(node_id: int, config_path: Path) -> int:
             finally:
                 if ipv6_server:
                     ipv6_server.close()
-                    await ipv6_server.wait_closed()
     finally:
         cleanup()
-        if server:
-            server.close()
-            await server.wait_closed()
-        for task in list(connections):
-            task.cancel()
-        await asyncio.gather(*list(connections), return_exceptions=True)
+        await close_servers((server, ipv6_server), connections)
         if xray and xray.returncode is None:
             xray.terminate()
             try:
