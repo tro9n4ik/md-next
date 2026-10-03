@@ -1,19 +1,8 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Send, Check, AlertCircle, Loader2, ShieldCheck, ShieldOff, KeyRound, QrCode } from 'lucide-react';
+import { Check, AlertCircle, Loader2, ShieldCheck, ShieldOff, KeyRound, QrCode } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { apiFetch } from '../utils/api';
-
-interface TelegramSettings {
-  token_set: boolean;
-  token_masked: string;
-  admin_id: string;
-  proxy_url: string;
-  notify_node_down: boolean;
-  notify_failover: boolean;
-  notify_quota: boolean;
-  bot_status: string;
-}
 
 interface UserMe {
   id: number;
@@ -23,7 +12,6 @@ interface UserMe {
 
 export const Settings: React.FC = () => {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'telegram' | 'security'>('telegram');
 
   // User 2FA state
   const { data: userMe } = useQuery<UserMe>({
@@ -42,84 +30,11 @@ export const Settings: React.FC = () => {
   const [totpMessage, setTotpMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [showDisable2FA, setShowDisable2FA] = useState(false);
 
-  // Telegram states
-  const [tgToken, setTgToken] = useState('');
-  const [tgAdminId, setTgAdminId] = useState('');
-  const [tgProxyUrl, setTgProxyUrl] = useState('');
-  const [notifyNodeDown, setNotifyNodeDown] = useState(true);
-  const [notifyFailover, setNotifyFailover] = useState(true);
-  const [notifyQuota, setNotifyQuota] = useState(true);
-  const [tgMessage, setTgMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-
   // Security states
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [pwdMessage, setPwdMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-
-  const { data: tgSettings, isLoading: tgLoading } = useQuery<TelegramSettings>({
-    queryKey: ['telegramSettings'],
-    queryFn: async () => {
-      const res = await apiFetch('/api/v1/settings/telegram');
-      if (!res.ok) throw new Error('Не удалось загрузить настройки Telegram');
-      const data = await res.json();
-      setTgAdminId(data.admin_id || '');
-      setTgProxyUrl(data.proxy_url || '');
-      setNotifyNodeDown(data.notify_node_down ?? true);
-      setNotifyFailover(data.notify_failover ?? true);
-      setNotifyQuota(data.notify_quota ?? true);
-      return data;
-    }
-  });
-
-  const saveTgMutation = useMutation({
-    mutationFn: async (payload: {
-      token?: string;
-      admin_id: string;
-      proxy_url: string;
-      notify_node_down: boolean;
-      notify_failover: boolean;
-      notify_quota: boolean;
-    }) => {
-      setTgMessage(null);
-      const res = await apiFetch('/api/v1/settings/telegram', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.detail || 'Ошибка сохранения настроек Telegram');
-      }
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['telegramSettings'] });
-      setTgMessage({ type: 'success', text: 'Настройки Telegram успешно сохранены и применены!' });
-      setTgToken('');
-    },
-    onError: (err: Error) => {
-      setTgMessage({ type: 'error', text: err.message });
-    }
-  });
-
-  const sendTestTgMutation = useMutation({
-    mutationFn: async () => {
-      setTgMessage(null);
-      const res = await apiFetch('/api/v1/settings/telegram/test', { method: 'POST' });
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.detail || 'Не удалось отправить тестовое сообщение');
-      }
-      return res.json();
-    },
-    onSuccess: () => {
-      setTgMessage({ type: 'success', text: 'Тестовое сообщение успешно отправлено в Telegram!' });
-    },
-    onError: (err: Error) => {
-      setTgMessage({ type: 'error', text: err.message });
-    }
-  });
 
   const setup2FAMutation = useMutation({
     mutationFn: async (currentCode?: string) => {
@@ -222,18 +137,6 @@ export const Settings: React.FC = () => {
     }
   });
 
-  const handleTgSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    saveTgMutation.mutate({
-      token: tgToken.trim() || undefined,
-      admin_id: tgAdminId.trim(),
-      proxy_url: tgProxyUrl.trim(),
-      notify_node_down: notifyNodeDown,
-      notify_failover: notifyFailover,
-      notify_quota: notifyQuota
-    });
-  };
-
   const handlePwdSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (newPassword !== confirmPassword) {
@@ -252,130 +155,6 @@ export const Settings: React.FC = () => {
 
   return (
     <div className="bg-white rounded-xl border border-neutral-200/60 shadow-sm p-6 max-w-3xl">
-      <div className="flex space-x-2 border-b border-neutral-100 pb-3 mb-6">
-        <button
-          onClick={() => setActiveTab('telegram')}
-          className={`px-4 py-2 text-sm font-semibold rounded-xl transition-all ${
-            activeTab === 'telegram' ? 'bg-emerald-600 text-white shadow-sm' : 'text-neutral-500 hover:text-neutral-800 hover:bg-neutral-50'
-          }`}
-        >
-          Telegram-бот
-        </button>
-        <button
-          onClick={() => setActiveTab('security')}
-          className={`px-4 py-2 text-sm font-semibold rounded-xl transition-all ${
-            activeTab === 'security' ? 'bg-emerald-600 text-white shadow-sm' : 'text-neutral-500 hover:text-neutral-800 hover:bg-neutral-50'
-          }`}
-        >
-          Безопасность
-        </button>
-      </div>
-
-      {activeTab === 'telegram' ? (
-        <div className="space-y-6">
-          <div>
-            <h3 className="text-base font-bold text-neutral-800 mb-1">Уведомления в Telegram</h3>
-            <p className="text-xs text-neutral-500">Настройка бота для получения алертов о состоянии кластера и событиях</p>
-          </div>
-
-          {tgMessage && (
-            <div className={`p-3.5 rounded-xl text-xs flex items-center space-x-2 ${
-              tgMessage.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'
-            }`}>
-              {tgMessage.type === 'success' ? <Check className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
-              <span>{tgMessage.text}</span>
-            </div>
-          )}
-
-          {tgLoading ? (
-            <div className="text-sm text-neutral-500">Загрузка настроек...</div>
-          ) : (
-            <form onSubmit={handleTgSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-neutral-500 uppercase mb-1">Токен Telegram Бота</label>
-                <input
-                  type="password"
-                  value={tgToken}
-                  onChange={(e) => setTgToken(e.target.value)}
-                  placeholder={tgSettings?.token_set ? `Задан (${tgSettings.token_masked})` : 'Введите токен от @BotFather'}
-                  className="w-full px-3.5 py-2.5 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-mono"
-                />
-                <p className="text-[11px] text-neutral-400 mt-1">Оставьте пустым, если не хотите менять действующий токен.</p>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-neutral-500 uppercase mb-1">Telegram ID Администратора</label>
-                <input
-                  type="text"
-                  value={tgAdminId}
-                  onChange={(e) => setTgAdminId(e.target.value)}
-                  placeholder="Например: 123456789"
-                  className="w-full px-3.5 py-2.5 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-neutral-500 uppercase mb-1">SOCKS5 Прокси (Опционально)</label>
-                <input
-                  type="text"
-                  value={tgProxyUrl}
-                  onChange={(e) => setTgProxyUrl(e.target.value)}
-                  placeholder="socks5://127.0.0.1:10808"
-                  className="w-full px-3.5 py-2.5 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-mono"
-                />
-              </div>
-
-              <div className="pt-2 border-t border-neutral-100 space-y-2">
-                <label className="block text-xs font-semibold text-neutral-500 uppercase mb-1">Типы уведомлений</label>
-                <label className="flex items-center space-x-2 text-xs text-neutral-700 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={notifyNodeDown}
-                    onChange={(e) => setNotifyNodeDown(e.target.checked)}
-                    className="rounded border-neutral-300 text-emerald-600 focus:ring-emerald-500"
-                  />
-                  <span>Нода недоступна</span>
-                </label>
-                <label className="flex items-center space-x-2 text-xs text-neutral-700 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={notifyFailover}
-                    onChange={(e) => setNotifyFailover(e.target.checked)}
-                    className="rounded border-neutral-300 text-emerald-600 focus:ring-emerald-500"
-                  />
-                  <span>Переключение на другую ноду (Failover)</span>
-                </label>
-              </div>
-
-              <label className="flex cursor-pointer items-center space-x-2 text-xs text-neutral-700">
-                <input type="checkbox" checked={notifyQuota} onChange={(e) => setNotifyQuota(e.target.checked)} className="rounded border-neutral-300 text-emerald-600 focus:ring-emerald-500" />
-                <span>Отключение клиента при превышении лимита трафика</span>
-              </label>
-
-              <div className="flex items-center space-x-3 pt-2">
-                <button
-                  type="submit"
-                  disabled={saveTgMutation.isPending}
-                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-xl text-xs shadow-sm transition-colors disabled:opacity-50 flex items-center space-x-2"
-                >
-                  {saveTgMutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  <span>Сохранить и применить</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => sendTestTgMutation.mutate()}
-                  disabled={sendTestTgMutation.isPending || !tgSettings?.token_set}
-                  className="px-4 py-2.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 font-medium rounded-xl text-xs transition-colors disabled:opacity-50 flex items-center space-x-1.5"
-                >
-                  <Send className="w-3.5 h-3.5 text-neutral-500" />
-                  <span>Отправить тестовое сообщение</span>
-                </button>
-              </div>
-            </form>
-          )}
-        </div>
-      ) : activeTab === 'security' ? (
         <div className="space-y-6">
           <div>
             <h3 className="text-base font-bold text-neutral-800 mb-1">Смена пароля администратора</h3>
@@ -573,7 +352,6 @@ export const Settings: React.FC = () => {
             )}
           </div>
         </div>
-      ) : null}
     </div>
   );
 };

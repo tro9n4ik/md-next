@@ -6,7 +6,7 @@ const SettingsPage: React.FC = () => {
     <div>
       <div className="mb-6">
         <h2 className="text-2xl font-bold text-neutral-800">Настройки системы</h2>
-        <p className="text-neutral-500 text-sm mt-1">Интеграция с Telegram-ботом и управление безопасностью панели</p>
+        <p className="text-neutral-500 text-sm mt-1">Пароль администратора и двухфакторная аутентификация</p>
       </div>
       <Settings />
     </div>
