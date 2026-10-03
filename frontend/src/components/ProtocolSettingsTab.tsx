@@ -173,7 +173,7 @@ const ProtocolSettingsTab: React.FC = () => {
           {isEnabled('hysteria2') && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800">Откройте UDP-порт {value.ports.hysteria2} в системном файрволе и панели хостинга.</div>}
           <div className="border-t border-neutral-100 pt-4">
             <div className="flex items-center justify-between gap-3"><div><h3 className="text-sm font-semibold text-neutral-800">AmneziaWG 3.1</h3><p className="mt-1 text-[11px] text-neutral-500">Сетевые параметры AWG настраиваются отдельно от Xray.</p></div><span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-700">{isEnabled('awg') ? 'Включён' : 'Отключён'}</span></div>
-            <p className="mt-3 text-xs leading-5 text-neutral-500">Выключение AWG убирает его из новых профилей. Трафик AWG выходит напрямую с мастер-сервера.</p>
+            <p className="mt-3 text-xs leading-5 text-neutral-500">Выключение AWG убирает его из новых профилей. Выход через выбранную ноду, резервирование и правила WARP применяются на сервере; менять конфигурацию клиента при смене ноды не нужно.</p>
           </div>
         </div>
       </section>

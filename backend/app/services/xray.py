@@ -17,6 +17,7 @@ from app.models.setting import Setting
 from app.models.node import Node
 from app.services.shell import run_cmd
 from app.services.warp_node import warp_outbound
+from app.services.awg_routing import sync_awg_routing
 
 NODE_TAG_PREFIX = "node-"
 NODE_BALANCER_TAG = "node-balancer"
@@ -252,8 +253,13 @@ class XrayService:
                 }
             })
         config["stats"] = {}
+        if options.get("awg_routing"):
+            config["inbounds"].append({
+                "tag": "awg-in", "protocol": "tun",
+                "settings": {"name": "mdawg", "mtu": 1400},
+            })
         for inbound in config["inbounds"]:
-            if inbound["protocol"] == "vless" or inbound["protocol"] == "hysteria":
+            if inbound["protocol"] in {"vless", "hysteria", "tun"}:
                 # Браузер часто передаёт IP-адрес назначения. Восстанавливаем имя
                 # для доменных правил, сохраняя исходный адрес назначения.
                 inbound["sniffing"] = {
@@ -352,10 +358,18 @@ class XrayService:
                     if unchanged:
                         code, state, _ = await run_cmd("systemctl", "is-active", "xray", timeout=5)
                         if code == 0 and state.strip() == "active":
+                            if "awg_routing" in options:
+                                await sync_awg_routing(config_path)
                             return True, "Конфигурация Xray не изменилась; перезапуск не требуется"
                 os.makedirs(os.path.dirname(config_path), exist_ok=True)
+                # -test тоже открывает TUN. Проверяем с временным именем,
+                # чтобы работающий mdawg не давал ошибку "device busy".
+                validation_config = json.loads(config_str)
+                for inbound in validation_config.get("inbounds", []):
+                    if inbound.get("protocol") == "tun":
+                        inbound["settings"]["name"] = "mdat" + format(time.time_ns(), "x")[-11:]
                 with open(tmp_path, "w", encoding="utf-8") as f:
-                    f.write(config_str)
+                    json.dump(validation_config, f)
 
                 # Проверка конфигурации xray run -test -format json -config <tmp_path>
                 test_code, test_stdout, test_stderr = await run_cmd(
@@ -369,6 +383,8 @@ class XrayService:
                     return False, f"Ошибка синтаксиса конфигурации Xray: {err_text}"
 
                 # Создание бэкапа текущего конфига
+                with open(tmp_path, "w", encoding="utf-8") as f:
+                    f.write(config_str)
                 if existed_before:
                     shutil.copy2(config_path, backup_path)
 
@@ -392,6 +408,8 @@ class XrayService:
                         os.remove(config_path)
                     return False, "Служба Xray не активировалась после перезапуска. Выполнен откат."
 
+                if "awg_routing" in options:
+                    await sync_awg_routing(config_path)
                 if os.path.exists(backup_path):
                     os.remove(backup_path)
 
