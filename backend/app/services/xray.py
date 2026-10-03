@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.setting import Setting
 from app.models.node import Node
 from app.services.shell import run_cmd
+from app.services.warp_node import warp_outbound
 
 NODE_TAG_PREFIX = "node-"
 NODE_BALANCER_TAG = "node-balancer"
@@ -138,9 +139,11 @@ class XrayService:
                 logger.warning(f"Нода {getattr(active_node, 'id', 'unknown')} активна, но секрет ноды отсутствует. Outbound каскада не добавлен.")
 
         if warp_usage != "off":
-            outbounds.append({"tag": "warp", "protocol": "socks", "settings": {
-                "servers": [{"address": "127.0.0.1", "port": int(options.get("warp_port", 40000))}]
-            }})
+            warp_node_id = options.get("warp_node_id")
+            warp_node_tag = f"node-{int(warp_node_id)}" if warp_node_id else None
+            if warp_node_tag and warp_node_tag not in node_tags:
+                raise ValueError("Выбранная нода WARP отключена или отсутствует; переключите выход WARP")
+            outbounds.append(warp_outbound(int(options.get("warp_port", 40000)), warp_node_tag))
 
         outbounds.append({
             "tag": "direct",

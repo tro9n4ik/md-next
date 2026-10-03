@@ -40,6 +40,60 @@ class WarpPresetRequest(BaseModel):
     key: str = Field(min_length=1, max_length=64)
 
 
+class WarpTargetRequest(BaseModel):
+    node_id: int | None = Field(default=None, ge=1)
+    port: int = Field(default=40000, ge=1, le=65535)
+    expected_country: str = Field(default="", pattern=r"^(?:[A-Z]{2})?$")
+
+
+async def _require_local(db: AsyncSession) -> None:
+    if (await WarpService.target(db))["node_id"]:
+        raise HTTPException(status_code=409, detail="Выбран WARP ноды. Команды warp-cli выполняются на самой ноде; настройки сервера панели сохранены.")
+    _require_cli()
+
+
+@router.get("/target")
+async def get_warp_target(db: AsyncSession = Depends(get_db)):
+    return await WarpService.target(db)
+
+
+@router.put("/target")
+async def set_warp_target(request: WarpTargetRequest, db: AsyncSession = Depends(get_db)):
+    from app.services.warp import _setup_lock
+    async with _setup_lock:
+        target = request.model_dump()
+        # Сначала отдельная проверка: действующие маршруты клиентов не меняются.
+        try:
+            trace = await WarpService.test_target(db, target)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except (RuntimeError, OSError, TimeoutError) as exc:
+            raise HTTPException(status_code=502, detail="Выбранный прокси WARP не прошёл проверку. Действующий выход сохранён.") from exc
+        except Exception as exc:
+            logger.warning("Проверка выхода WARP завершилась ошибкой (%s)", type(exc).__name__)
+            raise HTTPException(status_code=502, detail="Выбранный прокси WARP недоступен. Действующий выход сохранён.") from exc
+        if trace["warp"] not in {"on", "plus"}:
+            raise HTTPException(status_code=422, detail="Выбранный выход работает без WARP. Настройки не изменены.")
+        if request.expected_country and trace["country"] != request.expected_country:
+            raise HTTPException(status_code=422, detail=f"Фактическая страна WARP: {trace['country'] or 'не определена'}. Настройки не изменены.")
+        for key, value in (("warp.node_id", str(request.node_id or "")),
+                           ("warp.node_port" if request.node_id else "warp.proxy_port", str(request.port)),
+                           ("warp.expected_country", request.expected_country)):
+            row = await db.get(Setting, key)
+            if row is None:
+                db.add(Setting(key=key, value=value))
+            else:
+                row.value = value
+        await db.flush()
+        applied, reason = await ClientService.sync_xray_clients(db)
+        if not applied:
+            await db.rollback()
+            raise HTTPException(status_code=502, detail=reason)
+        await db.commit()
+        log_event("info", "warp", "Изменён проверенный выход WARP", {"node_id": request.node_id, "country": trace["country"]})
+        return {"status": "ok", "message": "Выход WARP проверен и сохранён", **trace}
+
+
 def _require_cli() -> None:
     if not WarpService.cli_path():
         raise HTTPException(status_code=503, detail="warp-cli не установлен. Установите пакет cloudflare-warp.")
@@ -57,7 +111,7 @@ async def warp_status(db: AsyncSession = Depends(get_db)):
 
 @router.post("/register")
 async def register_warp(db: AsyncSession = Depends(get_db)):
-    _require_cli()
+    await _require_local(db)
     # Тот же замок, что у автоматического включения: нельзя менять регистрацию
     # параллельно с настройкой режима и временными правилами регистрации.
     from app.services.warp import _setup_lock
@@ -70,8 +124,8 @@ async def register_warp(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/connect")
-async def connect_warp():
-    _require_cli()
+async def connect_warp(db: AsyncSession = Depends(get_db)):
+    await _require_local(db)
     success, message = await WarpService.connect()
     if not success:
         _command_error(message)
@@ -80,8 +134,8 @@ async def connect_warp():
 
 
 @router.post("/disconnect")
-async def disconnect_warp():
-    _require_cli()
+async def disconnect_warp(db: AsyncSession = Depends(get_db)):
+    await _require_local(db)
     success, message = await WarpService.disconnect()
     if not success:
         _command_error(message)
@@ -91,7 +145,7 @@ async def disconnect_warp():
 
 @router.post("/mode")
 async def set_warp_mode(request: WarpModeRequest, db: AsyncSession = Depends(get_db)):
-    _require_cli()
+    await _require_local(db)
     previous_port = await WarpService.get_port(db)
     previous_mode_setting = (await db.execute(select(Setting).where(Setting.key == "warp.mode"))).scalar_one_or_none()
     previous_mode = previous_mode_setting.value if previous_mode_setting and previous_mode_setting.value in ("proxy", "warp") else "proxy"
@@ -136,8 +190,8 @@ async def set_warp_usage(request: WarpUsageRequest, db: AsyncSession = Depends(g
 
 
 @router.post("/license")
-async def set_warp_license(request: WarpLicenseRequest):
-    _require_cli()
+async def set_warp_license(request: WarpLicenseRequest, db: AsyncSession = Depends(get_db)):
+    await _require_local(db)
     success, message = await WarpService.set_license(request.key)
     if not success:
         _command_error(message)
@@ -148,10 +202,9 @@ async def set_warp_license(request: WarpLicenseRequest):
 
 @router.post("/test")
 async def test_warp(db: AsyncSession = Depends(get_db)):
-    _require_cli()
-    port = await WarpService.get_port(db)
+    port = (await WarpService.target(db))["port"]
     try:
-        result = await WarpService.test_proxy(port)
+        result = await WarpService.test_target(db)
     except Exception as exc:
         logger.warning("Ошибка проверки прокси WARP на порту %s: %s", port, exc)
         raise HTTPException(status_code=502, detail="Не удалось проверить WARP через SOCKS5. Убедитесь, что WARP подключён и работает в режиме proxy.") from exc
@@ -160,7 +213,6 @@ async def test_warp(db: AsyncSession = Depends(get_db)):
 
 @router.post("/setup", status_code=status.HTTP_200_OK)
 async def setup_warp(db: AsyncSession = Depends(get_db)):
-    _require_cli()
     success, message = await WarpService.setup_warp_proxy(db)
     if not success:
         _command_error(message)
@@ -251,6 +303,7 @@ async def proxy_gemini_request(req: GeminiRequest, db: AsyncSession = Depends(ge
         url += f"?key={req.api_key}"
     payload = {"contents": [{"parts": [{"text": req.prompt}]}]}
     try:
+        await _require_local(db)
         res = await WarpService.fetch_via_warp(url, method="POST", json_data=payload, port=await WarpService.get_port(db))
         res.raise_for_status()
         return res.json()
