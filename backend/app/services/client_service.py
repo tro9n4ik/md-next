@@ -102,6 +102,7 @@ class ClientService:
             active_node = await XrayService.get_active_node(db)
         selected_setting = await db.get(Setting, "active_node_id")
         options = {
+            "awg_routing": "awg" in kinds,
             "enabled": kinds,
             "vless_xhttp_reality_clients": xhttp_reality_clients,
             "vless_xhttp_tls_clients": xhttp_tls_clients,
