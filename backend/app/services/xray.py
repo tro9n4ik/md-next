@@ -17,6 +17,7 @@ from app.models.setting import Setting
 from app.models.node import Node
 from app.services.shell import run_cmd
 from app.services.warp_node import warp_outbound
+from app.services.awg_routing import sync_awg_routing
 
 NODE_TAG_PREFIX = "node-"
 NODE_BALANCER_TAG = "node-balancer"
@@ -252,8 +253,13 @@ class XrayService:
                 }
             })
         config["stats"] = {}
+        if options.get("awg_routing"):
+            config["inbounds"].append({
+                "tag": "awg-in", "protocol": "tun",
+                "settings": {"name": "mdawg", "mtu": 1400},
+            })
         for inbound in config["inbounds"]:
-            if inbound["protocol"] == "vless" or inbound["protocol"] == "hysteria":
+            if inbound["protocol"] in {"vless", "hysteria", "tun"}:
                 # Браузер часто передаёт IP-адрес назначения. Восстанавливаем имя
                 # для доменных правил, сохраняя исходный адрес назначения.
                 inbound["sniffing"] = {
@@ -352,6 +358,8 @@ class XrayService:
                     if unchanged:
                         code, state, _ = await run_cmd("systemctl", "is-active", "xray", timeout=5)
                         if code == 0 and state.strip() == "active":
+                            if "awg_routing" in options:
+                                await sync_awg_routing(config_path)
                             return True, "Конфигурация Xray не изменилась; перезапуск не требуется"
                 os.makedirs(os.path.dirname(config_path), exist_ok=True)
                 with open(tmp_path, "w", encoding="utf-8") as f:
@@ -392,6 +400,8 @@ class XrayService:
                         os.remove(config_path)
                     return False, "Служба Xray не активировалась после перезапуска. Выполнен откат."
 
+                if "awg_routing" in options:
+                    await sync_awg_routing(config_path)
                 if os.path.exists(backup_path):
                     os.remove(backup_path)
 

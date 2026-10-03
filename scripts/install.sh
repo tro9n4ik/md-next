@@ -181,6 +181,16 @@ WantedBy=multi-user.target
 EOF
 }
 
+install_awg_routing() {
+  apt-get install -y -qq iproute2 iptables
+  mkdir -p /etc/systemd/system/xray.service.d
+  cat > /etc/systemd/system/xray.service.d/30-md-next-awg-routing.conf <<'EOF'
+[Service]
+ExecStartPost=+/usr/bin/python3 /opt/md-next/scripts/awg-routing.py
+EOF
+  systemctl daemon-reload
+}
+
 install_awg() {
   if [ ! -r /etc/os-release ]; then
     echo "Не удалось определить дистрибутив Linux для установки AmneziaWG." >&2
@@ -252,6 +262,7 @@ update_installation() {
   ensure_probe_env
   update_nginx_routes
   install_awg
+  install_awg_routing
 
   cd "$APP_DIR/backend"
   python3 -m venv venv
@@ -783,6 +794,7 @@ run_step "Установка Cloudflare WARP" install_warp
 run_step "Установка Node.js (v20)" install_node
 run_step "Установка Xray-core" install_xray
 run_step "Развертывание MD-Next из рабочей директории" setup_repo
+run_step "Настройка выхода AmneziaWG через ноды" install_awg_routing
 run_step "Настройка Backend, миграции БД и конфигурация Xray" setup_backend
 run_step "Сборка Frontend (React/Vite)" setup_frontend
 run_step "Настройка Nginx, SSL и системных сервисов" setup_services_and_nginx
