@@ -31,6 +31,7 @@ class WatchdogService:
         self.consecutive_failures: dict[int, int] = {}
         self.consecutive_successes: dict[int, int] = {}
         self.last_switch_time = 0.0
+        self.country_checked: dict[int, float] = {}
         self.is_running = False
         self._task = None
         self.probe_url = os.getenv("XRAY_PROBE_URL", DEFAULT_PROBE_URL)
@@ -73,6 +74,23 @@ class WatchdogService:
         except Exception as exc:
             logger.debug("cluster.probe.failed id=%s host=%s reason=%s", node.id, node.host, exc)
             return False, 0
+
+    async def _update_country(self, node: Node):
+        """Не влияет на оценку здоровья ноды; запрос не чаще раза в шесть часов."""
+        if not probe_enabled() or time.monotonic() < self.country_checked.get(node.id, 0):
+            return
+        self.country_checked[node.id] = time.monotonic() + 21600
+        try:
+            async with httpx.AsyncClient(proxy=f"socks5://127.0.0.1:{probe_port_for_node(node.id)}", timeout=3, trust_env=False) as client:
+                response = await client.get("https://www.cloudflare.com/cdn-cgi/trace")
+                response.raise_for_status()
+            values = dict(line.split("=", 1) for line in response.text.splitlines() if "=" in line)
+            code = values.get("loc", "").upper()
+            if len(code) == 2 and code.isascii() and code.isalpha():
+                node.country_code = code
+        except Exception:
+            # Недоступность геоданных не должна включать резервирование.
+            self.country_checked[node.id] = time.monotonic() + 300
 
     async def _update_all_nodes_ping(self, session: AsyncSession, settings: Optional[dict] = None):
         settings = settings or await get_failover_settings(session)
@@ -119,6 +137,7 @@ class WatchdogService:
                 self.consecutive_failures[node.id] = 0
                 node.status = "healthy"
                 node.is_active = True
+                await self._update_country(node)
                 if was_unhealthy:
                     log_event("info", "node", "Узел снова доступен", {"node_id": node.id, "name": node.name, "ping_ms": ping_ms})
         await session.flush()

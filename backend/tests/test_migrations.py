@@ -47,6 +47,7 @@ def test_fresh_db_migration(alembic_config):
     assert "secret" in node_cols
     assert "last_seen" in node_cols
     assert "created_at" in node_cols
+    assert "country_code" in node_cols
 
     conn.close()
 
