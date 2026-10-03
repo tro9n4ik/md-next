@@ -15,10 +15,11 @@
     {
       "path": "backend/app/api/nodes.py",
       "before_sha256": "96050fcd1b73ecc3d5296dc2237b1e62ab833da73d6e75e8108519dde11ad00d",
-      "after_sha256": "d8c329ee49cd4f3bd5566d1d59931cb17eeb8a82a503971f0ad8222e733a07cc",
+      "after_sha256": "caea831ba69b9f89e4e3024b65e75cd155e4969c7d03f5d07438fcc3f2041f51",
       "accepted_sha256": [
         "40805cb948ac23000f1f8a4166d37877986aff629f211aa077114236e5cc0f8f",
-        "96050fcd1b73ecc3d5296dc2237b1e62ab833da73d6e75e8108519dde11ad00d"
+        "96050fcd1b73ecc3d5296dc2237b1e62ab833da73d6e75e8108519dde11ad00d",
+        "d8c329ee49cd4f3bd5566d1d59931cb17eeb8a82a503971f0ad8222e733a07cc"
       ]
     },
     {
@@ -33,10 +34,11 @@
     {
       "path": "backend/app/api/system.py",
       "before_sha256": "de64021ca06244a62221474267f80a7aa40b9f1d7a0ee63b27831cdeb271a892",
-      "after_sha256": "b9b56ae6607dd4e7746fe23af9e721c19d679035a9c2bd271e6f1b70521f1a06",
+      "after_sha256": "8ae123d1e3b3af7cf100ed480030ceca487fb5877d46adf0424f2752205e2326",
       "accepted_sha256": [
         "9b3fc19f653e1d833e3cfb654edc37b158139940de5af8d9b3e8eb3c1039629e",
-        "de64021ca06244a62221474267f80a7aa40b9f1d7a0ee63b27831cdeb271a892"
+        "de64021ca06244a62221474267f80a7aa40b9f1d7a0ee63b27831cdeb271a892",
+        "b9b56ae6607dd4e7746fe23af9e721c19d679035a9c2bd271e6f1b70521f1a06"
       ]
     },
     {
@@ -53,13 +55,14 @@
     {
       "path": "backend/app/services/client_service.py",
       "before_sha256": "f9552713f326c73c7e455e9506393455ca05647a6af3cb8e6d4ef4ef417676fa",
-      "after_sha256": "75994f810733aa3b8d598015f01fff4a108cedc960b1ece94cb2f0f049d39b2a",
+      "after_sha256": "d1a843f293f8f9c804519370cb1b7b6406a0987bab396fee7f1679bdee649580",
       "accepted_sha256": [
         "1eda8ab5674f975b2792e6d82ac0cbf0c5e5b99f254203127e47504f8392ff11",
         "8ab263c55f7d19ee07385c5398ccb4ddf2bd22577255504f658421abf11aab19",
         "d6857857d08ba7815f1e365642fce299714b52fce1e02b07f973c090ff5abbaa",
         "f9552713f326c73c7e455e9506393455ca05647a6af3cb8e6d4ef4ef417676fa",
-        "758b943afefe7acd9f5b10957d883ebdce899508c9ce3a5cffff064551a7f973"
+        "758b943afefe7acd9f5b10957d883ebdce899508c9ce3a5cffff064551a7f973",
+        "75994f810733aa3b8d598015f01fff4a108cedc960b1ece94cb2f0f049d39b2a"
       ]
     },
     {
@@ -83,11 +86,12 @@
     {
       "path": "backend/app/services/xray.py",
       "before_sha256": "79952b388e6cddf987392b921571a52f543c32633a9dd5462101b8c72b2555f7",
-      "after_sha256": "a3bdd6b8fa6c529d2d86fbc50efb38fa347f4bea4ce2171fcb468b46cdb44df4",
+      "after_sha256": "f04e0cf6168209ef0c6fabcec000aa712bbc2105701bc3f6fb289e13cd3a7df8",
       "accepted_sha256": [
         "79952b388e6cddf987392b921571a52f543c32633a9dd5462101b8c72b2555f7",
         "9fcf7493d244e809ab0371682997915298d8308dc85eb0c638fad77fcf04dbce",
-        "5e9aa523e98aad31b9276d9075d02252f6d6dda39b1376da4b02dea4b018f3dd"
+        "5e9aa523e98aad31b9276d9075d02252f6d6dda39b1376da4b02dea4b018f3dd",
+        "a3bdd6b8fa6c529d2d86fbc50efb38fa347f4bea4ce2171fcb468b46cdb44df4"
       ]
     },
     {
@@ -100,7 +104,7 @@
       "after_sha256": "440c0ec5b6088b5fec6639de0f2d2d1813dd0c2063c809793b2e5f7d5140e682"
     }
   ],
-  "required_schema_revision": "0010_client_limits",
+  "required_schema_revision": "0011_node_country",
   "required_files": [
     {
       "path": "backend/app/models/client.py",
@@ -128,7 +132,27 @@
     },
     {
       "path": "backend/app/bot/bot.py",
-      "sha256": "3cfb9358d7cfdbe187feb0576a06ba575cec1bb67d8b49c31635b8cc0dc71a46"
+      "sha256": "89d976dd46689110fc57d5ec42ed278e00b20ed03a76866bf0c86eccfb7798e5"
+    },
+    {
+      "path": "backend/app/models/node.py",
+      "sha256": "e1d66e39b20c1e64d74388c9ba7d3803177623b847b0a842a1d26c4822c20a32"
+    },
+    {
+      "path": "backend/app/bot/handlers.py",
+      "sha256": "dcfd9ee6e0d91847ae274db08f1455c9c32ea15efa4756a4bfc3acba5eea9205"
+    },
+    {
+      "path": "backend/app/bot/subscriptions.py",
+      "sha256": "785fbb1d5e3c4b68f329b6189f6835ea8820bd73e2de829cfed92b34059bc522"
+    },
+    {
+      "path": "backend/app/services/awg_routing.py",
+      "sha256": "0a92a3d4cc2fef164b8c3a56389ee9514764342c9bea3c6c5328a70b74ab0757"
+    },
+    {
+      "path": "scripts/awg-routing.py",
+      "sha256": "74ba82e9a195347366f4ecba9f172b707b79b9117950eb3c27fdfcfee8099155"
     }
   ]
 }

@@ -22,14 +22,16 @@ def callback(data='md:home', actor=42, message_id=1):
 @pytest.fixture(autouse=True)
 def reset_pending():
     handlers.pending_actions.clear()
+    handlers.subscriptions.drafts.clear()
     yield
     handlers.pending_actions.clear()
+    handlers.subscriptions.drafts.clear()
 
 
 def test_menu_has_four_sections_and_short_callback_data():
     menu=handlers.main_menu()
-    assert [len(row) for row in menu.inline_keyboard] == [2, 2]
-    assert {b.callback_data for row in menu.inline_keyboard for b in row} == {'md:status','md:clients','md:nodes','md:help'}
+    assert [len(row) for row in menu.inline_keyboard] == [1, 2, 2]
+    assert {b.callback_data for row in menu.inline_keyboard for b in row} == {'sub:new','md:status','md:clients','md:nodes','md:help'}
     assert all(len(b.callback_data.encode()) <= 64 for row in menu.inline_keyboard for b in row)
 
 
@@ -40,8 +42,8 @@ async def test_prepare_creation_does_not_create_client():
         await handlers.menu_callback(cb)
     create.assert_not_awaited()
     markup=cb.message.edit_text.call_args.kwargs['reply_markup']
-    assert markup.inline_keyboard[0][0].callback_data.startswith('md:confirm:')
-    assert 'Создать клиента VLESS?' in cb.message.edit_text.call_args.args[0]
+    assert markup.inline_keyboard[0][0].callback_data.startswith('sub:w:')
+    assert 'Новая подписка' in cb.message.edit_text.call_args.args[0]
 
 
 @pytest.mark.asyncio

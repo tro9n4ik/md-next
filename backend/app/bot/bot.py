@@ -3,6 +3,7 @@ import logging
 from typing import Optional
 from aiogram import Bot, Dispatcher
 from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.types import BotCommand
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,15 @@ class BotManager:
 
             self.bot = self.create_bot(token, proxy_url)
             await self.bot.get_me()
+            try:
+                await self.bot.set_my_commands([
+                    BotCommand(command="menu", description="Панель управления"),
+                    BotCommand(command="subscriptions", description="Список подписок"),
+                    BotCommand(command="new_subscription", description="Создать подписку"),
+                    BotCommand(command="status", description="Состояние и текущий выход"),
+                ])
+            except Exception as exc:
+                logger.warning("Не удалось обновить список команд бота: %s", type(exc).__name__)
             self.polling_task = asyncio.create_task(self._poll())
             # Даём Dispatcher войти в цикл, чтобы немедленное сохранение настроек
             # могло корректно остановить его через stop_polling.

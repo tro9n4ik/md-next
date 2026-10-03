@@ -1,3 +1,4 @@
+import Switch from '../components/ui/Switch';
 import React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Globe2, Loader2, Save, ShieldCheck } from 'lucide-react';
@@ -97,13 +98,13 @@ const DnsPage: React.FC = () => {
           </select>
         </label>
         <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-neutral-200 bg-neutral-50 p-4">
-          <input className="mt-0.5 h-4 w-4 accent-emerald-600" type="checkbox" checked={settings.fake_dns} onChange={event => update('fake_dns', event.target.checked)} />
+          <Switch label="Fake DNS" checked={settings.fake_dns} onChange={checked => update('fake_dns', checked)} />
           <span><span className="block text-sm font-semibold text-neutral-800">Fake DNS</span><span className="mt-1 block text-xs leading-5 text-neutral-500">Подменять адреса виртуальными, чтобы запросы обрабатывались Xray.</span></span>
         </label>
       </div>
     </section>
     {notice && <div className={`rounded-xl border px-4 py-3 text-sm ${notice.error ? 'border-red-200 bg-red-50 text-red-700' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>{notice.text}</div>}
-    <div className="ui-actionbar sticky bottom-4">
+    <div className="ui-actionbar">
       <p className="text-xs leading-5 text-neutral-500">Профиль DNS передаётся Happ через заголовок подписки `routing`; ссылки VLESS остаются совместимыми с другими клиентами.</p>
       <button disabled={save.isPending} onClick={() => { setNotice(null); save.mutate(); }} className="ui-button ui-button-primary shrink-0">
         {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : notice && !notice.error ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}

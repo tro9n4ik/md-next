@@ -36,6 +36,7 @@ class NodeResponse(BaseModel):
     host: str
     port: int
     protocol: str
+    country_code: str | None = None
     is_active: bool
     is_enabled: bool = True
     status: str = "healthy"
