@@ -9,6 +9,7 @@ const ClientsPage = lazy(() => import('./pages/ClientsPage'));
 const NodesPage = lazy(() => import('./pages/NodesPage'));
 const RoutingPage = lazy(() => import('./pages/RoutingPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const TelegramPage = lazy(() => import('./pages/TelegramPage'));
 const WarpPage = lazy(() => import('./pages/WarpPage'));
 const ProtocolsPage = lazy(() => import('./pages/ProtocolsPage'));
 const DnsPage = lazy(() => import('./pages/DnsPage'));
@@ -67,6 +68,7 @@ const App: React.FC = () => {
               <Route path="/protocols" element={<ProtocolsPage />} />
               <Route path="/dns" element={<DnsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/telegram" element={<TelegramPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>

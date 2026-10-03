@@ -42,10 +42,12 @@
     {
       "path": "backend/app/main.py",
       "before_sha256": "aeef878be100f49ec97ed216b01016bbe281093689feae1bf26d28495040e98e",
-      "after_sha256": "d2eee96f6c4a91fb7b5abb4561561911bf0820a4fcf96d43348c72d7ea3a3b3a",
+      "after_sha256": "d2354cd55a50fda1918df4b14d6bfd05f8b28cf13ea3aaa5ee25f35bb73d81fb",
       "accepted_sha256": [
         "aeef878be100f49ec97ed216b01016bbe281093689feae1bf26d28495040e98e",
-        "fee6f8e70056b0492976e83420a4be14988158ef3fd7e5df8e9136f2676d0957"
+        "fee6f8e70056b0492976e83420a4be14988158ef3fd7e5df8e9136f2676d0957",
+        "d2eee96f6c4a91fb7b5abb4561561911bf0820a4fcf96d43348c72d7ea3a3b3a",
+        "d2354cd55a50fda1918df4b14d6bfd05f8b28cf13ea3aaa5ee25f35bb73d81fb"
       ]
     },
     {
@@ -119,6 +121,14 @@
     {
       "path": "backend/app/services/warp_node.py",
       "sha256": "192340275b3ffc8d25485887e1e502aa29bcea8857423890c99dc8b2a5315a4f"
+    },
+    {
+      "path": "backend/app/services/telegram_settings.py",
+      "sha256": "cd51b39fab2fc1307f84342b4075ee6de6d01c9442781af18e140181ee8d2171"
+    },
+    {
+      "path": "backend/app/bot/bot.py",
+      "sha256": "3cfb9358d7cfdbe187feb0576a06ba575cec1bb67d8b49c31635b8cc0dc71a46"
     }
   ]
 }
