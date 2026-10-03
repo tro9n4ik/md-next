@@ -51,12 +51,13 @@
     {
       "path": "backend/app/services/client_service.py",
       "before_sha256": "f9552713f326c73c7e455e9506393455ca05647a6af3cb8e6d4ef4ef417676fa",
-      "after_sha256": "758b943afefe7acd9f5b10957d883ebdce899508c9ce3a5cffff064551a7f973",
+      "after_sha256": "75994f810733aa3b8d598015f01fff4a108cedc960b1ece94cb2f0f049d39b2a",
       "accepted_sha256": [
         "1eda8ab5674f975b2792e6d82ac0cbf0c5e5b99f254203127e47504f8392ff11",
         "8ab263c55f7d19ee07385c5398ccb4ddf2bd22577255504f658421abf11aab19",
         "d6857857d08ba7815f1e365642fce299714b52fce1e02b07f973c090ff5abbaa",
-        "f9552713f326c73c7e455e9506393455ca05647a6af3cb8e6d4ef4ef417676fa"
+        "f9552713f326c73c7e455e9506393455ca05647a6af3cb8e6d4ef4ef417676fa",
+        "758b943afefe7acd9f5b10957d883ebdce899508c9ce3a5cffff064551a7f973"
       ]
     },
     {
@@ -80,10 +81,11 @@
     {
       "path": "backend/app/services/xray.py",
       "before_sha256": "79952b388e6cddf987392b921571a52f543c32633a9dd5462101b8c72b2555f7",
-      "after_sha256": "5e9aa523e98aad31b9276d9075d02252f6d6dda39b1376da4b02dea4b018f3dd",
+      "after_sha256": "a3bdd6b8fa6c529d2d86fbc50efb38fa347f4bea4ce2171fcb468b46cdb44df4",
       "accepted_sha256": [
         "79952b388e6cddf987392b921571a52f543c32633a9dd5462101b8c72b2555f7",
-        "9fcf7493d244e809ab0371682997915298d8308dc85eb0c638fad77fcf04dbce"
+        "9fcf7493d244e809ab0371682997915298d8308dc85eb0c638fad77fcf04dbce",
+        "5e9aa523e98aad31b9276d9075d02252f6d6dda39b1376da4b02dea4b018f3dd"
       ]
     },
     {
@@ -113,6 +115,10 @@
     {
       "path": "backend/app/services/traffic_collector.py",
       "sha256": "ccc576650a2b0e803bae61eff48ea9e5bc377c91c776a935f8e4ca7172ce43ad"
+    },
+    {
+      "path": "backend/app/services/warp_node.py",
+      "sha256": "192340275b3ffc8d25485887e1e502aa29bcea8857423890c99dc8b2a5315a4f"
     }
   ]
 }

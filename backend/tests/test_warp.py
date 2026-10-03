@@ -28,6 +28,7 @@ async def test_status_when_warp_cli_missing():
     db = AsyncMock()
     result = Mock()
     result.scalar_one_or_none.return_value = None
+    result.scalars.return_value.all.return_value = []
     db.execute.return_value = result
     with patch.object(WarpService, "cli_path", return_value=None):
         result = await WarpService.status(db)
