@@ -81,14 +81,14 @@ export const RoutingRules: React.FC = () => {
   };
 
   return (
-    <div className="bg-white rounded-xl border border-neutral-200/60 shadow-sm p-6 mb-6">
-      <div className="flex items-center justify-between mb-6">
+    <div className="ui-card ui-panel">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
         <div className="flex items-center space-x-3">
           <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl">
             <Route className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="text-lg font-bold text-neutral-800">Правила маршрутизации</h3>
+            <h3 className="ui-card-title">Правила маршрутизации</h3>
             <p className="text-xs text-neutral-500">Управление проксированием и обходом блокировок через ноды</p>
           </div>
         </div>
@@ -96,7 +96,7 @@ export const RoutingRules: React.FC = () => {
         <button
           onClick={() => applyRulesMutation.mutate()}
           disabled={applyRulesMutation.isPending}
-          className="flex items-center space-x-2 px-3.5 py-2 bg-neutral-900 text-white text-xs font-medium rounded-xl hover:bg-neutral-800 transition-colors shadow-sm disabled:opacity-50"
+          className="ui-button ui-button-primary"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${applyRulesMutation.isPending ? 'animate-spin' : ''}`} />
           <span>Применить правила</span>
@@ -153,7 +153,7 @@ export const RoutingRules: React.FC = () => {
           <button
             type="submit"
             disabled={createRuleMutation.isPending}
-            className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs rounded-lg transition-colors flex items-center justify-center space-x-1"
+            className="ui-button ui-button-primary w-full"
           >
             <Plus className="w-4 h-4" />
             <span>Добавить правило</span>
@@ -179,7 +179,7 @@ export const RoutingRules: React.FC = () => {
                 <td className="px-4 py-3 font-mono text-neutral-800">{rule.domain_or_ip}</td>
                 <td className="px-4 py-3">
                   <span className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${
-                    rule.action === 'proxy' ? 'bg-indigo-50 text-indigo-700' : rule.action === 'direct' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+                    rule.action === 'proxy' ? 'bg-indigo-50 text-indigo-700' : rule.action === 'direct' || rule.action === 'warp' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
                   }`}>
                     {translateStatus(rule.action)}
                   </span>
@@ -187,6 +187,7 @@ export const RoutingRules: React.FC = () => {
                 <td className="px-4 py-3 text-neutral-500">{rule.description || '—'}</td>
                 <td className="px-4 py-3 text-right">
                   <button
+                    aria-label={`Удалить правило ${rule.domain_or_ip}`}
                     onClick={() => deleteRuleMutation.mutate(rule.id)}
                     className="p-1 text-neutral-400 hover:text-red-600 rounded transition-colors"
                   >

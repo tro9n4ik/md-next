@@ -124,7 +124,7 @@ const TelegramForm: React.FC<{ tgSettings: TelegramSettings; tgMessage: Telegram
   };
 
   return (
-    <div className="bg-white rounded-xl border border-neutral-200/60 shadow-sm p-6 max-w-3xl">
+    <div className="ui-card ui-panel">
         <div className="space-y-6">
           <div>
             <h3 className="text-base font-bold text-neutral-800 mb-1">Подключение бота</h3>
@@ -224,11 +224,11 @@ const TelegramForm: React.FC<{ tgSettings: TelegramSettings; tgMessage: Telegram
                 <span>Отключение клиента при превышении лимита трафика</span>
               </label>
 
-              <div className="flex items-center space-x-3 pt-2">
+              <div className="flex flex-wrap items-center gap-3 pt-2">
                 <button
                   type="submit"
                   disabled={saveTgMutation.isPending || (useNode && (!nodeId || !!nodesError))}
-                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-xl text-xs shadow-sm transition-colors disabled:opacity-50 flex items-center space-x-2"
+                  className="ui-button ui-button-primary"
                 >
                   {saveTgMutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                   <span>Сохранить и применить</span>
@@ -238,7 +238,7 @@ const TelegramForm: React.FC<{ tgSettings: TelegramSettings; tgMessage: Telegram
                   type="button"
                   onClick={() => sendTestTgMutation.mutate()}
                   disabled={sendTestTgMutation.isPending || saveTgMutation.isPending || tgSettings?.bot_status !== 'running'}
-                  className="px-4 py-2.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 font-medium rounded-xl text-xs transition-colors disabled:opacity-50 flex items-center space-x-1.5"
+                  className="ui-button ui-button-secondary"
                 >
                   <Send className="w-3.5 h-3.5 text-neutral-500" />
                   <span>Отправить тестовое сообщение</span>

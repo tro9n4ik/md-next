@@ -269,15 +269,15 @@ export const NodesManager: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 mb-6">
-      <section className="bg-white rounded-xl border border-neutral-200/60 shadow-sm p-6">
-        <div className="flex items-center gap-2 mb-4">
+    <div className="space-y-6">
+      <section className="ui-card ui-panel">
+        <div className="flex flex-wrap items-center gap-3 mb-4">
           <Network className="w-5 h-5 text-blue-600" />
-          <h3 className="text-lg font-bold text-neutral-800">Схема маршрута</h3>
-          <span className={`ml-auto rounded-full px-2.5 py-1 text-xs font-semibold ${route?.failover_mode === 'auto' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+          <h3 className="ui-card-title">Схема маршрута</h3>
+          <span className={`sm:ml-auto rounded-full px-2.5 py-1 text-xs font-semibold ${route?.failover_mode === 'auto' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
             Автопереключение: {route?.failover_mode === 'auto' ? 'включено' : 'ручной режим'}
           </span>
-          <button onClick={() => routeCheckMutation.mutate()} disabled={routeCheckMutation.isPending} className="rounded-lg border border-blue-200 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-50">
+          <button onClick={() => routeCheckMutation.mutate()} disabled={routeCheckMutation.isPending} className="ui-button ui-button-secondary w-full sm:w-auto">
             {routeCheckMutation.isPending ? 'Проверка…' : 'Проверить внешний IP'}
           </button>
         </div>
@@ -309,10 +309,10 @@ export const NodesManager: React.FC = () => {
       </section>
 
       {failoverForm && (
-        <section className="bg-white rounded-xl border border-neutral-200/60 shadow-sm p-6">
+        <section className="ui-card ui-panel">
           <div className="flex items-center gap-2 mb-4">
             <Radio className="w-5 h-5 text-blue-600" />
-            <h3 className="text-lg font-bold text-neutral-800">Автопереключение</h3>
+            <h3 className="ui-card-title">Автопереключение</h3>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <label className="text-xs font-medium text-neutral-600">Режим
@@ -335,9 +335,9 @@ export const NodesManager: React.FC = () => {
               </select>
             </label>
           </div>
-          <div className="mt-4 flex items-center justify-between gap-3">
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs text-neutral-500">В ручном режиме watchdog только фиксирует сбои и отправляет уведомления.</p>
-            <button onClick={() => failoverMutation.mutate(failoverForm)} disabled={failoverMutation.isPending} className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
+            <button onClick={() => failoverMutation.mutate(failoverForm)} disabled={failoverMutation.isPending} className="ui-button ui-button-primary">
               {failoverMutation.isPending ? 'Сохранение…' : 'Сохранить'}
             </button>
           </div>
@@ -346,21 +346,21 @@ export const NodesManager: React.FC = () => {
 
       {clusterError && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{clusterError}</div>}
 
-      <div className="bg-white rounded-xl border border-neutral-200/60 shadow-sm p-6">
+      <div className="ui-card ui-panel">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div className="flex items-center space-x-3">
             <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl">
               <Server className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-neutral-800">Кластерные узлы (Ноды)</h3>
+              <h3 className="ui-card-title">Кластерные узлы (Ноды)</h3>
               <p className="text-xs text-neutral-500">Автоматическое одноразовое подключение exit-нод по уникальной ссылке</p>
             </div>
           </div>
 
           <button
             onClick={() => setCreateModalOpen(true)}
-            className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-semibold transition-colors shadow-sm w-fit"
+            className="ui-button ui-button-primary w-fit"
           >
             <Plus className="w-4 h-4" />
             <span>Сгенерировать ссылку для ноды</span>
@@ -435,7 +435,7 @@ export const NodesManager: React.FC = () => {
       </div>
 
       {/* Таблица одноразовых инвайтов */}
-      <div className="bg-white rounded-xl border border-neutral-200/60 shadow-sm p-6">
+      <div className="ui-card ui-panel">
         <h4 className="text-sm font-bold text-neutral-800 mb-4">Активные одноразовые приглашения</h4>
         <div className="overflow-x-auto border border-neutral-100 rounded-xl">
           <table className="w-full text-xs text-left">
@@ -516,7 +516,7 @@ export const NodesManager: React.FC = () => {
               <X className="w-5 h-5" />
             </button>
 
-            <h3 className="text-lg font-bold text-neutral-800 mb-2">Удаление ноды</h3>
+            <h3 className="ui-card-title mb-2">Удаление ноды</h3>
             <p className="text-xs text-neutral-600 mb-4">
               Вы действительно хотите удалить ноду <strong>{nodeToDelete.name}</strong> ({nodeToDelete.host})?
               Это действие перестроит конфигурацию Xray.
@@ -598,7 +598,7 @@ export const NodesManager: React.FC = () => {
                 <button
                   type="submit"
                   disabled={createInviteMutation.isPending}
-                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-xl transition-colors shadow-sm disabled:opacity-50 text-sm"
+                  className="ui-button ui-button-primary w-full"
                 >
                   {createInviteMutation.isPending ? 'Сборка...' : 'Сгенерировать одноразовую команду'}
                 </button>
@@ -637,7 +637,7 @@ export const NodesManager: React.FC = () => {
 
                 <button
                   onClick={handleCloseModal}
-                  className="w-full py-2.5 bg-neutral-800 hover:bg-neutral-900 text-white font-medium rounded-xl text-sm"
+                  className="ui-button ui-button-primary w-full"
                 >
                   Готово / Закрыть
                 </button>

@@ -46,7 +46,7 @@ const modes: { value: XhttpMode; label: string }[] = [
   { value: 'stream-one', label: 'Один поток' },
 ];
 
-const card = 'rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm';
+const card = 'ui-card ui-panel';
 const input = 'mt-1 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2.5 text-sm text-neutral-800 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10';
 const label = 'block text-xs font-semibold text-neutral-600';
 
@@ -188,9 +188,9 @@ const ProtocolSettingsTab: React.FC = () => {
         <button onClick={() => setPendingIdentityChange(null)} className="rounded-xl border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-100">Отмена</button>
       </div>
     </div>}
-    <div className="sticky bottom-4 flex flex-col items-start justify-between gap-3 rounded-2xl border border-neutral-200 bg-white/95 p-4 shadow-lg backdrop-blur sm:flex-row sm:items-center">
+    <div className="ui-actionbar sticky bottom-4">
       <p className="max-w-2xl text-xs leading-5 text-neutral-500"><Sparkles className="mr-1 inline h-3.5 w-3.5 text-emerald-600" />Панель проверит конфигурацию Xray до применения. Закрытый ключ не возвращается в API и не показывается после сохранения.</p>
-      <button disabled={save.isPending || !value} onClick={() => { setMessage(null); setPendingIdentityChange(null); save.mutate({ ...value, confirm_link_identity_change: false }); }} className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"><Save className="h-4 w-4" />{save.isPending ? 'Проверка и применение…' : 'Проверить и применить'}</button>
+      <button disabled={save.isPending || !value} onClick={() => { setMessage(null); setPendingIdentityChange(null); save.mutate({ ...value, confirm_link_identity_change: false }); }} className="ui-button ui-button-primary shrink-0"><Save className="h-4 w-4" />{save.isPending ? 'Проверка и применение…' : 'Проверить и применить'}</button>
     </div>
   </div>;
 };

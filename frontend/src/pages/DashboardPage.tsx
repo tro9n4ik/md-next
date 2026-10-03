@@ -1,19 +1,11 @@
-import React from 'react';
+import { LayoutDashboard } from 'lucide-react';
+import PageLayout from '../components/ui/PageLayout';
 import Metrics from '../components/Metrics';
 import DashboardBottom from '../components/DashboardBottom';
 
-const DashboardPage: React.FC = () => {
-  return (
-    <div className="space-y-6">
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold text-neutral-800">Обзор системы</h2>
-        <p className="text-neutral-500 text-sm mt-1">Текущее состояние сервера, нагрузка и активные клиенты</p>
-      </div>
-
+export default function DashboardPage() {
+  return <PageLayout title="Обзор системы" description="Текущее состояние сервера, нагрузка и активные клиенты" icon={LayoutDashboard}>
       <Metrics />
       <DashboardBottom />
-    </div>
-  );
-};
-
-export default DashboardPage;
+  </PageLayout>;
+}
