@@ -154,8 +154,8 @@ export const Settings: React.FC = () => {
   };
 
   return (
-    <div className="bg-white rounded-xl border border-neutral-200/60 shadow-sm p-6 max-w-3xl">
-        <div className="space-y-6">
+    <div className="grid items-start gap-6 xl:grid-cols-2">
+        <div className="ui-card ui-panel space-y-5">
           <div>
             <h3 className="text-base font-bold text-neutral-800 mb-1">Смена пароля администратора</h3>
             <p className="text-xs text-neutral-500">Пароль должен состоять минимум из 10 символов</p>
@@ -207,15 +207,16 @@ export const Settings: React.FC = () => {
             <button
               type="submit"
               disabled={changePwdMutation.isPending}
-              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-xl text-xs shadow-sm transition-colors disabled:opacity-50 flex items-center space-x-2"
+              className="ui-button ui-button-primary"
             >
               {changePwdMutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
               <span>Изменить пароль</span>
             </button>
           </form>
 
+        </div>
           {/* Двухфакторная аутентификация (2FA) */}
-          <div className="pt-6 border-t border-neutral-100 space-y-4">
+          <div className="ui-card ui-panel space-y-4">
             <div>
               <h3 className="text-base font-bold text-neutral-800 mb-1">Двухфакторная аутентификация (2FA)</h3>
               <p className="text-xs text-neutral-500">Защита аккаунта одноразовыми кодами TOTP (Google Authenticator / YubiKey)</p>
@@ -303,7 +304,7 @@ export const Settings: React.FC = () => {
                     type="button"
                     disabled={setup2FAMutation.isPending}
                     onClick={() => setup2FAMutation.mutate(undefined)}
-                    className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-xl text-xs shadow-sm transition-colors disabled:opacity-50 flex items-center space-x-2"
+                    className="ui-button ui-button-primary"
                   >
                     {setup2FAMutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                     <QrCode className="w-4 h-4" />
@@ -339,7 +340,7 @@ export const Settings: React.FC = () => {
                           type="button"
                           disabled={verify2FAMutation.isPending || totpCode.length < 6}
                           onClick={() => verify2FAMutation.mutate(totpCode)}
-                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-xl text-xs shadow-sm transition-colors disabled:opacity-50 flex items-center space-x-1.5"
+                          className="ui-button ui-button-primary"
                         >
                           {verify2FAMutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                           <span>Подтвердить и активировать</span>
@@ -351,7 +352,6 @@ export const Settings: React.FC = () => {
               </div>
             )}
           </div>
-        </div>
     </div>
   );
 };

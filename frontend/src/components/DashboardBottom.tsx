@@ -16,7 +16,7 @@ const DashboardBottom: React.FC = () => {
   const StatusIcon = (status: string) => status === 'ok' ? CheckCircle2 : status === 'error' ? AlertCircle : CircleHelp;
 
   return <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-    <section className="flex h-96 flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
+    <section className="flex h-96 flex-col overflow-hidden ui-card">
       <div className="flex items-center gap-2 border-b border-neutral-100 px-5 py-4"><TerminalSquare className="h-4 w-4 text-neutral-500" /><h3 className="text-sm font-semibold text-neutral-800">Последние события</h3></div>
       <div className="flex-1 space-y-2 overflow-y-auto p-4">
         {events.isLoading && <p className="p-3 text-sm text-neutral-500">Загрузка событий…</p>}
@@ -28,7 +28,7 @@ const DashboardBottom: React.FC = () => {
       </div>
     </section>
 
-    <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+    <section className="ui-card ui-panel">
       <div className="mb-4 flex items-center gap-2 border-b border-neutral-100 pb-3"><Activity className="h-4 w-4 text-neutral-500" /><h3 className="text-sm font-semibold text-neutral-800">Состояние сервера</h3></div>
       <div className="max-h-[21rem] space-y-2 overflow-y-auto">
         {health.isLoading && <p className="p-3 text-sm text-neutral-500">Проверка компонентов…</p>}

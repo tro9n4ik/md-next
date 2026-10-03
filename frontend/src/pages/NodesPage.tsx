@@ -1,16 +1,9 @@
-import React from 'react';
+import { Server } from 'lucide-react';
+import PageLayout from '../components/ui/PageLayout';
 import { NodesManager } from '../components/NodesManager';
 
-const NodesPage: React.FC = () => {
-  return (
-    <div>
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold text-neutral-800">Кластерные узлы (Ноды)</h2>
-        <p className="text-neutral-500 text-sm mt-1">Управление удаленными нодами и одноразовыми приглашениями</p>
-      </div>
+export default function NodesPage() {
+  return <PageLayout title="Узлы" description="Выход в интернет, резервирование и подключение новых нод" icon={Server}>
       <NodesManager />
-    </div>
-  );
-};
-
-export default NodesPage;
+  </PageLayout>;
+}

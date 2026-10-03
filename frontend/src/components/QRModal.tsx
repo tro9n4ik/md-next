@@ -30,7 +30,7 @@ const QRModal: React.FC<QRModalProps> = ({ isOpen, onClose, title, configData, i
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
         <div className="flex items-center justify-between p-4 border-b border-neutral-100">
-          <h3 className="text-lg font-bold text-neutral-800">{title}</h3>
+          <h3 className="ui-card-title">{title}</h3>
           <button
             onClick={onClose}
             className="p-1 text-neutral-400 hover:text-neutral-600 hover:bg-neutral-100 rounded-lg transition-colors"
@@ -50,7 +50,7 @@ const QRModal: React.FC<QRModalProps> = ({ isOpen, onClose, title, configData, i
             <div className="absolute right-2 top-2 z-10">
               <button
                 onClick={handleCopy}
-                className="p-1.5 bg-neutral-800 hover:bg-neutral-700 text-white rounded-md shadow-sm transition-colors"
+                className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md shadow-sm transition-colors"
                 title="Копировать"
               >
                 {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}

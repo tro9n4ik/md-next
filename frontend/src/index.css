@@ -2,6 +2,65 @@
 
 @layer base {
   body {
-    @apply bg-[#f4f5f7] text-gray-900 font-sans antialiased;
+    @apply bg-[#f5f7f8] text-neutral-900 font-sans antialiased;
   }
+}
+
+/* Единый стандарт панели: геометрия страниц, поверхности, формы и действия. */
+@layer components {
+  .app-shell { @apply flex min-h-screen bg-[#f5f7f8]; }
+  .app-main { @apply min-w-0 flex-1 px-4 pb-8 pt-20 sm:px-6 lg:p-8 xl:px-10; }
+  .page-layout { @apply mx-auto w-full max-w-[1280px]; }
+  .page-header { @apply mb-7 border-b border-neutral-200/80 pb-6; }
+  .page-breadcrumb { @apply mb-4 flex items-center gap-2 text-xs font-medium text-neutral-400; }
+  .page-breadcrumb span:last-child { @apply truncate text-neutral-600; }
+  .page-heading-row { @apply flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between; }
+  .page-heading { @apply flex min-w-0 items-start gap-4; }
+  .page-icon { @apply flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-emerald-100 bg-emerald-50 text-emerald-700; }
+  .page-heading h1 { @apply break-words text-2xl font-semibold tracking-tight text-neutral-900 sm:text-[28px]; }
+  .page-heading p { @apply mt-1.5 max-w-3xl text-sm leading-6 text-neutral-500; }
+  .page-actions { @apply flex shrink-0 flex-wrap items-center gap-2; }
+  .page-content { @apply flex flex-col gap-6; }
+  .ui-card { @apply min-w-0 rounded-2xl border border-neutral-200/80 bg-white; box-shadow: 0 2px 8px -5px rgb(15 23 42 / .16); }
+  .ui-panel { @apply p-5 sm:p-6; }
+  .ui-card-title { @apply text-base font-semibold tracking-tight text-neutral-800; }
+  .ui-actionbar { @apply flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white/95 p-4 shadow-sm backdrop-blur sm:flex-row sm:items-center sm:justify-between; }
+  .ui-button { @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-transparent px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50; }
+  .ui-button-primary { @apply bg-emerald-600 text-white hover:bg-emerald-700; }
+  .ui-button-secondary { @apply border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50; }
+  .ui-button-danger { @apply border-red-200 bg-red-50 text-red-700 hover:bg-red-100; }
+  .ui-empty-state { @apply rounded-2xl border border-dashed border-neutral-200 bg-white p-8 text-center text-sm text-neutral-500; }
+}
+
+/* Нативные поля и таблицы получают одинаковый вид, сохраняя свой размер и сетку. */
+.page-content :is(input, select, textarea):not([type="checkbox"]):not([type="radio"]):not([type="range"]) {
+  min-height: 40px; max-width: 100%; border-radius: 10px;
+  border-color: #dce2e6; background-color: #fff; font-size: 14px;
+  transition: border-color 150ms, box-shadow 150ms;
+}
+.page-content :is(input, select, textarea):not([type="checkbox"]):not([type="radio"]):focus {
+  outline: none; border-color: #059669; box-shadow: 0 0 0 3px rgb(5 150 105 / .10);
+}
+.page-content :is(input, select, textarea):disabled,
+.page-content :is(input, textarea)[readonly] { background-color: #f8fafb; }
+.page-content :is(input[type="checkbox"], input[type="radio"]) { accent-color: #059669; }
+.page-content :is(button, a, summary):focus-visible { outline: 2px solid #059669; outline-offset: 3px; }
+.page-content button:not(:disabled), .page-content summary { cursor: pointer; }
+.page-content button:disabled { cursor: not-allowed; }
+.page-content table { width: 100%; text-align: left; font-size: 13px; }
+.page-content th { background: #f8fafb; font-size: 11px; font-weight: 600; color: #647078; letter-spacing: .04em; }
+.page-content :is(th, td) { padding: 14px 20px; }
+.page-content tbody tr { border-bottom: 1px solid #edf0f2; }
+.page-content tbody tr:last-child { border-bottom: 0; }
+.page-content tbody tr:hover { background: #fafcfb; }
+.page-content :is(h2, h3) { scroll-margin-top: 24px; }
+
+@media (max-width: 639px) {
+  .page-heading { gap: 12px; }
+  .page-icon { width: 42px; height: 42px; border-radius: 13px; }
+  .page-header { margin-bottom: 22px; padding-bottom: 20px; }
+  .page-content :is(th, td) { padding: 12px 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0s !important; animation-duration: .01ms !important; }
 }

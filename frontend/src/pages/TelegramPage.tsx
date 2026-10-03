@@ -1,13 +1,12 @@
+import { Send } from 'lucide-react';
+import PageLayout from '../components/ui/PageLayout';
 import { TelegramSettings } from '../components/TelegramSettings';
 
 export default function TelegramPage() {
-  return <div className="space-y-6">
-    <div>
-      <h2 className="text-2xl font-bold text-neutral-800">Telegram-бот</h2>
-      <p className="text-neutral-500 text-sm mt-1">Управление панелью и уведомления для администратора</p>
-    </div>
+  return <PageLayout title="Telegram-бот" description="Подключение, выход через ноду и уведомления администратора" icon={Send}>
+    <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
     <TelegramSettings />
-    <div className="max-w-3xl bg-white border border-neutral-200 rounded-xl p-6">
+    <div className="ui-card ui-panel">
       <h3 className="font-bold mb-3">Что умеет бот</h3>
       <dl className="text-sm space-y-3">
         <div><dt className="font-mono">/start · /menu</dt><dd className="text-neutral-500">Инлайн-меню: статус, клиенты, выбор ноды и помощь. Создание клиента и переключение требуют подтверждения.</dd></div>
@@ -18,5 +17,6 @@ export default function TelegramPage() {
       </dl>
       <p className="text-xs text-neutral-500 mt-4">Уведомления: недоступность ноды, автоматическое переключение выхода и отключение клиента при превышении лимита трафика. Управление сроками подписки, оплатами и месячными лимитами через команды бота пока не реализовано.</p>
     </div>
-  </div>;
+    </div>
+  </PageLayout>;
 }
