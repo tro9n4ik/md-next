@@ -11,6 +11,7 @@ from app.models.node import Node
 from app.models.setting import Setting
 from app.services.telegram_settings import get_telegram_settings_from_db
 from app.services.client_service import ClientService
+from app.services.cluster import apply_active_node
 
 router = Router()
 
@@ -79,18 +80,17 @@ async def cmd_failover(message: Message):
         result = await session.execute(
             select(Node)
             .where(Node.is_active == True)
+            .where(Node.is_enabled == True)
             .where(Node.id != current_node_id)
             .order_by(Node.id)
         )
         next_node = result.scalars().first()
 
         if next_node:
-            if setting:
-                setting.value = str(next_node.id)
-            else:
-                session.add(Setting(key="active_node_id", value=str(next_node.id)))
-
-            await session.commit()
+            ok, detail = await apply_active_node(session, next_node)
+            if not ok:
+                await message.answer("❌ Не удалось применить переключение. Текущий выход сохранён.")
+                return
             await message.answer(f"✅ Ручной failover выполнен.\nНовая активная нода: *{next_node.name}*", parse_mode="Markdown")
         else:
             await message.answer("❌ Ошибка: нет других активных нод для переключения.")

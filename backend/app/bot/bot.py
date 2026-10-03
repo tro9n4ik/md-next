@@ -3,7 +3,6 @@ import logging
 from typing import Optional
 from aiogram import Bot, Dispatcher
 from aiogram.client.session.aiohttp import AiohttpSession
-from aiohttp_socks import ProxyConnector
 
 logger = logging.getLogger(__name__)
 
@@ -22,10 +21,9 @@ class BotManager:
 
     def create_bot(self, token: str, proxy_url: Optional[str] = None) -> Bot:
         if proxy_url and proxy_url.strip():
-            connector = ProxyConnector.from_url(proxy_url.strip())
-            session = AiohttpSession(connector=connector)
+            session = AiohttpSession(proxy=proxy_url.strip(), timeout=15)
             return Bot(token=token.strip(), session=session)
-        return Bot(token=token.strip())
+        return Bot(token=token.strip(), session=AiohttpSession(timeout=15))
 
     async def validate_token(self, token: str, proxy_url: Optional[str] = None):
         temp_bot = self.create_bot(token, proxy_url)
@@ -49,18 +47,39 @@ class BotManager:
                 self.router_setup = True
 
             self.bot = self.create_bot(token, proxy_url)
-            self.polling_task = asyncio.create_task(dp.start_polling(self.bot))
+            await self.bot.get_me()
+            self.polling_task = asyncio.create_task(self._poll())
+            # Даём Dispatcher войти в цикл, чтобы немедленное сохранение настроек
+            # могло корректно остановить его через stop_polling.
+            await asyncio.sleep(0)
             self.status = "running"
             self.last_error = None
             logger.info("Telegram-бот успешно запущен.")
         except Exception as e:
             self.status = "error"
-            self.last_error = str(e)
-            logger.error(f"Ошибка при запуске Telegram-бота: {e}")
+            self.last_error = "Не удалось подключиться к Telegram. Проверьте токен и выбранный выход."
+            logger.error("Ошибка при запуске Telegram-бота: %s", type(e).__name__)
+            if self.bot:
+                await self.bot.session.close()
+                self.bot = None
+
+    async def _poll(self):
+        try:
+            await dp.start_polling(self.bot, handle_signals=False, close_bot_session=False)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self.status = "error"
+            self.last_error = "Получение команд Telegram остановлено. Проверьте подключение."
+            logger.error("Ошибка получения команд Telegram: %s", type(exc).__name__)
 
     async def stop(self):
         if self.polling_task:
-            self.polling_task.cancel()
+            if not self.polling_task.done():
+                try:
+                    await dp.stop_polling()
+                except RuntimeError:
+                    self.polling_task.cancel()
             try:
                 await self.polling_task
             except asyncio.CancelledError:

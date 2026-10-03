@@ -22,7 +22,7 @@ from app.api.dns import router as dns_router
 from app.api.events import router as events_router
 from app.services.watchdog import watchdog
 from app.services.traffic_collector import start_traffic_collector
-from app.services.telegram_settings import get_telegram_settings_from_db
+from app.services.telegram_settings import get_telegram_settings_from_db, resolve_telegram_proxy
 from app.bot import bot_manager
 from app.services.client_service import ClientService
 from app.services.reality_keys import ensure_reality_key_pair
@@ -88,10 +88,12 @@ async def lifespan(app: FastAPI):
     try:
         tg_settings = await get_telegram_settings_from_db()
         if tg_settings.get("token"):
-            await bot_manager.start(tg_settings["token"], tg_settings.get("proxy_url"))
+            async with AsyncSessionLocal() as session:
+                proxy = await resolve_telegram_proxy(session, tg_settings)
+            await bot_manager.start(tg_settings["token"], proxy)
     except Exception as e:
         bot_manager.status = "error"
-        bot_manager.last_error = str(e)
+        bot_manager.last_error = "Не удалось запустить бота. Проверьте выбранную ноду и настройки Telegram."
 
     yield
 

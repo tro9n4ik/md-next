@@ -18,6 +18,8 @@ async def get_telegram_settings_from_db() -> Dict[str, Any]:
         "telegram_notify_node_down",
         "telegram_notify_failover",
         "telegram_notify_quota",
+        "telegram_use_node",
+        "telegram_node_id",
     ]
     try:
         async with AsyncSessionLocal() as session:
@@ -51,4 +53,24 @@ async def get_telegram_settings_from_db() -> Dict[str, Any]:
         "notify_node_down": notify_node_down,
         "notify_failover": notify_failover,
         "notify_quota": notify_quota,
+        "use_node": settings_db.get("telegram_use_node", "false").lower() in ("true", "1", "yes"),
+        "node_id": int(settings_db["telegram_node_id"]) if settings_db.get("telegram_node_id", "").isdigit() else None,
     }
+
+
+async def resolve_telegram_proxy(db, settings: Dict[str, Any]) -> str:
+    """Выбранная нода использует свой SOCKS-вход Xray без изменения маршрутов клиентов."""
+    if not settings.get("use_node"):
+        return settings.get("proxy_url", "").strip()
+    from app.models.node import Node
+    from app.services.xray import probe_enabled, probe_port_for_node
+    if not probe_enabled():
+        raise ValueError("Для работы через ноду включите NODE_PROBE_ENABLED на сервере панели")
+    node_id = settings.get("node_id")
+    node = await db.get(Node, node_id) if node_id else None
+    if not node or not node.is_enabled or not node.secret:
+        raise ValueError("Выберите включённую ноду с настроенным подключением")
+    port = probe_port_for_node(node.id)
+    if not 1024 <= port <= 65535:
+        raise ValueError("Для выбранной ноды невозможно выделить локальный порт")
+    return f"socks5://127.0.0.1:{port}"
