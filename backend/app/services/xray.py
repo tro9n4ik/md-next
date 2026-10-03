@@ -362,8 +362,14 @@ class XrayService:
                                 await sync_awg_routing(config_path)
                             return True, "Конфигурация Xray не изменилась; перезапуск не требуется"
                 os.makedirs(os.path.dirname(config_path), exist_ok=True)
+                # -test тоже открывает TUN. Проверяем с временным именем,
+                # чтобы работающий mdawg не давал ошибку "device busy".
+                validation_config = json.loads(config_str)
+                for inbound in validation_config.get("inbounds", []):
+                    if inbound.get("protocol") == "tun":
+                        inbound["settings"]["name"] = "mdat" + format(time.time_ns(), "x")[-11:]
                 with open(tmp_path, "w", encoding="utf-8") as f:
-                    f.write(config_str)
+                    json.dump(validation_config, f)
 
                 # Проверка конфигурации xray run -test -format json -config <tmp_path>
                 test_code, test_stdout, test_stderr = await run_cmd(
@@ -377,6 +383,8 @@ class XrayService:
                     return False, f"Ошибка синтаксиса конфигурации Xray: {err_text}"
 
                 # Создание бэкапа текущего конфига
+                with open(tmp_path, "w", encoding="utf-8") as f:
+                    f.write(config_str)
                 if existed_before:
                     shutil.copy2(config_path, backup_path)
 
