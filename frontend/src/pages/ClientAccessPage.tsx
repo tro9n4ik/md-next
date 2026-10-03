@@ -1,8 +1,9 @@
 import React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Check, Copy, Download, RefreshCw } from 'lucide-react';
+import { Users, ArrowLeft, Check, Copy, Download, RefreshCw } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
+import PageLayout from '../components/ui/PageLayout';
 import { apiFetch } from '../utils/api';
 import SubscriptionFields from '../components/SubscriptionFields';
 import { clientStatus, formatSubscriptionDate, subscriptionPayload } from '../utils/subscriptions';
@@ -23,13 +24,13 @@ const SubscriptionEditor: React.FC<{ client: AccessData['client']; refresh: () =
     onSuccess: async () => { setNotice('Условия подписки сохранены'); setValues({ ...values, period: 'keep' }); await refresh(); },
     onError: (error: Error) => setNotice(error.message),
   });
-  return <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+  return <section className="ui-card ui-panel">
     <h2 className="font-semibold text-neutral-800">Условия подписки</h2>
     <div className="mt-3 grid gap-4 md:grid-cols-2">
       <div className="space-y-2 text-sm text-neutral-600"><p>Состояние: <b>{clientStatus(client.blocked_reason)}</b></p><p>Окончание: <b>{formatSubscriptionDate(client.expires_at)}</b></p><p>За месяц: {formatBytes(client.monthly_traffic_used)} / {client.monthly_traffic_limit ? formatBytes(client.monthly_traffic_limit) : 'без ограничений'}</p><p>Следующее обновление: {formatSubscriptionDate(client.traffic_period_end)}</p></div>
       <form onSubmit={event => { event.preventDefault(); setNotice(''); mutation.mutate(); }} className="space-y-3">
         <SubscriptionFields value={values} onChange={setValues} editing />
-        <button disabled={mutation.isPending} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">Сохранить условия</button>
+        <button disabled={mutation.isPending} className="ui-button ui-button-primary">Сохранить условия</button>
         {notice && <p role="status" className="text-sm text-neutral-600">{notice}</p>}
       </form>
     </div>
@@ -92,20 +93,20 @@ const ClientAccessPage: React.FC = () => {
     const anchor = document.createElement('a'); anchor.href = url; anchor.download = `${accessQuery.data?.client.name || 'client'}.conf`; anchor.click(); URL.revokeObjectURL(url);
   };
 
-  if (accessQuery.isLoading) return <div className="p-8 text-neutral-500">Загрузка профилей…</div>;
-  if (accessQuery.isError || !accessQuery.data) return <div className="rounded-xl bg-red-50 p-5 text-red-700">{accessQuery.error?.message || 'Клиент не найден'}</div>;
+  if (accessQuery.isLoading || accessQuery.isError || !accessQuery.data) return <PageLayout title="Доступ клиента" description="Условия подписки, профили подключения и конфигурации" icon={Users}>
+    <div className="ui-empty-state" role="status">{accessQuery.isLoading ? 'Загрузка профилей…' : accessQuery.error?.message || 'Клиент не найден'}</div>
+  </PageLayout>;
   const data = accessQuery.data;
 
-  return <div className="space-y-5">
-    <button onClick={() => navigate('/clients')} className="inline-flex items-center gap-2 text-sm text-neutral-500 hover:text-neutral-800"><ArrowLeft size={16} /> К клиентам</button>
-    <div><h1 className="text-2xl font-bold text-neutral-800">Доступ: {data.client.name}</h1><p className="mt-1 text-sm text-neutral-500">Профили подключения и ссылка подписки</p></div>
+  return <PageLayout title={`Доступ: ${data.client.name}`} description="Условия подписки, профили подключения и конфигурации" icon={Users}
+    actions={<button onClick={() => navigate('/clients')} className="ui-button ui-button-secondary"><ArrowLeft size={16} />К клиентам</button>}>
     {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
     <SubscriptionEditor key={`${data.client.id}-${data.client.monthly_traffic_limit}-${data.client.expires_at}`} client={data.client} refresh={refresh} />
     {data.profiles.map((profile) => {
       const size = new TextEncoder().encode(profile.data).length;
       const canQr = Boolean(profile.data) && size <= 2900;
       const isAwg = profile.kind === 'awg';
-      return <article key={profile.id} className="grid gap-5 rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm md:grid-cols-[190px_1fr]">
+      return <article key={profile.id} className="grid gap-5 ui-card ui-panel md:grid-cols-[190px_1fr]">
         <div className="flex flex-col items-center justify-center rounded-xl bg-neutral-50 p-4">
           {canQr ? <QRCodeSVG value={profile.data} size={160} level="L" includeMargin /> : <div className="flex h-40 items-center text-center text-xs text-neutral-500">{isAwg && !profile.key_available ? 'Ключ недоступен, нажмите «Перевыпустить»' : profile.data ? 'Конфигурация слишком длинная для QR, скачайте файл' : 'Нет данных профиля'}</div>}
           {isAwg && profile.data && <button onClick={() => download(profile)} className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-emerald-700"><Download size={14} /> Скачать .conf</button>}
@@ -119,11 +120,11 @@ const ClientAccessPage: React.FC = () => {
         </div>
       </article>;
     })}
-    <section className="grid gap-5 rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm md:grid-cols-[190px_1fr]">
+    <section className="grid gap-5 ui-card ui-panel md:grid-cols-[190px_1fr]">
       <div className="flex items-center justify-center rounded-xl bg-neutral-50 p-4">{data.subscription_url && <QRCodeSVG value={data.subscription_url} size={160} level="L" includeMargin />}</div>
       <div className="space-y-3"><h2 className="font-semibold text-neutral-800">Ссылка подписки</h2><p className="text-xs text-neutral-500">В подписку входят включённые VLESS и Hysteria 2. AmneziaWG выдаётся отдельным .conf файлом.</p><textarea readOnly value={data.subscription_url} className="h-20 w-full resize-none rounded-lg border bg-neutral-50 p-3 font-mono text-xs" /><div className="flex flex-wrap gap-2"><CopyButton value={data.subscription_url} /><button onClick={() => { if (window.confirm('Перевыпустить ссылку? Старая ссылка перестанет работать.')) { setError(''); subscriptionMutation.mutate(); } }} className="inline-flex items-center gap-1 rounded-lg border border-amber-200 px-3 py-2 text-xs font-medium text-amber-800 hover:bg-amber-50"><RefreshCw size={14} /> Перевыпустить ссылку</button></div></div>
     </section>
-  </div>;
+  </PageLayout>;
 };
 
 export default ClientAccessPage;

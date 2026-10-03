@@ -102,10 +102,10 @@ const ClientsTable: React.FC = () => {
   );
 
   return (
-    <section className="relative overflow-hidden rounded-xl border border-neutral-200/70 bg-white shadow-sm">
+    <section className="relative overflow-hidden ui-card">
       {createOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/50 p-4">
         <form onSubmit={(event) => { event.preventDefault(); setError(''); createMutation.mutate(); }} className="relative max-h-[90vh] w-full max-w-md space-y-4 overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
-          <button type="button" onClick={() => setCreateOpen(false)} className="absolute right-4 top-4 text-neutral-400"><X size={20} /></button>
+          <button type="button" aria-label="Закрыть создание клиента" onClick={() => setCreateOpen(false)} className="absolute right-4 top-4 text-neutral-400"><X size={20} /></button>
           <h3 className="text-xl font-semibold">Новый клиент</h3>
           <p className="text-sm text-neutral-500">Будут созданы профили всех включённых протоколов.</p>
           {error && <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>}
@@ -113,7 +113,7 @@ const ClientsTable: React.FC = () => {
           <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Телефон (необязательно)" className="w-full rounded-lg border p-3" />
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Электронная почта (необязательно)" className="w-full rounded-lg border p-3" />
           <SubscriptionFields value={subscription} onChange={setSubscription} />
-          <button disabled={createMutation.isPending} className="w-full rounded-lg bg-emerald-600 px-4 py-3 font-medium text-white disabled:opacity-50">Создать клиента</button>
+          <button disabled={createMutation.isPending} className="ui-button ui-button-primary w-full">Создать клиента</button>
         </form>
       </div>}
 
@@ -123,9 +123,9 @@ const ClientsTable: React.FC = () => {
             <button key={value} onClick={() => setFilter('status', value)} className={`rounded-md px-3 py-1.5 text-sm ${status === value ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500'}`}>{label}</button>
           )}
         </div>
-        <div className="flex gap-3">
-          <label className="relative"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск клиентов" className="w-56 rounded-lg border bg-neutral-50 py-2 pl-9 pr-3 text-sm" /></label>
-          <button onClick={() => { setError(''); setCreateOpen(true); }} className="flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white"><Plus size={16} /> Добавить</button>
+        <div className="flex min-w-0 flex-col gap-3 sm:flex-row">
+          <label className="relative min-w-0 flex-1"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск клиентов" className="w-full sm:w-56 rounded-lg border bg-neutral-50 py-2 pl-9 pr-3 text-sm" /></label>
+          <button onClick={() => { setError(''); setCreateOpen(true); }} className="ui-button ui-button-primary"><Plus size={16} /> Добавить</button>
         </div>
       </div>
       {error && !createOpen && <div className="m-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>}

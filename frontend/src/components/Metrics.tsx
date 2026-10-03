@@ -17,7 +17,7 @@ interface DashboardClient { id: number; name: string; is_active: boolean; traffi
 interface DashboardNode { id: number; name: string; host: string; status: string; is_active: boolean; is_enabled: boolean; ping_ms: number }
 interface RouteInfo { active_node: { id: number; name: string; ip: string } | null }
 
-const card = 'rounded-2xl border border-neutral-200/70 bg-white p-5 shadow-sm';
+const card = 'ui-card ui-panel';
 const heading = 'mb-4 flex items-center gap-2 text-sm font-semibold text-neutral-700';
 
 const Metrics: React.FC = () => {
