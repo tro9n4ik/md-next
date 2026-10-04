@@ -116,7 +116,7 @@
     },
     {
       "path": "backend/app/services/awg.py",
-      "sha256": "913ff005d38b25c037d1a3d948908868af12cc23d265ba05d45b21be4a46f6eb"
+      "sha256": "de5d9015efcd1a71b5fdcc02ed372184b5ae82d64db48fcae2492156d97b0428"
     },
     {
       "path": "backend/app/services/traffic_collector.py",
@@ -153,6 +153,10 @@
     {
       "path": "scripts/awg-routing.py",
       "sha256": "74ba82e9a195347366f4ecba9f172b707b79b9117950eb3c27fdfcfee8099155"
+    },
+    {
+      "path": "scripts/check-awg-egress.py",
+      "sha256": "f1f506f372ad90b0e9266a81601a14a14146ace5377d0dcbbf7bbe06779d561b"
     }
   ]
 }
