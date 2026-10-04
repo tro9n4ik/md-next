@@ -20,6 +20,7 @@ from app.api.settings import router as settings_router
 from app.api.protocols import router as protocols_router
 from app.api.dns import router as dns_router
 from app.api.events import router as events_router
+from app.api.cdn import router as cdn_router
 from app.services.watchdog import watchdog
 from app.services.traffic_collector import start_traffic_collector
 from app.services.telegram_settings import get_telegram_settings_from_db, resolve_telegram_proxy
@@ -142,6 +143,7 @@ app.include_router(cluster_router)
 app.include_router(warp_router)
 app.include_router(routing_router)
 app.include_router(events_router)
+app.include_router(cdn_router)
 
 @app.get("/")
 async def root():
