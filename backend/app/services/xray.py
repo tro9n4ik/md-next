@@ -234,7 +234,7 @@ class XrayService:
             from app.services.cdn import cdn_path, cdn_transport
             config["inbounds"].append({
                 "tag": "cdn-get", "listen": "127.0.0.1", "port": 8447, "protocol": "vless",
-                "settings": {"clients": xhttp_tls, "decryption": "none"},
+                "settings": {"clients": options.get("cdn_clients", xhttp_tls), "decryption": "none"},
                 "streamSettings": {"network": "xhttp", "security": "none",
                     "xhttpSettings": {"path": cdn_path(options.get("xhttp_tls_path", "/")),
                                       "mode": "packet-up", **cdn_transport()}},

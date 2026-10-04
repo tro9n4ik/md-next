@@ -5,12 +5,13 @@
     {
       "path": "backend/app/api/clients.py",
       "before_sha256": "a6adeaff56c26277a375ef49524f6e65ed6cbb755e924c98257197e3896189a7",
-      "after_sha256": "d21e9474a09c0d29dd322ff925b343e464bb4d5ba2120674c2a2fbc33dc5d4d0",
+      "after_sha256": "a5708c2596979eba803c47bcb4d63a077bfbc6638c2964649313b68b96e3dc96",
       "accepted_sha256": [
         "765ba5ecdc619c7954ba883f53fd4e632463ecab3481a1d222f4b4df898a1e8f",
         "a6adeaff56c26277a375ef49524f6e65ed6cbb755e924c98257197e3896189a7",
         "c168562e55cc47c640298d02e6b0232050601a8a2ccab72c730c52ec57204cbb",
-        "4bf966c19dafbe402ecda6359333eb61c5709457fb64b5446cfbb4c121745483"
+        "4bf966c19dafbe402ecda6359333eb61c5709457fb64b5446cfbb4c121745483",
+        "d21e9474a09c0d29dd322ff925b343e464bb4d5ba2120674c2a2fbc33dc5d4d0"
       ]
     },
     {
@@ -57,14 +58,15 @@
     {
       "path": "backend/app/services/client_service.py",
       "before_sha256": "f9552713f326c73c7e455e9506393455ca05647a6af3cb8e6d4ef4ef417676fa",
-      "after_sha256": "d1a843f293f8f9c804519370cb1b7b6406a0987bab396fee7f1679bdee649580",
+      "after_sha256": "1016db7b1e44ae41c83df9c93fda0e62ab91d43e3bba55cc97f7a5361c1778da",
       "accepted_sha256": [
         "1eda8ab5674f975b2792e6d82ac0cbf0c5e5b99f254203127e47504f8392ff11",
         "8ab263c55f7d19ee07385c5398ccb4ddf2bd22577255504f658421abf11aab19",
         "d6857857d08ba7815f1e365642fce299714b52fce1e02b07f973c090ff5abbaa",
         "f9552713f326c73c7e455e9506393455ca05647a6af3cb8e6d4ef4ef417676fa",
         "758b943afefe7acd9f5b10957d883ebdce899508c9ce3a5cffff064551a7f973",
-        "75994f810733aa3b8d598015f01fff4a108cedc960b1ece94cb2f0f049d39b2a"
+        "75994f810733aa3b8d598015f01fff4a108cedc960b1ece94cb2f0f049d39b2a",
+        "d1a843f293f8f9c804519370cb1b7b6406a0987bab396fee7f1679bdee649580"
       ]
     },
     {
@@ -79,21 +81,23 @@
     {
       "path": "backend/app/services/nginx.py",
       "before_sha256": "027b222bb87f6eff544289430eed142da2cf6ec2926c21ede100811ee494d4e7",
-      "after_sha256": "d6988457428d49e866ea1d2476b7257fb94ff958a26a49a87bd8a6213bfb6b4d",
+      "after_sha256": "7abbea6ae568c22164398e2c3024b23de04497db232dc2ef6f0ca175ebe1db72",
       "accepted_sha256": [
         "027b222bb87f6eff544289430eed142da2cf6ec2926c21ede100811ee494d4e7",
-        "25aa382c18e11291f40eac39ed137e11ca7bace90c6c0d5b1d25c8c7c680c138"
+        "25aa382c18e11291f40eac39ed137e11ca7bace90c6c0d5b1d25c8c7c680c138",
+        "d6988457428d49e866ea1d2476b7257fb94ff958a26a49a87bd8a6213bfb6b4d"
       ]
     },
     {
       "path": "backend/app/services/xray.py",
       "before_sha256": "79952b388e6cddf987392b921571a52f543c32633a9dd5462101b8c72b2555f7",
-      "after_sha256": "f04e0cf6168209ef0c6fabcec000aa712bbc2105701bc3f6fb289e13cd3a7df8",
+      "after_sha256": "e0908bd55276285cb9a598b174a65766134ca2ca351d9e89bebe44864134f99d",
       "accepted_sha256": [
         "79952b388e6cddf987392b921571a52f543c32633a9dd5462101b8c72b2555f7",
         "9fcf7493d244e809ab0371682997915298d8308dc85eb0c638fad77fcf04dbce",
         "5e9aa523e98aad31b9276d9075d02252f6d6dda39b1376da4b02dea4b018f3dd",
-        "a3bdd6b8fa6c529d2d86fbc50efb38fa347f4bea4ce2171fcb468b46cdb44df4"
+        "a3bdd6b8fa6c529d2d86fbc50efb38fa347f4bea4ce2171fcb468b46cdb44df4",
+        "f04e0cf6168209ef0c6fabcec000aa712bbc2105701bc3f6fb289e13cd3a7df8"
       ]
     },
     {
@@ -162,11 +166,19 @@
     },
     {
       "path": "backend/app/api/cdn.py",
-      "sha256": "95d0527ad07e64db8b49940873ffbd371497ad6043ca9249291b2e3d3aa066f2"
+      "sha256": "ab2a93aad751a2d3631f66c9b76308fdd5e9edfb4dff29ddd670695ef65ef9d5"
     },
     {
       "path": "backend/app/services/cdn.py",
-      "sha256": "8d0659887c8e6d0daf12e41c59ffa6cca3a5efd5206fc435658536c12311fd45"
+      "sha256": "0143a02190240ef93d926cf0b7a706f5691275b440625e0366a97c9cdc720961"
+    },
+    {
+      "path": "backend/app/services/subscription_page.py",
+      "sha256": "d06ae0d5ed21237c57a69513b3198f12b253616d58f77459972e939f4dad23e9"
+    },
+    {
+      "path": "backend/app/templates/subscription.html",
+      "sha256": "879f96de8d5af16d9f976889180d52d9648a770c502d64fd8964ed7e8afa444c"
     }
   ]
 }

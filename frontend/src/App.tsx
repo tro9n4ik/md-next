@@ -15,6 +15,7 @@ const ProtocolsPage = lazy(() => import('./pages/ProtocolsPage'));
 const DnsPage = lazy(() => import('./pages/DnsPage'));
 const ClientAccessPage = lazy(() => import('./pages/ClientAccessPage'));
 const BypassPage = lazy(() => import('./pages/BypassPage'));
+const HelpPage = lazy(() => import('./pages/HelpPage'));
 
 const PageSkeleton: React.FC = () => (
   <div className="animate-pulse space-y-6">
@@ -71,6 +72,7 @@ const App: React.FC = () => {
               <Route path="/dns" element={<DnsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/telegram" element={<TelegramPage />} />
+              <Route path="/help" element={<HelpPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>

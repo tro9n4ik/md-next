@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { LayoutDashboard, Users, Server, Route, Settings, LogOut, CheckCircle2, Menu, X, Cloud, Radio, Network, Send, ShieldCheck } from 'lucide-react';
+import { LayoutDashboard, Users, Server, Route, Settings, LogOut, CheckCircle2, Menu, X, Cloud, Radio, Network, Send, ShieldCheck, PanelLeftClose, PanelLeftOpen, CircleHelp } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 
 interface SystemInfo {
@@ -16,6 +16,8 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebar-collapsed') === 'true');
+  const toggleCollapsed = () => setCollapsed(value => { localStorage.setItem('sidebar-collapsed', String(!value)); return !value; });
 
   const { data: sysInfo } = useQuery<SystemInfo>({
     queryKey: ['systemInfo'],
@@ -44,19 +46,23 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
     { icon: ShieldCheck, label: 'Обход БС', to: '/bypass' },
     { icon: Send, label: 'Telegram-бот', to: '/telegram' },
     { icon: Settings, label: 'Настройки', to: '/settings' },
+    { icon: CircleHelp, label: 'Помощь', to: '/help' },
   ];
 
   const sidebarContent = (
-    <div className="flex flex-col h-full bg-[#122b29] text-white w-60">
+    <div className={`flex flex-col h-full bg-[#122b29] text-white w-60 transition-[width] ${collapsed ? 'lg:w-20' : ''}`}>
+      <button onClick={toggleCollapsed} aria-label={collapsed ? 'Развернуть меню' : 'Свернуть меню'} title={collapsed ? 'Развернуть меню' : 'Свернуть меню'} aria-expanded={!collapsed} className="hidden lg:flex justify-center items-center gap-2 p-3 text-neutral-300 hover:text-white hover:bg-white/5">
+        {collapsed ? <PanelLeftOpen size={20} /> : <><PanelLeftClose size={20} /><span className="text-xs">Свернуть меню</span></>}
+      </button>
       <div className="p-4 border-b border-white/10">
         <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2.5"><span className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-500 text-sm font-bold text-white">M</span><span className="text-lg font-semibold tracking-tight">MD-Next</span></div>
-          <span className="bg-emerald-500/10 text-emerald-500 text-xs px-2 py-0.5 rounded-full font-medium">
+          <div className="flex items-center gap-2.5"><span className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-500 text-sm font-bold text-white">M</span><span className={`text-lg font-semibold tracking-tight ${collapsed ? 'lg:hidden' : ''}`}>MD-Next</span></div>
+          <span className={`bg-emerald-500/10 text-emerald-500 text-xs px-2 py-0.5 rounded-full font-medium ${collapsed ? 'lg:hidden' : ''}`}>
             {sysInfo?.version ? `v${sysInfo.version}` : '…'}
           </span>
         </div>
 
-        <div className="bg-white/5 border border-white/10 rounded-lg p-2.5 text-xs text-neutral-300 flex items-center justify-between">
+        <div className={`bg-white/5 border border-white/10 rounded-lg p-2.5 text-xs text-neutral-300 flex items-center justify-between ${collapsed ? 'lg:hidden' : ''}`}>
           <div className="flex items-center space-x-2 truncate">
             <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
             <span className="truncate font-mono">{sysInfo?.hostname || 'localhost'}</span>
@@ -69,9 +75,12 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
           <NavLink
             key={item.to}
             to={item.to}
+            end={item.to === '/'}
+            title={item.label}
+            aria-label={item.label}
             onClick={() => setMobileOpen(false)}
             className={({ isActive }) =>
-              `flex items-center space-x-3 px-3 py-2.5 rounded-xl transition-all text-sm font-medium ${
+              `flex items-center space-x-3 px-3 py-2.5 rounded-xl transition-all text-sm font-medium ${collapsed ? 'lg:justify-center lg:space-x-0' : ''} ${
                 isActive
                   ? 'bg-emerald-600 text-white shadow-sm'
                   : 'text-neutral-300 hover:bg-white/5 hover:text-white'
@@ -79,7 +88,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
             }
           >
             <item.icon className="w-5 h-5 shrink-0" />
-            <span>{item.label}</span>
+            <span className={collapsed ? 'lg:hidden' : ''}>{item.label}</span>
           </NavLink>
         ))}
       </nav>
@@ -87,14 +96,16 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
       <div className="p-4 border-t border-white/10 space-y-3">
         <div className="flex items-center space-x-2 text-xs text-neutral-400">
           <CheckCircle2 className={`w-4 h-4 shrink-0 ${systemState === "error" ? "text-red-500" : systemState === "warning" ? "text-amber-500" : "text-emerald-500"}`} />
-          <span>{systemState === "error" ? "Есть проблемы" : systemState === "warning" ? "Есть замечания" : systemState === "ok" ? "Все системы работают" : "Проверка состояния"}</span>
+          <span className={collapsed ? 'lg:hidden' : ''}>{systemState === "error" ? "Есть проблемы" : systemState === "warning" ? "Есть замечания" : systemState === "ok" ? "Все системы работают" : "Проверка состояния"}</span>
         </div>
         <button
           onClick={onLogout}
+          title="Выйти"
+          aria-label="Выйти"
           className="flex items-center space-x-2 text-neutral-400 hover:text-white transition-colors w-full px-3 py-2 rounded-xl hover:bg-neutral-800 text-sm font-medium"
         >
           <LogOut className="w-5 h-5 shrink-0" />
-          <span>Выйти</span>
+          <span className={collapsed ? 'lg:hidden' : ''}>Выйти</span>
         </button>
       </div>
     </div>

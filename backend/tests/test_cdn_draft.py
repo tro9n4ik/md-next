@@ -6,6 +6,13 @@ from app.main import app
 from app.services.cdn import make_cdn_link, validate_domain
 
 
+@pytest.fixture(autouse=True)
+def isolate_protocol_sync(monkeypatch):
+    async def synced(*args):
+        return True, ""
+    monkeypatch.setattr("app.services.client_service.ClientService.sync_xray_clients", synced)
+
+
 def test_cdn_link_uses_tls_without_vision_and_keeps_existing_identity():
     profile = SimpleNamespace(kind="vless_xhttp_tls", uuid="test-uuid")
     client = SimpleNamespace(name="Клиент")

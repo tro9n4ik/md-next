@@ -16,6 +16,7 @@ from app.services.routing_rules import to_xray_rule
 from app.services.events import log_event
 from app.services.nginx import apply_reality_sni
 from app.services.client_limits import access_allowed
+from app.services.cdn import cdn_access_allowed
 
 _USE_STORED_ACTIVE_NODE = object()
 logger = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ class ClientService:
         result = await db.execute(
             select(ClientProfile, Client)
             .join(Client, Client.id == ClientProfile.client_id)
-            .where(Client.is_active.is_(True), ClientProfile.is_enabled.is_(True))
+            .where(Client.is_active.is_(True))
             .order_by(ClientProfile.id)
         )
         profiles = result.all()
@@ -46,6 +47,7 @@ class ClientService:
         tcp_clients: list[dict] = []
         xhttp_reality_clients: list[dict] = []
         xhttp_tls_clients: list[dict] = []
+        cdn_clients: list[dict] = []
         hysteria_clients: list[dict] = []
         settings = await get_profile_settings(db)
         if "vless_reality_tcp" in kinds:
@@ -58,6 +60,10 @@ class ClientService:
             if not access_allowed(client):
                 continue
             email = f"c{client.id}-{profile.kind}@md-next"
+            if profile.kind == "vless_xhttp_tls" and profile.uuid and settings.get("cdn.enabled") == "true" and cdn_access_allowed(client, profile, settings):
+                cdn_clients.append({"id": profile.uuid, "email": email})
+            if not profile.is_enabled:
+                continue
             if profile.kind == "vless_reality_tcp" and profile.uuid:
                 client_data = {"id": profile.uuid, "email": email}
                 if reality_flow:
@@ -106,6 +112,7 @@ class ClientService:
             "enabled": kinds,
             "vless_xhttp_reality_clients": xhttp_reality_clients,
             "vless_xhttp_tls_clients": xhttp_tls_clients,
+            "cdn_clients": cdn_clients,
             "hysteria2_clients": hysteria_clients,
             "xhttp_reality_port": settings["profiles.port.vless_xhttp_reality"],
             "xhttp_reality_path": settings["profiles.path.vless_xhttp_reality"],

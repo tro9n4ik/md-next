@@ -51,5 +51,14 @@ async def save_draft(request: CdnDraft, db: AsyncSession = Depends(get_db)):
             row.value = value
         else:
             db.add(Setting(key=key, value=value))
-    await db.commit()
+    from app.services.client_service import ClientService
+    try:
+        ok, reason = await ClientService.sync_xray_clients(db)
+        if not ok:
+            raise RuntimeError(reason)
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        await ClientService.restore_committed_configs(db)
+        raise HTTPException(status_code=502, detail="Не удалось применить CDN; прежние настройки восстановлены") from exc
     return await read_draft(db)

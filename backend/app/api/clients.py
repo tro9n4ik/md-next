@@ -9,7 +9,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
@@ -18,8 +18,8 @@ from app.models.client import Client, ClientProfile
 from app.services.awg import AWGService
 from app.services.client_service import ClientService
 from app.services.crypto import decrypt_secret, encrypt_secret
-from app.services.profiles import make_profile_data, get_profile_settings, create_profiles, enabled_profile_kinds
-from app.services.cdn import make_cdn_link
+from app.services.profiles import make_profile_data, get_profile_settings, create_profiles, enabled_profile_kinds, PROFILE_KINDS, PROFILE_LABELS
+from app.services.cdn import make_cdn_link, cdn_access_allowed
 from app.services.events import log_event
 from app.models.setting import Setting
 from app.services.happ_routing import build_happ_routing_link
@@ -71,6 +71,10 @@ class ClientUpdate(BaseModel):
 
 class TrafficUpdate(BaseModel):
     bytes_used: int
+
+
+class ClientAccessUpdate(BaseModel):
+    profiles: dict[str, bool]
 
 
 async def _sync_protocols(db: AsyncSession) -> None:
@@ -179,15 +183,58 @@ async def get_client_profiles(client_id: int, db: AsyncSession = Depends(get_db)
     result = await db.execute(select(ClientProfile).where(ClientProfile.client_id == client_id).order_by(ClientProfile.id))
     globally_enabled = await enabled_profile_kinds(db)
     settings = await get_profile_settings(db)
+    profiles = result.scalars().all()
+    tls = next((p for p in profiles if p.kind == "vless_xhttp_tls"), None)
+    access = [{"kind": kind, "label": PROFILE_LABELS[kind],
+               "is_enabled": any(p.kind == kind and p.is_enabled for p in profiles),
+               "available": kind in globally_enabled} for kind in PROFILE_KINDS]
+    cdn_available = "vless_xhttp_tls" in globally_enabled and settings.get("cdn.enabled") == "true"
+    access.append({"kind": "cdn", "label": "Обход БС · CDN", "is_enabled": bool(tls and cdn_access_allowed(client, tls, settings)), "available": cdn_available})
     return {
         "client": {"id": client.id, "name": client.name, "is_active": client.is_active, **limit_info(client)},
         "profiles": [
             {"id": p.id, "kind": p.kind, "label": p.kind.replace("_", " ").upper(), "is_enabled": p.is_enabled,
              "data": make_profile_data(client, p, settings), "key_available": bool(decrypt_secret(p.private_key_enc or "")) if p.kind == "awg" else True}
-            for p in result.scalars().all() if p.kind in globally_enabled
-        ],
+            for p in profiles if p.kind in globally_enabled
+        ] + ([{"id": tls.id, "kind": "cdn", "label": "Обход БС · CDN", "is_enabled": cdn_access_allowed(client, tls, settings),
+                "data": make_cdn_link(client, tls, settings, preview=True), "key_available": True}] if tls and cdn_available else []),
+        "access": access,
         "subscription_url": f"{os.getenv('PANEL_PUBLIC_URL', '').rstrip('/')}/sub/{client.sub_token}",
     }
+
+
+@router.put("/{client_id}/access")
+async def update_client_access(client_id: int, request: ClientAccessUpdate, db: AsyncSession = Depends(get_db)):
+    client = await db.get(Client, client_id)
+    if client is None:
+        raise HTTPException(status_code=404, detail="Клиент не найден")
+    if set(request.profiles) - {*PROFILE_KINDS, "cdn"}:
+        raise HTTPException(status_code=422, detail="Неизвестный профиль доступа")
+    kinds = await enabled_profile_kinds(db)
+    settings = await get_profile_settings(db)
+    for kind, enabled in request.profiles.items():
+        if enabled and ((kind != "cdn" and kind not in kinds) or (kind == "cdn" and ("vless_xhttp_tls" not in kinds or settings.get("cdn.enabled") != "true"))):
+            raise HTTPException(status_code=409, detail="Сначала включите выбранный профиль в настройках панели")
+    try:
+        await create_profiles(db, client)
+        profiles = (await db.execute(select(ClientProfile).where(ClientProfile.client_id == client_id))).scalars().all()
+        for profile in profiles:
+            if profile.kind in request.profiles:
+                profile.is_enabled = request.profiles[profile.kind]
+        if "cdn" in request.profiles:
+            key = f"client.cdn.{client_id}"
+            row = await db.get(Setting, key)
+            value = "true" if request.profiles["cdn"] else "false"
+            if row: row.value = value
+            else: db.add(Setting(key=key, value=value))
+        await _sync_protocols(db)
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        await ClientService.restore_committed_configs(db)
+        raise HTTPException(status_code=502, detail="Не удалось применить доступ клиента; прежние настройки восстановлены") from exc
+    log_event("info", "client", "Изменён доступ клиента к профилям подписки", {"client_id": client_id, "profiles": request.profiles})
+    return await get_client_profiles(client_id, db)
 
 
 @router.put("/{client_id}/profiles/{profile_id}")
@@ -243,7 +290,7 @@ async def regenerate_subscription(client_id: int, db: AsyncSession = Depends(get
 
 
 @subscription_router.get("/{token}", response_class=Response)
-async def get_subscription(token: str, request: Request, db: AsyncSession = Depends(get_db)):
+async def get_subscription(token: str, request: Request, format: Literal["raw", "page"] | None = None, db: AsyncSession = Depends(get_db)):
     now = time.time()
     ip = request.headers.get("X-Real-IP") or (request.client.host if request.client else "unknown")
     attempts = [stamp for stamp in SUBSCRIPTION_REQUESTS.get(ip, []) if now - stamp < SUBSCRIPTION_WINDOW]
@@ -254,17 +301,18 @@ async def get_subscription(token: str, request: Request, db: AsyncSession = Depe
     client = (await db.execute(select(Client).where(Client.sub_token == token))).scalar_one_or_none()
     if client is None:
         raise HTTPException(status_code=404, detail="Подписка не найдена")
-    result = await db.execute(select(ClientProfile).where(ClientProfile.client_id == client.id, ClientProfile.is_enabled.is_(True)))
+    result = await db.execute(select(ClientProfile).where(ClientProfile.client_id == client.id))
+    profiles = result.scalars().all()
     globally_enabled = await enabled_profile_kinds(db)
     settings = await get_profile_settings(db)
     links = []
     if access_allowed(client):
-        for profile in result.scalars().all():
+        for profile in profiles:
             if profile.kind not in globally_enabled:
                 continue
             if profile.kind == "awg":
                 continue
-            link = make_profile_data(client, profile, settings)
+            link = make_profile_data(client, profile, settings) if profile.is_enabled else ""
             if link:
                 links.append(link)
             cdn_link = make_cdn_link(client, profile, settings)
@@ -287,7 +335,18 @@ async def get_subscription(token: str, request: Request, db: AsyncSession = Depe
     userinfo = f"upload={upload}; download={download}; total={total}"
     if client.expires_at:
         userinfo += f"; expire={int(utc(client.expires_at).timestamp())}"
+    if format == "page" or (format != "raw" and "text/html" in request.headers.get("accept", "").lower()):
+        from app.services.subscription_page import render_subscription_page
+        public_url = os.getenv("PANEL_PUBLIC_URL", "").rstrip("/")
+        if not public_url:
+            public_url = str(request.base_url).rstrip("/")
+        return Response(render_subscription_page(client, profiles, settings, globally_enabled,
+                        f"{public_url}/sub/{client.sub_token}?format=raw", upload + download, total),
+                        media_type="text/html", headers={"Cache-Control": "no-store", "Vary": "Accept",
+                        "X-Robots-Tag": "noindex, nofollow", "Referrer-Policy": "no-referrer",
+                        "X-Content-Type-Options": "nosniff"})
     return Response(content=content, media_type="text/plain", headers={
+        "Cache-Control": "no-store", "Vary": "Accept",
         "profile-title": title,
         "Subscription-Userinfo": userinfo,
         "profile-update-interval": "12",
@@ -334,6 +393,7 @@ async def delete_client(client_id: int, db: AsyncSession = Depends(get_db)):
     if client is None:
         raise HTTPException(status_code=404, detail="Клиент не найден")
     deleted_name = client.name
+    await db.execute(delete(Setting).where(Setting.key == f"client.cdn.{client_id}"))
     await db.delete(client)
     await db.flush()
     try:

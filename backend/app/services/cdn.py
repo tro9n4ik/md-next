@@ -20,6 +20,11 @@ def cdn_transport() -> dict:
             "xPaddingBytes": "100-200"}
 
 
+def cdn_access_allowed(client, profile, settings: dict) -> bool:
+    value = settings.get(f"client.cdn.{getattr(client, 'id', '')}")
+    return value == "true" if value is not None else getattr(profile, "is_enabled", True)
+
+
 def validate_domain(value: str) -> str:
     value = value.strip().lower()
     if not value:
@@ -37,6 +42,8 @@ def make_cdn_link(client, profile, settings: dict[str, str], *, preview: bool = 
     if profile.kind != "vless_xhttp_tls" or not profile.uuid:
         return ""
     if not preview and settings.get("cdn.enabled", "false") != "true":
+        return ""
+    if not preview and not cdn_access_allowed(client, profile, settings):
         return ""
     domain = validate_domain(settings.get("cdn.domain", ""))
     if not domain:
