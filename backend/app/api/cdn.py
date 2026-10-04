@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.auth import get_current_user
 from app.db.database import get_db
 from app.models.setting import Setting
-from app.services.cdn import validate_domain, probe_cdn
+from app.services.cdn import validate_domain, probe_cdn, cdn_path
 from app.services.profiles import get_profile_settings, enabled_profile_kinds
 
 router = APIRouter(prefix="/api/v1/cdn", tags=["CDN"], dependencies=[Depends(get_current_user)])
@@ -26,7 +26,7 @@ async def read_draft(db: AsyncSession = Depends(get_db)):
     values = await get_profile_settings(db)
     enabled = values.get("cdn.enabled", "false") == "true"
     return {"enabled": enabled, "state": "enabled" if enabled else "draft", "domain": values.get("cdn.domain", ""),
-            "origin_path": values["profiles.path.vless_xhttp_tls"], "mode": "packet-up",
+            "origin_path": cdn_path(values["profiles.path.vless_xhttp_tls"]), "mode": "packet-up · GET",
             "message": "После включения обновите подписку и проверьте профиль в Happ и в ограниченной сети."}
 
 

@@ -15,7 +15,11 @@ def test_cdn_link_uses_tls_without_vision_and_keeps_existing_identity():
     params = parse_qs(link.query)
     assert link.username == "test-uuid" and link.hostname == "cdn.example.com"
     assert params["mode"] == ["packet-up"] and params["security"] == ["tls"]
-    assert params["path"] == ["/test-path"] and "flow" not in params
+    assert params["path"] == ["/test-path/cdn-get"] and "flow" not in params
+    import json
+    extra = json.loads(params["extra"][0])
+    assert extra["uplinkHTTPMethod"] == "GET" and extra["uplinkDataPlacement"] == "header"
+    assert extra["scMaxEachPostBytes"] == 2048 and params["alpn"] == ["h2"]
 
 
 @pytest.mark.parametrize("domain", ["https://a.example", "localhost", "127.0.0.1", "a..example", "a.example/path", "-a.example"])
@@ -65,3 +69,19 @@ async def test_probe_rejects_private_dns_without_request(monkeypatch):
     from app.services.cdn import probe_cdn
     monkeypatch.setattr("app.services.cdn.socket.getaddrinfo", lambda *args: [(2, 1, 6, "", ("127.0.0.1", 443))])
     assert not (await probe_cdn("cdn.example.com", "/xhttp"))["ok"]
+
+
+def test_cdn_separate_inbound_keeps_tls_identity_and_settings():
+    import json
+    from app.services.xray import XrayService
+    identity = [{"id": "existing-uuid", "email": "profile-1"}]
+    config = json.loads(XrayService.generate_config([], "private", server_name="example.com", profile_options={
+        "enabled": {"vless_xhttp_tls"}, "xhttp_tls_path": "/original", "xhttp_tls_mode": "auto",
+        "vless_xhttp_tls_clients": identity,
+    }))
+    cdn = next(i for i in config["inbounds"] if i.get("tag") == "cdn-get")
+    normal = next(i for i in config["inbounds"] if i.get("port") == 8446)
+    assert cdn["listen"] == "127.0.0.1" and cdn["port"] == 8447
+    assert cdn["settings"]["clients"] == normal["settings"]["clients"] == identity
+    assert normal["streamSettings"]["xhttpSettings"] == {"path": "/original", "mode": "auto"}
+    assert cdn["streamSettings"]["xhttpSettings"]["path"] == "/original/cdn-get"

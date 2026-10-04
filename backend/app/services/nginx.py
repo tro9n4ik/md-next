@@ -78,6 +78,14 @@ async def _apply_xhttp_tls_path(path: str) -> None:
     with open(config_path, "r", encoding="utf-8") as source:
         original = source.read()
     block = f"""    # MD_NEXT_XHTTP_TLS_BEGIN
+    location {path.rstrip('/')}/cdn-get {{
+        proxy_pass http://127.0.0.1:8447;
+        proxy_http_version 1.1;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }}
     location {path} {{
         proxy_pass http://127.0.0.1:8446;
         proxy_http_version 1.1;

@@ -60,7 +60,7 @@ export default function BypassPage() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="rounded-xl bg-sky-50 p-3 text-sky-600"><Cloud size={24} /></div>
-          <div><h2 className="font-bold text-neutral-900">CDN</h2><p className="mt-1 text-sm text-neutral-500">Дополнительный профиль VLESS · XHTTP · TLS</p></div>
+          <div><h2 className="font-bold text-neutral-900">CDN</h2><p className="mt-1 text-sm text-neutral-500">Дополнительный профиль VLESS · XHTTP GET · TLS</p></div>
         </div>
         <span className={`rounded-full px-3 py-1 text-xs font-semibold ${draft?.enabled ? 'bg-emerald-50 text-emerald-800' : 'bg-neutral-100 text-neutral-600'}`}>{query.isPending ? 'Загрузка…' : query.isError ? 'Нет данных' : draft?.enabled ? 'Включён' : 'Выключен'}</span>
       </div>
@@ -75,7 +75,7 @@ export default function BypassPage() {
           <span className="mt-2 block text-xs font-normal text-neutral-500">Укажите доменное имя без https://, порта и пути. DNS и сертификат настраиваются у провайдера.</span>
         </label>
         <div className="mt-5 flex items-start justify-between gap-4 rounded-xl border border-neutral-200 p-4">
-          <div><h3 className="text-sm font-semibold text-neutral-800">Включить обход БС</h3><p className="mt-1 text-xs leading-5 text-neutral-500">Добавляет профиль CDN в подписки клиентов с XHTTP TLS. При сохранении проверяются HTTPS и POST. Работа в ограниченной сети проверяется с телефона.</p></div>
+          <div><h3 className="text-sm font-semibold text-neutral-800">Включить обход БС</h3><p className="mt-1 text-xs leading-5 text-neutral-500">Добавляет профиль CDN в подписки клиентов с XHTTP TLS. При сохранении проверяются HTTPS и XHTTP GET. Работа в ограниченной сети проверяется с телефона.</p></div>
           <Switch label="Включить обход БС" checked={enabled ?? draft.enabled} disabled={busy} onChange={value => { setEnabled(value); setNotice(null); }} />
         </div>
       </>}
@@ -85,7 +85,7 @@ export default function BypassPage() {
       <ol className="mt-4 space-y-3 text-sm leading-6 text-neutral-600 list-decimal pl-5">
         <li>Создайте CDN-ресурс и направьте CNAME вашего поддомена на адрес, выданный провайдером.</li>
         <li>Подключите действующий сертификат HTTPS для домена CDN.</li>
-        <li>Разрешите GET и POST, отключите кеширование, сохраните путь и параметры запросов.</li>
+        <li>Разрешите GET, отключите кеширование и сохраните заголовки, путь и параметры запросов. Тело GET не используется.</li>
         <li>Проверьте передачу данных и длительное соединение через CDN, затем доступ из ограниченной сети.</li>
       </ol>
       {draft && <dl className="mt-5 grid gap-4 rounded-xl bg-neutral-50 p-4 sm:grid-cols-2">

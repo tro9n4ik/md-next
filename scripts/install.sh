@@ -689,6 +689,14 @@ server {
     index index.html;
 
     # MD_NEXT_XHTTP_TLS_BEGIN
+    location ${XRAY_XHTTP_TLS_PATH%/}/cdn-get {
+        proxy_pass http://127.0.0.1:8447;
+        proxy_http_version 1.1;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
     location $XRAY_XHTTP_TLS_PATH {
         proxy_pass http://127.0.0.1:8446;
         proxy_http_version 1.1;

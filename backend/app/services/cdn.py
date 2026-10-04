@@ -5,7 +5,19 @@ import ipaddress
 import socket
 import uuid
 import os
+import json
+import base64
 from urllib.parse import quote, urlencode
+
+
+def cdn_path(tls_path: str) -> str:
+    return tls_path.rstrip("/") + "/cdn-get"
+
+
+def cdn_transport() -> dict:
+    return {"uplinkHTTPMethod": "GET", "uplinkDataPlacement": "header",
+            "scMaxEachPostBytes": 2048, "uplinkChunkSize": 1000,
+            "xPaddingBytes": "100-200"}
 
 
 def validate_domain(value: str) -> str:
@@ -31,13 +43,14 @@ def make_cdn_link(client, profile, settings: dict[str, str], *, preview: bool = 
         return ""
     params = {"encryption": "none", "security": "tls", "sni": domain,
               "host": domain, "type": "xhttp", "mode": "packet-up",
-              "path": settings.get("profiles.path.vless_xhttp_tls", "/md-next-xhttp")}
+              "path": cdn_path(settings.get("profiles.path.vless_xhttp_tls", "/md-next-xhttp")),
+              "extra": json.dumps(cdn_transport(), separators=(",", ":")), "alpn": "h2"}
     name = quote(f"{client.name} · Обход БС · CDN", safe="")
     return f"vless://{profile.uuid}@{domain}:443?{urlencode(params)}#{name}"
 
 
 async def probe_cdn(domain: str, path: str) -> dict:
-    """Проверка TLS и POST. Не заменяет тест VPN с телефона.
+    """Проверка TLS и XHTTP GET без тела. Не заменяет тест VPN с телефона.
 
     Адрес фиксируется в curl: внутренние адреса и перенаправления исключены.
     """
@@ -51,12 +64,13 @@ async def probe_cdn(domain: str, path: str) -> dict:
         addresses = sorted({r[4][0] for r in records})
         if not addresses or any(not ipaddress.ip_address(a).is_global for a in addresses):
             return {"ok": False, "message": "Домен CDN должен указывать на публичный адрес."}
-        async def request(suffix, post=False):
+        async def request(suffix, upload=False):
             args = ["curl", "--silent", "--show-error", "--noproxy", "*", "--proto", "=https",
                     "--max-time", "10", "--connect-timeout", "5", "--max-redirs", "0",
                     "--resolve", f"{domain}:443:{addresses[0]}", "--output", os.devnull, "--write-out", "%{http_code}"]
-            if post:
-                args += ["--request", "POST", "--data-binary", "md-next-cdn-probe"]
+            if upload:
+                payload = base64.urlsafe_b64encode(b"md-next-cdn-probe").decode().rstrip("=")
+                args += ["--header", "X-Data-0: " + payload]
             args += [f"https://{domain}{suffix}"]
             process = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
             try:
@@ -69,10 +83,10 @@ async def probe_cdn(domain: str, path: str) -> dict:
                     process.kill()
                     await process.wait()
         get_status = await request("/")
-        post_status = await request(path.rstrip("/") + "/" + str(uuid.uuid4()) + "/0", True)
-        ok = get_status == 200 and post_status == 200
-        return {"ok": ok, "get_status": get_status, "post_status": post_status,
-                "message": "HTTPS и POST проходят. Проверьте профиль в Happ, затем доступ из ограниченной сети." if ok else
-                f"CDN вернул GET: {get_status}, POST: {post_status}. Для XHTTP требуется POST 200. Проверьте разрешённые методы и ограничения провайдера."}
+        upload_status = await request(cdn_path(path) + "/" + str(uuid.uuid4()) + "/0", True)
+        ok = get_status == 200 and upload_status == 200
+        return {"ok": ok, "get_status": get_status, "upload_status": upload_status,
+                "message": "HTTPS и отправка XHTTP GET проходят. Обновите подписку и проверьте профиль в Happ и ограниченной сети." if ok else
+                f"CDN вернул HTTPS: {get_status}, XHTTP GET: {upload_status}. Проверьте маршрут CDN и передачу заголовков."}
     except (OSError, ValueError, asyncio.TimeoutError):
         return {"ok": False, "message": "Не удалось проверить CDN. Проверьте DNS, сертификат HTTPS и доступность источника."}
