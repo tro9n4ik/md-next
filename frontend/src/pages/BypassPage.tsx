@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Cloud, Loader2, Save, ShieldCheck, Info } from 'lucide-react';
+import { Cloud, Loader2, Save, ShieldCheck } from 'lucide-react';
 import PageLayout from '../components/ui/PageLayout';
 import Switch from '../components/ui/Switch';
 import { apiFetch } from '../utils/api';
@@ -76,10 +76,6 @@ export default function BypassPage() {
         <div><dt className="text-xs text-neutral-500">Режим XHTTP</dt><dd className="mt-1 text-sm font-mono text-neutral-800">{draft.mode}</dd></div>
         <div><dt className="text-xs text-neutral-500">Путь на сервере</dt><dd className="mt-1 break-all text-sm font-mono text-neutral-800">{draft.origin_path}</dd></div>
       </dl>}
-    </section>
-    <section className="ui-card ui-panel flex items-start gap-3">
-      <Info size={20} className="mt-0.5 shrink-0 text-neutral-400" />
-      <div><h2 className="text-sm font-semibold text-neutral-800">Телемост и звонковые сервисы</h2><p className="mt-1 text-sm leading-6 text-neutral-500">Требуют поддержки специального транспорта на устройстве. Обычная подписка Happ не добавляет такую возможность, поэтому этот способ пока недоступен.</p></div>
     </section>
     {notice && <div role={notice.error ? 'alert' : 'status'} className={`rounded-xl border px-4 py-3 text-sm ${notice.error ? 'border-red-200 bg-red-50 text-red-700' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>{notice.text}</div>}
     <div className="ui-actionbar">
