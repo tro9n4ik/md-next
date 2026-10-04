@@ -228,40 +228,80 @@ class AWGService:
 
             tmp_path = f"{config_path}.tmp.{time.time_ns()}"
             stripped_path = f"{config_path}.stripped.{time.time_ns()}"
+            rollback_path = f"{config_path}.rollback.{time.time_ns()}"
+            previous_config = None
+            previous_runtime = None
+            config_replaced = runtime_touched = False
+
+            def secure_write(path, content):
+                # Ключи не должны попадать в файлы с правами из общего umask.
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(fd, "wb") as target:
+                    target.write(content)
+                    target.flush()
+                    os.fsync(target.fileno())
 
             try:
                 os.makedirs(os.path.dirname(config_path), exist_ok=True)
-                with open(tmp_path, "w", encoding="utf-8") as f:
-                    f.write(config_content)
-
-                os.replace(tmp_path, config_path)
-
+                if os.path.exists(config_path):
+                    with open(config_path, "rb") as source:
+                        previous_config = source.read()
                 interface_code, _, _ = await run_cmd("awg", "show", "awg0", timeout=5)
+                if interface_code == 0:
+                    snapshot_code, previous_runtime, _ = await run_cmd("awg", "showconf", "awg0", timeout=10)
+                    if snapshot_code or not previous_runtime.strip():
+                        raise RuntimeError("Не удалось сохранить работающую конфигурацию AmneziaWG")
+                secure_write(tmp_path, config_content.encode("utf-8"))
+                os.replace(tmp_path, config_path)
+                config_replaced = True
+
                 if interface_code != 0:
-                    await run_cmd("awg-quick", "up", "awg0", timeout=60)
+                    runtime_touched = True
+                    up_code, _, _ = await run_cmd("awg-quick", "up", "awg0", timeout=60)
+                    if up_code:
+                        raise RuntimeError("Не удалось поднять интерфейс AmneziaWG")
                 else:
-                    strip_code, stripped_config, strip_error = await run_cmd("awg-quick", "strip", "awg0", timeout=10)
+                    strip_code, stripped_config, _ = await run_cmd("awg-quick", "strip", "awg0", timeout=10)
                     if strip_code != 0:
-                        raise RuntimeError(strip_error or "Не удалось подготовить конфигурацию AmneziaWG")
-                    with open(stripped_path, "w", encoding="utf-8") as f:
-                        f.write(stripped_config)
-                    os.chmod(stripped_path, 0o600)
-                    sync_code, _, sync_error = await run_cmd("awg", "syncconf", "awg0", stripped_path, timeout=20)
+                        raise RuntimeError("Не удалось подготовить конфигурацию AmneziaWG")
+                    secure_write(stripped_path, stripped_config.encode("utf-8"))
+                    runtime_touched = True
+                    sync_code, _, _ = await run_cmd("awg", "syncconf", "awg0", stripped_path, timeout=20)
                     if sync_code != 0:
-                        raise RuntimeError(sync_error or "Команда awg syncconf завершилась с ошибкой")
-                    os.remove(stripped_path)
+                        raise RuntimeError("Команда awg syncconf завершилась с ошибкой")
                 log_event("info", "awg", "Конфигурация AmneziaWG успешно применена")
 
                 return True, "Конфигурация AWG успешно синхронизирована"
 
-            except Exception as e:
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
-                if os.path.exists(stripped_path):
-                    os.remove(stripped_path)
-                logger.warning(f"Синхронизация AWG системного интерфейса недоступна: {e}")
-                log_event("error", "awg", "Ошибка применения конфигурации AmneziaWG", {"reason": str(e)[:400]})
-                return False, f"Конфигурация сохранена локально ({e})"
+            except (Exception, asyncio.CancelledError) as e:
+                rollback_failed = False
+                try:
+                    if config_replaced:
+                        if previous_config is None:
+                            os.remove(config_path)
+                        else:
+                            secure_write(tmp_path, previous_config)
+                            os.replace(tmp_path, config_path)
+                    # syncconf может применить часть netlink-изменений до ошибки.
+                    if runtime_touched and previous_runtime:
+                        secure_write(rollback_path, previous_runtime.encode("utf-8"))
+                        rollback_code, _, _ = await run_cmd("awg", "syncconf", "awg0", rollback_path, timeout=20)
+                        rollback_failed = rollback_code != 0
+                except Exception:
+                    rollback_failed = True
+                reason = "Не удалось применить конфигурацию AmneziaWG"
+                if rollback_failed:
+                    reason += "; автоматический откат не завершён"
+                # stderr системных команд может содержать ключ из ошибочного файла.
+                logger.warning(reason)
+                log_event("error", "awg", reason)
+                if isinstance(e, asyncio.CancelledError):
+                    raise
+                return False, reason
+            finally:
+                for path in (tmp_path, stripped_path, rollback_path):
+                    if os.path.exists(path):
+                        os.remove(path)
 
     @staticmethod
     def generate_client_conf(
