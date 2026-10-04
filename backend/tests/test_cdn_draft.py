@@ -85,3 +85,22 @@ def test_cdn_separate_inbound_keeps_tls_identity_and_settings():
     assert cdn["settings"]["clients"] == normal["settings"]["clients"] == identity
     assert normal["streamSettings"]["xhttpSettings"] == {"path": "/original", "mode": "auto"}
     assert cdn["streamSettings"]["xhttpSettings"]["path"] == "/original/cdn-get"
+
+
+@pytest.mark.asyncio
+async def test_probe_uses_get_header_payload_and_valid_padding(monkeypatch):
+    from app.services.cdn import probe_cdn
+    calls = []
+    monkeypatch.setattr("app.services.cdn.socket.getaddrinfo", lambda *args: [(2, 1, 6, "", ("8.8.8.8", 443))])
+    class Process:
+        returncode = 0
+        async def communicate(self): return b"200", b""
+    async def spawn(*args, **kwargs):
+        calls.append(args)
+        return Process()
+    monkeypatch.setattr("app.services.cdn.asyncio.create_subprocess_exec", spawn)
+    result = await probe_cdn("cdn.example.com", "/original")
+    assert result["ok"] and result["upload_status"] == 200
+    assert len(calls) == 2 and all("POST" not in args and "--data-binary" not in args for args in calls)
+    assert any(arg.startswith("X-Data-0: ") for arg in calls[1])
+    assert any(arg.startswith("Referer: ") and "x_padding=" + "X" * 150 in arg for arg in calls[1])

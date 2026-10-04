@@ -70,7 +70,8 @@ async def probe_cdn(domain: str, path: str) -> dict:
                     "--resolve", f"{domain}:443:{addresses[0]}", "--output", os.devnull, "--write-out", "%{http_code}"]
             if upload:
                 payload = base64.urlsafe_b64encode(b"md-next-cdn-probe").decode().rstrip("=")
-                args += ["--header", "X-Data-0: " + payload]
+                args += ["--header", "X-Data-0: " + payload,
+                         "--header", f"Referer: https://{domain}{cdn_path(path)}/?x_padding=" + "X" * 150]
             args += [f"https://{domain}{suffix}"]
             process = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
             try:
