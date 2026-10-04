@@ -14,6 +14,7 @@ const WarpPage = lazy(() => import('./pages/WarpPage'));
 const ProtocolsPage = lazy(() => import('./pages/ProtocolsPage'));
 const DnsPage = lazy(() => import('./pages/DnsPage'));
 const ClientAccessPage = lazy(() => import('./pages/ClientAccessPage'));
+const BypassPage = lazy(() => import('./pages/BypassPage'));
 
 const PageSkeleton: React.FC = () => (
   <div className="animate-pulse space-y-6">
@@ -65,6 +66,7 @@ const App: React.FC = () => {
               <Route path="/nodes" element={<NodesPage />} />
               <Route path="/routing" element={<RoutingPage />} />
               <Route path="/warp" element={<WarpPage />} />
+              <Route path="/bypass" element={<BypassPage />} />
               <Route path="/protocols" element={<ProtocolsPage />} />
               <Route path="/dns" element={<DnsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
