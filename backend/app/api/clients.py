@@ -19,6 +19,7 @@ from app.services.awg import AWGService
 from app.services.client_service import ClientService
 from app.services.crypto import decrypt_secret, encrypt_secret
 from app.services.profiles import make_profile_data, get_profile_settings, create_profiles, enabled_profile_kinds
+from app.services.cdn import make_cdn_link
 from app.services.events import log_event
 from app.models.setting import Setting
 from app.services.happ_routing import build_happ_routing_link
@@ -266,6 +267,9 @@ async def get_subscription(token: str, request: Request, db: AsyncSession = Depe
             link = make_profile_data(client, profile, settings)
             if link:
                 links.append(link)
+            cdn_link = make_cdn_link(client, profile, settings)
+            if cdn_link:
+                links.append(cdn_link)
     content = base64.b64encode("\n".join(links).encode("utf-8")).decode("ascii")
     dns_rows = (await db.execute(select(Setting).where(Setting.key.like("dns.%")))).scalars().all()
     happ_dns = build_happ_routing_link({row.key: row.value for row in dns_rows})

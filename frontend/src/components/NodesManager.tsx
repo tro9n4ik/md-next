@@ -152,6 +152,9 @@ export const NodesManager: React.FC = () => {
       setRouteCheck(null);
       queryClient.invalidateQueries({ queryKey: ['clusterRoute'] });
       queryClient.invalidateQueries({ queryKey: ['nodes'] });
+      queryClient.invalidateQueries({ queryKey: ['warp-target'] });
+      queryClient.invalidateQueries({ queryKey: ['warp-status'] });
+      queryClient.invalidateQueries({ queryKey: ['telegramSettings'] });
     },
     onError: (error: Error) => setClusterError(error.message),
   });

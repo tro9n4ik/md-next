@@ -108,6 +108,17 @@ class BotManager:
     async def reload(self, token: str, proxy_url: Optional[str] = None):
         await self.start(token, proxy_url)
 
+    async def rebind_proxy(self, proxy_url: str):
+        """Меняет транспорт текущего бота, в том числе из его собственного обработчика."""
+        if self.bot is None:
+            return
+        previous = self.bot.session
+        self.bot.session = AiohttpSession(proxy=proxy_url, timeout=15)
+        try:
+            await previous.close()
+        except Exception:
+            logger.warning("Не удалось закрыть прежний транспорт Telegram")
+
 bot_manager = BotManager()
 
 def get_bot() -> Optional[Bot]:
