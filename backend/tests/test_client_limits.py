@@ -143,7 +143,7 @@ async def test_expiration_and_quota_remove_clients_from_both_server_configs(tmp_
         path = tmp_path / "awg.conf"
         with patch.object(AWGService, "get_server_settings", return_value={"server_private_key": "тест", "server_ip": "10.8.0.1", "port": 51820}), \
              patch.object(AWGService, "protocol_parameters", return_value={}), \
-             patch("app.services.awg.run_cmd", return_value=(0, "", "")):
+             patch("app.services.awg.run_cmd", return_value=(0, "[Interface]\nPrivateKey = тест\n", "")):
             assert (await AWGService.sync_server_config(db, str(path)))[0]
         config = path.read_text(encoding="utf-8")
         assert "test-public-1" in config
