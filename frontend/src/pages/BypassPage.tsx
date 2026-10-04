@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Cloud, Loader2, Save, ShieldCheck } from 'lucide-react';
+import { Cloud, Loader2, Save, ShieldCheck, FlaskConical } from 'lucide-react';
 import PageLayout from '../components/ui/PageLayout';
 import Switch from '../components/ui/Switch';
 import { apiFetch } from '../utils/api';
@@ -20,6 +20,7 @@ async function readResponse(response: Response): Promise<CdnDraft> {
 export default function BypassPage() {
   const cache = useQueryClient();
   const [domain, setDomain] = useState<string | null>(null);
+  const [enabled, setEnabled] = useState<boolean | null>(null);
   const [notice, setNotice] = useState<{ error: boolean; text: string } | null>(null);
   const query = useQuery<CdnDraft>({
     queryKey: ['cdnDraft'],
@@ -28,15 +29,30 @@ export default function BypassPage() {
   const save = useMutation({
     mutationFn: async () => readResponse(await apiFetch('/api/v1/cdn', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ domain: (domain ?? query.data?.domain ?? '').trim(), enabled: false }),
+      body: JSON.stringify({ domain: (domain ?? query.data?.domain ?? '').trim(), enabled: enabled ?? query.data?.enabled ?? false }),
     })),
     onSuccess: result => {
       cache.setQueryData(['cdnDraft'], result);
       setDomain(null);
-      setNotice({ error: false, text: 'Домен сохранён. Профиль CDN пока не добавляется в подписки.' });
+      setEnabled(null);
+      setNotice({ error: false, text: result.enabled ? 'Обход БС включён. Обновите подписку в Happ и выберите профиль «Обход БС · CDN». Проверьте его работу в вашей сети.' : 'Настройки сохранены. Профиль CDN отключён. После обновления подписки он исчезнет из списка.' });
     },
     onError: (error: Error) => setNotice({ error: true, text: error.message }),
   });
+  const check = useMutation({
+    mutationFn: async () => {
+      const response = await apiFetch('/api/v1/cdn/check', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ domain: (domain ?? query.data?.domain ?? '').trim() }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : 'Не удалось проверить CDN.');
+      return result as { ok: boolean; message: string };
+    },
+    onSuccess: result => setNotice({ error: !result.ok, text: result.message }),
+    onError: (error: Error) => setNotice({ error: true, text: error.message }),
+  });
+  const busy = save.isPending || check.isPending;
   const draft = query.data;
 
   return <PageLayout title="Обход БС" description="Подключение через CDN в сетях с белыми списками" icon={ShieldCheck}>
@@ -46,7 +62,7 @@ export default function BypassPage() {
           <div className="rounded-xl bg-sky-50 p-3 text-sky-600"><Cloud size={24} /></div>
           <div><h2 className="font-bold text-neutral-900">CDN</h2><p className="mt-1 text-sm text-neutral-500">Дополнительный профиль VLESS · XHTTP · TLS</p></div>
         </div>
-        <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">{query.isPending ? 'Загрузка…' : query.isError ? 'Нет данных' : 'Подготовка'}</span>
+        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${draft?.enabled ? 'bg-emerald-50 text-emerald-800' : 'bg-neutral-100 text-neutral-600'}`}>{query.isPending ? 'Загрузка…' : query.isError ? 'Нет данных' : draft?.enabled ? 'Включён' : 'Выключен'}</span>
       </div>
       <div className="mt-5 rounded-xl bg-neutral-50 p-4 text-sm leading-6 text-neutral-600">
         Клиент подключается к вашему домену CDN, а CDN передаёт запросы на сервер панели. Доступность CDN при ограничениях зависит от сети оператора и проверяется отдельно.
@@ -55,12 +71,12 @@ export default function BypassPage() {
       {query.isError && <div role="alert" className="mt-5 text-sm text-red-700">{(query.error as Error).message}</div>}
       {draft && <>
         <label className="mt-5 block text-sm font-semibold text-neutral-700">Домен CDN
-          <input className={input} value={domain ?? draft.domain} onChange={event => { setDomain(event.target.value); setNotice(null); }} placeholder="cdn.example.com" autoComplete="off" spellCheck={false} disabled={save.isPending} />
+          <input className={input} value={domain ?? draft.domain} onChange={event => { setDomain(event.target.value); setNotice(null); }} placeholder="cdn.example.com" autoComplete="off" spellCheck={false} disabled={busy} />
           <span className="mt-2 block text-xs font-normal text-neutral-500">Укажите доменное имя без https://, порта и пути. DNS и сертификат настраиваются у провайдера.</span>
         </label>
         <div className="mt-5 flex items-start justify-between gap-4 rounded-xl border border-neutral-200 p-4">
-          <div><h3 className="text-sm font-semibold text-neutral-800">Добавлять в подписки</h3><p className="mt-1 text-xs leading-5 text-neutral-500">Станет доступно после проверки полного туннеля через CDN. Сохранение домена не включает профиль.</p></div>
-          <Switch label="Добавлять CDN в подписки" checked={false} disabled onChange={() => {}} />
+          <div><h3 className="text-sm font-semibold text-neutral-800">Включить обход БС</h3><p className="mt-1 text-xs leading-5 text-neutral-500">Добавляет профиль CDN в подписки клиентов с XHTTP TLS. При сохранении проверяются HTTPS и POST. Работа в ограниченной сети проверяется с телефона.</p></div>
+          <Switch label="Включить обход БС" checked={enabled ?? draft.enabled} disabled={busy} onChange={value => { setEnabled(value); setNotice(null); }} />
         </div>
       </>}
     </section>
@@ -80,7 +96,10 @@ export default function BypassPage() {
     {notice && <div role={notice.error ? 'alert' : 'status'} className={`rounded-xl border px-4 py-3 text-sm ${notice.error ? 'border-red-200 bg-red-50 text-red-700' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>{notice.text}</div>}
     <div className="ui-actionbar">
       <p className="text-xs leading-5 text-neutral-500">CDN использует существующую подписку, её срок, лимит трафика и выбранную выходную ноду.</p>
-      <button className="ui-button ui-button-primary shrink-0" disabled={!draft || save.isPending} onClick={() => { setNotice(null); save.mutate(); }}>
+      <button className="ui-button ui-button-secondary shrink-0" disabled={!draft || busy} onClick={() => { setNotice(null); check.mutate(); }}>
+        {check.isPending ? <Loader2 size={16} className="animate-spin" /> : <FlaskConical size={16} />}{check.isPending ? 'Проверка…' : 'Проверить CDN'}
+      </button>
+      <button className="ui-button ui-button-primary shrink-0" disabled={!draft || busy} onClick={() => { setNotice(null); save.mutate(); }}>
         {save.isPending ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}{save.isPending ? 'Сохранение…' : 'Сохранить'}
       </button>
     </div>

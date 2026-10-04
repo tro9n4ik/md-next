@@ -1,5 +1,10 @@
 """Каркас CDN: отдельная ссылка на существующий XHTTP/TLS без изменения входов."""
 import re
+import asyncio
+import ipaddress
+import socket
+import uuid
+import os
 from urllib.parse import quote, urlencode
 
 
@@ -27,5 +32,47 @@ def make_cdn_link(client, profile, settings: dict[str, str], *, preview: bool = 
     params = {"encryption": "none", "security": "tls", "sni": domain,
               "host": domain, "type": "xhttp", "mode": "packet-up",
               "path": settings.get("profiles.path.vless_xhttp_tls", "/md-next-xhttp")}
-    name = quote(f"{client.name} · CDN (тест)", safe="")
+    name = quote(f"{client.name} · Обход БС · CDN", safe="")
     return f"vless://{profile.uuid}@{domain}:443?{urlencode(params)}#{name}"
+
+
+async def probe_cdn(domain: str, path: str) -> dict:
+    """Проверка TLS и POST. Не заменяет тест VPN с телефона.
+
+    Адрес фиксируется в curl: внутренние адреса и перенаправления исключены.
+    """
+    domain = validate_domain(domain)
+    if not domain:
+        return {"ok": False, "message": "Укажите домен CDN."}
+    if not path.startswith("/") or any(c in path for c in "?#\r\n"):
+        return {"ok": False, "message": "Некорректный путь XHTTP на сервере."}
+    try:
+        records = await asyncio.wait_for(asyncio.to_thread(socket.getaddrinfo, domain, 443, socket.AF_INET, socket.SOCK_STREAM), 5)
+        addresses = sorted({r[4][0] for r in records})
+        if not addresses or any(not ipaddress.ip_address(a).is_global for a in addresses):
+            return {"ok": False, "message": "Домен CDN должен указывать на публичный адрес."}
+        async def request(suffix, post=False):
+            args = ["curl", "--silent", "--show-error", "--noproxy", "*", "--proto", "=https",
+                    "--max-time", "10", "--connect-timeout", "5", "--max-redirs", "0",
+                    "--resolve", f"{domain}:443:{addresses[0]}", "--output", os.devnull, "--write-out", "%{http_code}"]
+            if post:
+                args += ["--request", "POST", "--data-binary", "md-next-cdn-probe"]
+            args += [f"https://{domain}{suffix}"]
+            process = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            try:
+                data, _ = await asyncio.wait_for(process.communicate(), 12)
+                if process.returncode:
+                    raise ValueError("TLS or network error")
+                return int(data.rsplit(b"\n", 1)[-1])
+            finally:
+                if process.returncode is None:
+                    process.kill()
+                    await process.wait()
+        get_status = await request("/")
+        post_status = await request(path.rstrip("/") + "/" + str(uuid.uuid4()) + "/0", True)
+        ok = get_status == 200 and post_status == 200
+        return {"ok": ok, "get_status": get_status, "post_status": post_status,
+                "message": "HTTPS и POST проходят. Проверьте профиль в Happ, затем доступ из ограниченной сети." if ok else
+                f"CDN вернул GET: {get_status}, POST: {post_status}. Для XHTTP требуется POST 200. Проверьте разрешённые методы и ограничения провайдера."}
+    except (OSError, ValueError, asyncio.TimeoutError):
+        return {"ok": False, "message": "Не удалось проверить CDN. Проверьте DNS, сертификат HTTPS и доступность источника."}

@@ -25,7 +25,10 @@ def test_bad_cdn_domain_rejected(domain):
 
 
 @pytest.mark.asyncio
-async def test_draft_does_not_allow_unverified_activation(auth_headers):
+async def test_draft_does_not_allow_unverified_activation(auth_headers, monkeypatch):
+    async def failed(*args):
+        return {"ok": False, "message": "POST: 413"}
+    monkeypatch.setattr("app.api.cdn.probe_cdn", failed)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         assert (await client.get("/api/v1/cdn")).status_code in {401, 403}
         saved = await client.put("/api/v1/cdn", headers=auth_headers, json={"domain": "cdn.example.com"})
@@ -33,3 +36,32 @@ async def test_draft_does_not_allow_unverified_activation(auth_headers):
         rejected = await client.put("/api/v1/cdn", headers=auth_headers, json={"domain": "other.example.com", "enabled": True})
         assert rejected.status_code == 409
         assert (await client.get("/api/v1/cdn", headers=auth_headers)).json()["domain"] == "cdn.example.com"
+
+
+@pytest.mark.asyncio
+async def test_enable_disable_and_protocol_guard(auth_headers, monkeypatch):
+    from app.models.setting import Setting
+    from conftest import TestingSessionLocal
+    async def passed(*args):
+        return {"ok": True, "message": "POST: 200"}
+    monkeypatch.setattr("app.api.cdn.probe_cdn", passed)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        assert (await client.post("/api/v1/cdn/check", json={})).status_code in {401, 403}
+        payload = {"domain": "cdn.example.com", "enabled": True}
+        assert (await client.put("/api/v1/cdn", headers=auth_headers, json=payload)).status_code == 409
+        async with TestingSessionLocal() as db:
+            db.add(Setting(key="profiles.enabled.vless_xhttp_tls", value="true"))
+            await db.commit()
+        response = await client.put("/api/v1/cdn", headers=auth_headers, json=payload)
+        assert response.status_code == 200 and response.json()["enabled"] is True
+        settings = {"cdn.enabled": "true", "cdn.domain": "cdn.example.com"}
+        assert make_cdn_link(SimpleNamespace(name="Клиент"), SimpleNamespace(kind="vless_xhttp_tls", uuid="id"), settings)
+        response = await client.put("/api/v1/cdn", headers=auth_headers, json={**payload, "enabled": False})
+        assert response.status_code == 200 and response.json()["enabled"] is False
+
+
+@pytest.mark.asyncio
+async def test_probe_rejects_private_dns_without_request(monkeypatch):
+    from app.services.cdn import probe_cdn
+    monkeypatch.setattr("app.services.cdn.socket.getaddrinfo", lambda *args: [(2, 1, 6, "", ("127.0.0.1", 443))])
+    assert not (await probe_cdn("cdn.example.com", "/xhttp"))["ok"]
