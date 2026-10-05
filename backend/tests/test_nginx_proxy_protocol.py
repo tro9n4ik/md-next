@@ -61,9 +61,11 @@ def test_nginx_proxy_protocol(tmp_path):
         pytest.fail(str(e))
 
     stream_port = find_free_port()
+    fake_port, panel_port, http_port = [find_free_port() for _ in range(3)]
 
-    # 1. Запуск эхо-сервера на 127.0.0.1:8000
-    echo_server = HTTPServer(("127.0.0.1", 8000), EchoHandler)
+    # Use isolated ports so the test can run alongside a live installation.
+    echo_server = HTTPServer(("127.0.0.1", 0), EchoHandler)
+    echo_port = echo_server.server_address[1]
     server_thread = threading.Thread(target=echo_server.serve_forever)
     server_thread.daemon = True
     server_thread.start()
@@ -107,9 +109,13 @@ def test_nginx_proxy_protocol(tmp_path):
     # Подстановка параметров в stream_conf из install.sh
     rendered_stream = raw_stream_conf.replace("$MAIN_DOMAIN", main_domain).replace("$PANEL_DOMAIN", panel_domain)
     rendered_stream = re.sub(r"listen\s+443;", f"listen 127.0.0.1:{stream_port};", rendered_stream)
+    rendered_stream = rendered_stream.replace('127.0.0.1:8080', f'127.0.0.1:{fake_port}').replace('127.0.0.1:8443', f'127.0.0.1:{panel_port}')
 
     # Подстановка параметров в site_conf из install.sh
     rendered_site = raw_site_conf.replace("$MAIN_DOMAIN", main_domain).replace("$PANEL_DOMAIN", panel_domain)
+    rendered_site = rendered_site.replace('127.0.0.1:8000', f'127.0.0.1:{echo_port}')
+    rendered_site = rendered_site.replace('127.0.0.1:8080', f'127.0.0.1:{fake_port}').replace('127.0.0.1:8443', f'127.0.0.1:{panel_port}')
+    rendered_site = re.sub(r'listen\s+80;', f'listen 127.0.0.1:{http_port};', rendered_site)
     rendered_site = rendered_site.replace("/etc/nginx/ssl_dummy/fullchain.pem", str(cert_path))
     rendered_site = rendered_site.replace("/etc/nginx/ssl_dummy/privkey.pem", str(key_path))
     rendered_site = rendered_site.replace("/opt/md-next/backend/app/static/fake/", str(fake_html) + "/")
@@ -118,6 +124,7 @@ def test_nginx_proxy_protocol(tmp_path):
     nginx_conf = tmp_path / "nginx.conf"
     nginx_conf.write_text(f"""
 {load_module_directive}worker_processes 1;
+user {__import__('pwd').getpwuid(os.getuid()).pw_name};
 pid {tmp_path}/nginx.pid;
 error_log {tmp_path}/error.log debug;
 

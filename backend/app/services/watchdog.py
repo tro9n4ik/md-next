@@ -6,11 +6,13 @@ import time
 from typing import Optional, Tuple
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import AsyncSessionLocal
 from app.models.node import Node
+from app.models.operations import NodeSample
+from app.models.setting import Setting
 from app.services.cluster import apply_active_node, get_failover_settings, get_selected_node, is_manual_direct_route
 from app.services.xray import DEFAULT_PROBE_URL, probe_enabled, probe_port_for_node
 from app.bot.bot import get_bot
@@ -115,6 +117,8 @@ class WatchdogService:
             # Диагностика не подменяет задержку: порог ping_threshold_ms отвечает только
             # за доступность порта, а работоспособность выхода определяется отдельно.
             bad = not (connected and egress_ok) or ping_ms > settings["ping_threshold_ms"]
+            session.add(NodeSample(node_id=node.id,ts=now,healthy=not bad,ping_ms=ping_ms,
+                reason='port' if not connected else 'egress' if not egress_ok else 'latency' if bad else 'ok'))
             if bad:
                 self.consecutive_failures[node.id] = self.consecutive_failures.get(node.id, 0) + 1
                 self.consecutive_successes[node.id] = 0
@@ -125,9 +129,11 @@ class WatchdogService:
                     if was_healthy:
                         logger.warning("cluster.node.unhealthy id=%s ping_ms=%s connected=%s egress=%s", node.id, ping_ms, connected, egress_ok if probe is not None else "skip")
                         log_event("warning", "node", "Узел стал недоступен", {"node_id": node.id, "name": node.name, "ping_ms": ping_ms, "connected": connected, "egress_ok": egress_ok if probe is not None else None})
-                        if settings["mode"] == "manual":
+                        outage=await session.get(Setting,f'notify.node.{node.id}')
+                        if not outage:
+                            session.add(Setting(key=f'notify.node.{node.id}',value=now.isoformat()))
                             try:
-                                await notify_admin(get_bot(), f"Нода {node.name} недоступна или превысила порог задержки ({ping_ms} мс). Автопереключение отключено.", notification_type="node_down")
+                                await notify_admin(get_bot(), f"Нода {node.name} недоступна или превысила порог задержки ({ping_ms} мс).", notification_type="node_down")
                             except Exception:
                                 logger.exception("Не удалось сообщить о недоступном узле")
             else:
@@ -140,6 +146,16 @@ class WatchdogService:
                 await self._update_country(node)
                 if was_unhealthy:
                     log_event("info", "node", "Узел снова доступен", {"node_id": node.id, "name": node.name, "ping_ms": ping_ms})
+                    outage=await session.get(Setting,f'notify.node.{node.id}')
+                    if outage:
+                        try:
+                            from app.services.client_limits import utc
+                            seconds=max(0,int((now-utc(datetime.datetime.fromisoformat(outage.value))).total_seconds()))
+                            await notify_admin(get_bot(),f'Нода {node.name} восстановлена. Сбой длился {seconds//60} мин {seconds%60} сек.',notification_type='node_down')
+                        except Exception:
+                            logger.exception('Не удалось сообщить о восстановлении узла')
+                        await session.delete(outage)
+        await session.execute(delete(NodeSample).where(NodeSample.ts<now-datetime.timedelta(days=30)))
         await session.flush()
 
     async def _switch(self, session: AsyncSession, node: Optional[Node], reason: str) -> bool:

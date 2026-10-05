@@ -129,7 +129,7 @@ const TelegramForm: React.FC<{ tgSettings: TelegramSettings; tgMessage: Telegram
         <div className="space-y-6">
           <div>
             <h3 className="text-base font-bold text-neutral-800 mb-1">Подключение бота</h3>
-            <p className="text-xs text-neutral-500">Доступ разрешён только указанному администратору. Сначала отправьте боту /start.</p>
+            <p className="text-xs text-neutral-500">Управление доступно указанному администратору. Клиенты получают личный кабинет после привязки по одноразовому коду. Сначала отправьте боту /start.</p>
             <p className="text-sm mt-3">Состояние: {tgSettings?.bot_status === 'running' ? 'Работает' : tgSettings?.bot_status === 'error' ? 'Ошибка подключения' : 'Выключен'}</p>
             {tgSettings?.bot_error && <p className="text-xs text-red-600 mt-1">{tgSettings.bot_error}</p>}
           </div>
@@ -209,8 +209,8 @@ const TelegramForm: React.FC<{ tgSettings: TelegramSettings; tgMessage: Telegram
               </div>
 
               <label className="flex cursor-pointer items-center space-x-2 text-xs text-neutral-700">
-                <Switch label="Превышение лимита трафика" checked={notifyQuota} onChange={setNotifyQuota} />
-                <span>Отключение клиента при превышении лимита трафика</span>
+                <Switch label="Сроки и лимиты подписок" checked={notifyQuota} onChange={setNotifyQuota} />
+                <span>Сроки подписок и расход 80–100% лимита</span>
               </label>
 
               <div className="ui-actionbar mt-6">

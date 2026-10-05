@@ -378,6 +378,7 @@ async def update_client(client_id: int, data: ClientUpdate, db: AsyncSession = D
     try:
         await _sync_protocols(db)
         await db.commit()
+        log_event("info", "client", "Условия клиента обновлены", {"client_id": client.id, "fields": sorted(data.model_fields_set)})
         if was_active != client.is_active:
             log_event("info", "client", "Клиент включён" if client.is_active else "Клиент отключён", {"client_id": client.id, "name": client.name})
         return {"id": client.id, "name": client.name, "is_active": client.is_active, **limit_info(client)}
@@ -394,6 +395,8 @@ async def delete_client(client_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Клиент не найден")
     deleted_name = client.name
     await db.execute(delete(Setting).where(Setting.key == f"client.cdn.{client_id}"))
+    from app.models.operations import TelegramLink
+    await db.execute(delete(TelegramLink).where(TelegramLink.client_id == client_id))
     await db.delete(client)
     await db.flush()
     try:

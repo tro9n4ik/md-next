@@ -1,0 +1,17 @@
+import { useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
+import { request } from '../utils/operations';
+import type { ClientLimits } from '../utils/subscriptions';
+import { formatBytes } from '../utils/ru';
+
+export default function ClientQuickActions({ client, refresh }: { client: ClientLimits & { id: number; is_active: boolean }; refresh: () => Promise<void> }) {
+  const [notice, setNotice] = useState(''); const [code, setCode] = useState('');
+  const mutation = useMutation({ mutationFn: async (action: string) => {
+    if (action === 'toggle') return request(`/api/v1/clients/${client.id}`, { is_active: !client.is_active }, 'PUT');
+    if (action === 'unlink') return request(`/api/v1/operations/clients/${client.id}/telegram-link`, undefined, 'DELETE');
+    return request<{ instruction?: string }>(`/api/v1/operations/clients/${client.id}/${action}`, {});
+  }, onSuccess: async (data, action) => { setNotice('Действие выполнено'); if (action === 'telegram-code' && data && typeof data === 'object' && 'instruction' in data) setCode(String(data.instruction)); if (action === 'unlink') setCode(''); await refresh(); }, onError: e => setNotice(e.message) });
+  function run(action: string, prompt: string) { if (window.confirm(prompt)) mutation.mutate(action); }
+  const remaining = Math.max(0, client.monthly_traffic_limit - client.monthly_traffic_used);
+  return <section className="ui-card ui-panel space-y-4"><h2 className="ui-card-title">Быстрые действия</h2><p className="text-sm text-neutral-600">Осталось на месяц: <b>{client.monthly_traffic_limit ? formatBytes(remaining) : 'Без ограничений'}</b></p><div className="flex flex-wrap gap-3"><button disabled={mutation.isPending} className="ui-button ui-button-secondary" onClick={() => run('extend', 'Продлить на 30 дней? Для бессрочной подписки будет установлен срок от сегодняшней даты.')}>Продлить на 30 дней</button><button disabled={mutation.isPending} className="ui-button ui-button-secondary" onClick={() => run('reset', 'Обнулить расход трафика за текущий месяц? Дата следующего обновления сохранится.')}>Сбросить месячный расход</button><button disabled={mutation.isPending} className="ui-button ui-button-secondary" onClick={() => run('toggle', client.is_active ? 'Приостановить доступ клиента?' : 'Включить доступ клиента?')}>{client.is_active ? 'Приостановить' : 'Включить'}</button></div><div className="border-t border-neutral-100 pt-4"><h3 className="text-sm font-medium">Личный кабинет Telegram</h3><p className="mt-1 text-xs text-neutral-500">Передайте одноразовый код владельцу подписки. Действует 15 минут. При создании нового кода предыдущий аннулируется.</p><div className="mt-3 flex flex-wrap gap-3"><button disabled={mutation.isPending} className="ui-button ui-button-secondary" onClick={() => mutation.mutate('telegram-code')}>Создать код</button><button disabled={mutation.isPending} className="ui-button ui-button-danger" onClick={() => run('unlink', 'Отозвать привязку Telegram и все действующие коды этого клиента?')}>Отозвать привязку</button></div>{code && <div className="mt-3 flex flex-wrap gap-3"><code className="break-all rounded-lg bg-neutral-50 p-3 text-sm">{code}</code><button className="ui-button ui-button-secondary" onClick={() => navigator.clipboard.writeText(code).catch(() => setNotice('Не удалось скопировать код'))}>Копировать</button></div>}</div><p role="status" className="text-sm text-neutral-600">{notice}</p></section>;
+}

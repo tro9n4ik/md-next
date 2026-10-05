@@ -33,6 +33,8 @@ def main_menu():
         [("➕ Новая подписка", "sub:new")],
         [("📋 Подписки", "md:clients"), ("📊 Статус", "md:status")],
         [("🌐 Ноды", "md:nodes"), ("❔ Помощь", "md:help")],
+        [("🔎 Поиск и фильтры", "ops:list:0"), ("📑 Шаблоны", "ops:templates")],
+        [("🩺 Диагностика", "ops:diagnostics")],
     )
 
 
@@ -312,12 +314,16 @@ async def notify_admin(bot, text: str, notification_type: str = "failover"):
         return
     if notification_type == "failover" and not tg_settings["notify_failover"]:
         return
+    if notification_type == "quota" and not tg_settings["notify_quota"]:
+        return
 
     if admin_id != 0 and bot is not None:
         try:
-            await bot.send_message(admin_id, f"⚠️ *ВНИМАНИЕ*\n\n{text}", parse_mode="Markdown")
+            await bot.send_message(admin_id, f"⚠️ ВНИМАНИЕ\n\n{text}", parse_mode=None)
         except Exception as e:
             logging.error(f"Не удалось отправить уведомление Telegram: {e}")
 
 
+from . import admin_tools
+admin_tools.register(router)
 subscriptions.register(router)

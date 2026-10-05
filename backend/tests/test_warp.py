@@ -60,6 +60,7 @@ def test_xray_config_has_warp_outbound_and_warp_routing_rule():
 
 def test_geosite_requires_asset_dat(monkeypatch, tmp_path):
     monkeypatch.setenv("XRAY_LOCATION_ASSET", str(tmp_path))
+    monkeypatch.setattr('app.services.routing_rules.Path.is_file', lambda _: False)
     with pytest.raises(ValueError, match="geosite.dat"):
         validate_rule_value("geosite:category-ads")
 
@@ -67,6 +68,7 @@ def test_geosite_requires_asset_dat(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_geosite_rule_without_asset_returns_http_400(monkeypatch, tmp_path):
     monkeypatch.setenv("XRAY_LOCATION_ASSET", str(tmp_path))
+    monkeypatch.setattr('app.services.routing_rules.Path.is_file', lambda _: False)
     with pytest.raises(HTTPException) as error:
         await create_routing_rule(RoutingRuleCreate(domain_or_ip="geosite:category-ads", action="warp"), AsyncMock())
     assert error.value.status_code == 400

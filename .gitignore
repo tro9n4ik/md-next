@@ -33,6 +33,9 @@ pnpm-debug.log*
 *.bak
 *.log
 backend/backup/
+backend/backups/
+*.mdbackup
+scripts/github-sync.py
 
 # IDE и ОС
 .idea/

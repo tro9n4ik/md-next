@@ -151,6 +151,8 @@ async def new_command(message):
 
 
 def next_step(draft, step):
+    if step == 'period' and draft.values.get('_template'):
+        step = 'review'
     # Редактирование из итоговой карточки возвращается сразу к подтверждению.
     if draft.values.pop("_editing", False):
         draft.step = "review"
@@ -264,6 +266,7 @@ async def detail(message, client_id, *, edit=True):
                 f"🔄 Новый период: {date_label(limits['traffic_period_end'])}")
     await show_screen(message, text, keyboard(
         [("🔗 Ссылка и QR-код", f"sub:link:{client_id}")], [("🛡 Файл AmneziaWG", f"sub:awg:{client_id}")],
+        [("✏️ Управлять подпиской", f"ops:detail:{client_id}")],
         [("🔄 Обновить", f"sub:detail:{client_id}"), ("← Подписки", "sub:list:0")], [("🏠 Главное меню", "md:home")]), edit=edit)
 
 

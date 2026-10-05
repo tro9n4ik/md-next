@@ -15,6 +15,7 @@ from app.models.user import User
 from app.models.routing import RoutingRule
 from app.models.setting import Setting
 from app.models.event import Event
+from app.models.operations import NodeSample, TelegramLink
 
 config = context.config
 

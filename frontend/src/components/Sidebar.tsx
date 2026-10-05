@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { LayoutDashboard, Users, Server, Route, Settings, LogOut, CheckCircle2, Menu, X, Cloud, Radio, Network, Send, ShieldCheck, PanelLeftClose, PanelLeftOpen, CircleHelp } from 'lucide-react';
+import { LayoutDashboard, Users, Server, Route, Settings, LogOut, CheckCircle2, Menu, X, Cloud, Radio, Network, Send, ShieldCheck, PanelLeftClose, PanelLeftOpen, CircleHelp, Stethoscope, Activity, Archive, ScrollText, Moon, Sun } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 
 interface SystemInfo {
@@ -16,6 +16,8 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [dark, setDark] = useState(() => localStorage.getItem('theme') === 'dark');
+  React.useEffect(() => { document.documentElement.dataset.theme = dark ? 'dark' : 'light'; localStorage.setItem('theme', dark ? 'dark' : 'light'); }, [dark]);
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebar-collapsed') === 'true');
   const toggleCollapsed = () => setCollapsed(value => { localStorage.setItem('sidebar-collapsed', String(!value)); return !value; });
 
@@ -45,6 +47,10 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
     { icon: Cloud, label: 'WARP', to: '/warp' },
     { icon: ShieldCheck, label: 'Обход БС', to: '/bypass' },
     { icon: Send, label: 'Telegram-бот', to: '/telegram' },
+    { icon: Stethoscope, label: 'Диагностика', to: '/diagnostics' },
+    { icon: Activity, label: 'История нод', to: '/history' },
+    { icon: Archive, label: 'Резервные копии', to: '/backups' },
+    { icon: ScrollText, label: 'Журнал событий', to: '/events' },
     { icon: Settings, label: 'Настройки', to: '/settings' },
     { icon: CircleHelp, label: 'Помощь', to: '/help' },
   ];
@@ -94,6 +100,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
       </nav>
 
       <div className="p-4 border-t border-white/10 space-y-3">
+        <button onClick={() => setDark(!dark)} title={dark ? 'Светлая тема' : 'Тёмная тема'} aria-label={dark ? 'Светлая тема' : 'Тёмная тема'} className="flex items-center gap-3 text-neutral-300 text-sm">{dark ? <Sun size={18} /> : <Moon size={18} />}<span className={collapsed ? 'lg:hidden' : ''}>{dark ? 'Светлая тема' : 'Тёмная тема'}</span></button>
         <div className="flex items-center space-x-2 text-xs text-neutral-400">
           <CheckCircle2 className={`w-4 h-4 shrink-0 ${systemState === "error" ? "text-red-500" : systemState === "warning" ? "text-amber-500" : "text-emerald-500"}`} />
           <span className={collapsed ? 'lg:hidden' : ''}>{systemState === "error" ? "Есть проблемы" : systemState === "warning" ? "Есть замечания" : systemState === "ok" ? "Все системы работают" : "Проверка состояния"}</span>

@@ -21,6 +21,7 @@ from app.api.protocols import router as protocols_router
 from app.api.dns import router as dns_router
 from app.api.events import router as events_router
 from app.api.cdn import router as cdn_router
+from app.api.operations import router as operations_router
 from app.services.watchdog import watchdog
 from app.services.traffic_collector import start_traffic_collector
 from app.services.telegram_settings import get_telegram_settings_from_db, resolve_telegram_proxy
@@ -85,6 +86,10 @@ async def lifespan(app: FastAPI):
     # Проверкам узлов нужны отдельные входы, созданные при первичной синхронизации.
     watchdog.start()
     traffic_task = asyncio.create_task(start_traffic_collector())
+    from app.services.notifications import notification_loop
+    notification_task = asyncio.create_task(notification_loop())
+    app.state.traffic_task = traffic_task
+    app.state.notification_task = notification_task
 
     try:
         tg_settings = await get_telegram_settings_from_db()
@@ -99,7 +104,14 @@ async def lifespan(app: FastAPI):
     yield
 
     log_event("info", "service", "Сервис панели остановлен")
+    traffic_task = app.state.traffic_task
+    notification_task = app.state.notification_task
     traffic_task.cancel()
+    notification_task.cancel()
+    try:
+        await notification_task
+    except asyncio.CancelledError:
+        pass
     event_cleanup_task.cancel()
     try:
         await event_cleanup_task
@@ -116,6 +128,19 @@ app = FastAPI(
     version=_get_version(),
     lifespan=lifespan
 )
+
+
+@app.middleware('http')
+async def settings_audit(request, call_next):
+    response = await call_next(request)
+    groups = {'dns':'DNS','protocols':'Протоколы','routing':'Маршрутизация','cluster':'Кластер','warp':'WARP'}
+    parts = request.url.path.strip('/').split('/')
+    group = parts[2] if len(parts)>2 and parts[:2]==['api','v1'] else ''
+    if request.method in ('PUT','POST','DELETE') and response.status_code<400 and group in groups:
+        # Read-only probes do not count as settings changes. Never record request bodies.
+        if not request.url.path.endswith(('/check','/test')):
+            log_event('info','settings','Изменены настройки: '+groups[group],{'method':request.method,'path':request.url.path})
+    return response
 
 allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "")
 allowed_origins = [origin.strip() for origin in allowed_origins_env.split(",") if origin.strip()] or [
@@ -134,6 +159,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(system_router)
 app.include_router(settings_router)
+app.include_router(operations_router)
 app.include_router(protocols_router)
 app.include_router(dns_router)
 app.include_router(clients_router)

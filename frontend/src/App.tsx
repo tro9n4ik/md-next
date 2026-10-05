@@ -1,5 +1,7 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { createHashRouter, RouterProvider, Outlet, Navigate } from 'react-router-dom';
+import UnsavedGuard from './components/UnsavedGuard';
+import PageError from './components/ui/PageError';
 import Sidebar from './components/Sidebar';
 import { LoginModal } from './components/LoginModal';
 import './index.css';
@@ -16,6 +18,10 @@ const DnsPage = lazy(() => import('./pages/DnsPage'));
 const ClientAccessPage = lazy(() => import('./pages/ClientAccessPage'));
 const BypassPage = lazy(() => import('./pages/BypassPage'));
 const HelpPage = lazy(() => import('./pages/HelpPage'));
+const DiagnosticsPage = lazy(() => import('./pages/DiagnosticsPage'));
+const HistoryPage = lazy(() => import('./pages/HistoryPage'));
+const BackupsPage = lazy(() => import('./pages/BackupsPage'));
+const EventsPage = lazy(() => import('./pages/EventsPage'));
 
 const PageSkeleton: React.FC = () => (
   <div className="animate-pulse space-y-6">
@@ -24,6 +30,25 @@ const PageSkeleton: React.FC = () => (
     <div className="h-64 bg-neutral-200 rounded-xl"></div>
   </div>
 );
+
+function Shell() {
+  return <div className="app-shell"><UnsavedGuard /><Sidebar onLogout={() => {
+    const detail = { cancelled: false }; window.dispatchEvent(new CustomEvent('ui:before-logout', { detail }));
+    if (detail.cancelled) return;
+    localStorage.removeItem('token'); window.dispatchEvent(new Event('auth:unauthorized'));
+  }} /><main className="app-main" id="main-content"><Suspense fallback={<PageSkeleton />}><Outlet /></Suspense></main></div>;
+}
+const router = createHashRouter([{ element: <Shell />, children: [
+  { path: '/', element: <DashboardPage /> }, { path: '/clients', element: <ClientsPage /> },
+  { path: '/clients/:id/access', element: <ClientAccessPage /> }, { path: '/nodes', element: <NodesPage /> },
+  { path: '/routing', element: <RoutingPage /> }, { path: '/warp', element: <WarpPage /> },
+  { path: '/bypass', element: <BypassPage /> }, { path: '/protocols', element: <ProtocolsPage /> },
+  { path: '/dns', element: <DnsPage /> }, { path: '/settings', element: <SettingsPage /> },
+  { path: '/telegram', element: <TelegramPage /> }, { path: '/help', element: <HelpPage /> },
+  { path: '/diagnostics', element: <DiagnosticsPage /> }, { path: '/history', element: <HistoryPage /> },
+  { path: '/backups', element: <BackupsPage /> }, { path: '/events', element: <EventsPage /> },
+  { path: '*', element: <Navigate to="/" replace /> },
+].map(route => ({ ...route, errorElement: <PageError /> })) }]);
 
 const App: React.FC = () => {
   const [authToken, setAuthToken] = useState<string | null>(null);
@@ -45,41 +70,11 @@ const App: React.FC = () => {
     };
   }, []);
 
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    setAuthToken(null);
-  };
-
   if (!authToken) {
     return <LoginModal onLoginSuccess={(token) => setAuthToken(token)} />;
   }
 
-  return (
-    <HashRouter>
-      <div className="app-shell">
-        <Sidebar onLogout={handleLogout} />
-        <main className="app-main" id="main-content">
-          <Suspense fallback={<PageSkeleton />}>
-            <Routes>
-              <Route path="/" element={<DashboardPage />} />
-              <Route path="/clients" element={<ClientsPage />} />
-              <Route path="/clients/:id/access" element={<ClientAccessPage />} />
-              <Route path="/nodes" element={<NodesPage />} />
-              <Route path="/routing" element={<RoutingPage />} />
-              <Route path="/warp" element={<WarpPage />} />
-              <Route path="/bypass" element={<BypassPage />} />
-              <Route path="/protocols" element={<ProtocolsPage />} />
-              <Route path="/dns" element={<DnsPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/telegram" element={<TelegramPage />} />
-              <Route path="/help" element={<HelpPage />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </Suspense>
-        </main>
-      </div>
-    </HashRouter>
-  );
+  return <RouterProvider router={router} />;
 };
 
 export default App;

@@ -5,13 +5,14 @@
     {
       "path": "backend/app/api/clients.py",
       "before_sha256": "a6adeaff56c26277a375ef49524f6e65ed6cbb755e924c98257197e3896189a7",
-      "after_sha256": "a5708c2596979eba803c47bcb4d63a077bfbc6638c2964649313b68b96e3dc96",
+      "after_sha256": "6f37ccc0e66e1fb72b0cdef2f64482a691705880e37cedae34617dd8f6fcb1e4",
       "accepted_sha256": [
         "765ba5ecdc619c7954ba883f53fd4e632463ecab3481a1d222f4b4df898a1e8f",
         "a6adeaff56c26277a375ef49524f6e65ed6cbb755e924c98257197e3896189a7",
         "c168562e55cc47c640298d02e6b0232050601a8a2ccab72c730c52ec57204cbb",
         "4bf966c19dafbe402ecda6359333eb61c5709457fb64b5446cfbb4c121745483",
-        "d21e9474a09c0d29dd322ff925b343e464bb4d5ba2120674c2a2fbc33dc5d4d0"
+        "d21e9474a09c0d29dd322ff925b343e464bb4d5ba2120674c2a2fbc33dc5d4d0",
+        "a5708c2596979eba803c47bcb4d63a077bfbc6638c2964649313b68b96e3dc96"
       ]
     },
     {
@@ -46,13 +47,13 @@
     {
       "path": "backend/app/main.py",
       "before_sha256": "aeef878be100f49ec97ed216b01016bbe281093689feae1bf26d28495040e98e",
-      "after_sha256": "57e3bf3f005bb810d688f5cbcda5e42e6701fa81dbe2fd96aafaa8682e627a68",
+      "after_sha256": "71e3bd4dde098452e79839a3502547575e5c45dcd73c89a319ed13302d5e8504",
       "accepted_sha256": [
         "aeef878be100f49ec97ed216b01016bbe281093689feae1bf26d28495040e98e",
         "fee6f8e70056b0492976e83420a4be14988158ef3fd7e5df8e9136f2676d0957",
         "d2eee96f6c4a91fb7b5abb4561561911bf0820a4fcf96d43348c72d7ea3a3b3a",
         "d2354cd55a50fda1918df4b14d6bfd05f8b28cf13ea3aaa5ee25f35bb73d81fb",
-        "d2354cd55a50fda1918df4b14d6bfd05f8b28cf13ea3aaa5ee25f35bb73d81fb"
+        "57e3bf3f005bb810d688f5cbcda5e42e6701fa81dbe2fd96aafaa8682e627a68"
       ]
     },
     {
@@ -110,7 +111,7 @@
       "after_sha256": "440c0ec5b6088b5fec6639de0f2d2d1813dd0c2063c809793b2e5f7d5140e682"
     }
   ],
-  "required_schema_revision": "0011_node_country",
+  "required_schema_revision": "0012_operations",
   "required_files": [
     {
       "path": "backend/app/models/client.py",
@@ -138,7 +139,7 @@
     },
     {
       "path": "backend/app/bot/bot.py",
-      "sha256": "4e08cb5573405560b0a4f1006f3545ebfec4d317014e903bed36019c0fcd8476"
+      "sha256": "c63105b9633e383c237c93b0c97c96f905905c3c2bab9b8713994ee76ebdac33"
     },
     {
       "path": "backend/app/models/node.py",
@@ -146,11 +147,11 @@
     },
     {
       "path": "backend/app/bot/handlers.py",
-      "sha256": "dcfd9ee6e0d91847ae274db08f1455c9c32ea15efa4756a4bfc3acba5eea9205"
+      "sha256": "c201f3d1301dd96ec92dd7f3e5ccbdc6c11b87c2ed5ffe2ee3ba5beb2f2b52aa"
     },
     {
       "path": "backend/app/bot/subscriptions.py",
-      "sha256": "785fbb1d5e3c4b68f329b6189f6835ea8820bd73e2de829cfed92b34059bc522"
+      "sha256": "88ce345060d6166a040b9b280db413245872d30b594d3235447b26af058d73fe"
     },
     {
       "path": "backend/app/services/awg_routing.py",
@@ -179,6 +180,38 @@
     {
       "path": "backend/app/templates/subscription.html",
       "sha256": "879f96de8d5af16d9f976889180d52d9648a770c502d64fd8964ed7e8afa444c"
+    },
+    {
+      "path": "backend/app/api/operations.py",
+      "sha256": "74677db261c022646733035aced9b47245d307f06fc59e38fd0bc7a80e22fa49"
+    },
+    {
+      "path": "backend/app/models/operations.py",
+      "sha256": "a2820855a5d1ba74d1abf979f3e36ccb65629c1753cde979abc6047619a50573"
+    },
+    {
+      "path": "backend/app/services/backups.py",
+      "sha256": "7e4f65b041f29ade5958c1f2cf0e06c01011bc1e59cb84b07f5c3d87e6158043"
+    },
+    {
+      "path": "backend/app/services/diagnostics.py",
+      "sha256": "57cf597778000e7095dea5ed54d1bb1df65e44f5c5f42d4bac984f701caf2346"
+    },
+    {
+      "path": "backend/app/services/templates.py",
+      "sha256": "66e3e4d5a53c9a888e83cad78c16bb84929214aca78232fce73c5b75935be550"
+    },
+    {
+      "path": "backend/app/services/notifications.py",
+      "sha256": "aa9989842ac45dad873524210a884bbfbbc66592da6a7891b2ad75e768f5c971"
+    },
+    {
+      "path": "backend/app/bot/admin_tools.py",
+      "sha256": "03a7b5eba56a2c5ce100a933821422aaa0e3bebc81b9a73a4e1c92e15d4c20e0"
+    },
+    {
+      "path": "backend/app/bot/portal.py",
+      "sha256": "41bf876ba5b0298eefa4121909a8ec1b3a2a1fd5119a1d8c619158ece4462f81"
     }
   ]
 }

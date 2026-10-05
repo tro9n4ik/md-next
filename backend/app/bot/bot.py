@@ -44,6 +44,8 @@ class BotManager:
         try:
             from . import handlers
             if not self.router_setup:
+                from .portal import router as portal_router
+                dp.include_router(portal_router)
                 dp.include_router(handlers.router)
                 self.router_setup = True
 
@@ -55,6 +57,9 @@ class BotManager:
                     BotCommand(command="subscriptions", description="Список подписок"),
                     BotCommand(command="new_subscription", description="Создать подписку"),
                     BotCommand(command="status", description="Состояние и текущий выход"),
+                    BotCommand(command="me", description="Моя подписка"),
+                    BotCommand(command="bind", description="Привязать подписку по коду"),
+                    BotCommand(command="diagnostics", description="Диагностика для администратора"),
                 ])
             except Exception as exc:
                 logger.warning("Не удалось обновить список команд бота: %s", type(exc).__name__)
