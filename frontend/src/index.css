@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* Меню сохраняет прокрутку без видимой полосы. */
+.sidebar-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+.sidebar-scroll::-webkit-scrollbar { display: none; }
+
 @layer base {
   body {
     @apply bg-[#f5f7f8] text-neutral-900 font-sans antialiased;
