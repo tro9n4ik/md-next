@@ -185,3 +185,75 @@ async def test_persistent_reminders_do_not_repeat():
     with patch('app.bot.bot.get_bot',return_value=bot),patch.object(notifications,'get_telegram_settings_from_db',new_callable=AsyncMock,return_value={'admin_id':42,'notify_quota':True}):
         await notifications.send_reminders();await notifications.send_reminders()
     assert bot.send_message.await_count==1
+
+
+@pytest.mark.asyncio
+async def test_bot_profiles_and_subscription_toggle_change_raw_access():
+    from app.models.client import ClientProfile
+    from app.models.setting import Setting
+    from app.services.profiles import PROFILE_KINDS
+    async with AsyncSessionLocal() as db:
+        db.add(Client(id=1,name='One',phone='',email='',sub_token='bot-access'))
+        db.add(ClientProfile(client_id=1,kind='vless_xhttp_tls',uuid='stable-profile'))
+        db.add_all([Setting(key='cdn.enabled',value='true'),Setting(key='cdn.domain',value='cdn.example.com')])
+        db.add_all([Setting(key='profiles.enabled.'+kind,value='true' if kind=='vless_xhttp_tls' else 'false') for kind in PROFILE_KINDS])
+        await db.commit()
+    admin_tools.pending.clear()
+    screen=SimpleNamespace(chat=SimpleNamespace(id=42),message_id=10,edit_text=AsyncMock(),answer=AsyncMock())
+    cb=SimpleNamespace(data='',from_user=SimpleNamespace(id=42),message=screen,answer=AsyncMock())
+    async def perform(action):
+        cb.data=action;await admin_tools.callback(cb)
+        assert admin_tools.pending
+        cb.data='ops:confirm:'+next(iter(admin_tools.pending));await admin_tools.callback(cb)
+        assert not admin_tools.pending
+    async def raw():
+        import base64
+        async with AsyncClient(app=app,base_url='http://test') as http:
+            response=await http.get('/api/v1/sub/bot-access')
+        assert response.status_code==200
+        return base64.b64decode(response.text).decode().splitlines()
+    with patch('app.api.clients._sync_protocols',new_callable=AsyncMock),patch.object(admin_tools,'profile_menu',new_callable=AsyncMock),patch.object(admin_tools,'detail',new_callable=AsyncMock):
+        assert len(await raw())==2
+        await perform('ops:profile:1:cdn:0')
+        links=await raw();assert len(links)==1 and 'cdn.example.com' not in links[0]
+        await perform('ops:toggle:1');assert await raw()==[]
+        await perform('ops:toggle:1');assert len(await raw())==1
+        await perform('ops:profile:1:cdn:1');assert len(await raw())==2
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Client,1)).sub_token=='bot-access'
+        assert (await db.get(Client,1)).is_active
+        assert (await db.execute(select(ClientProfile).where(ClientProfile.kind=='vless_xhttp_tls'))).scalar_one().uuid=='stable-profile'
+
+
+@pytest.mark.asyncio
+async def test_bot_rejects_confirmation_after_profile_changed_in_panel():
+    from app.models.client import ClientProfile
+    from app.models.setting import Setting
+    async with AsyncSessionLocal() as db:
+        db.add(Client(id=1,name='One',phone='',email=''))
+        db.add(ClientProfile(client_id=1,kind='vless_xhttp_tls',uuid='same'))
+        db.add_all([Setting(key='cdn.enabled',value='true'),Setting(key='cdn.domain',value='cdn.example.com'),Setting(key='client.cdn.1',value='true')]);await db.commit()
+    admin_tools.pending.clear()
+    screen=SimpleNamespace(chat=SimpleNamespace(id=42),message_id=10,edit_text=AsyncMock(),answer=AsyncMock())
+    await admin_tools.prepare(screen,42,1,{'profiles':{'cdn':False}},'Disable CDN')
+    token=next(iter(admin_tools.pending))
+    async with AsyncSessionLocal() as db:
+        (await db.get(Setting,'client.cdn.1')).value='false';await db.commit()
+    cb=SimpleNamespace(data='ops:confirm:'+token,from_user=SimpleNamespace(id=42),message=screen,answer=AsyncMock())
+    with patch('app.api.clients.update_client_access',new_callable=AsyncMock) as apply:
+        await admin_tools.callback(cb)
+    apply.assert_not_awaited()
+    assert 'уже изменился' in screen.answer.call_args.args[0]
+    assert token not in admin_tools.pending
+
+
+@pytest.mark.asyncio
+async def test_subscription_card_exposes_profile_and_pause_controls():
+    from app.bot import subscriptions
+    async with AsyncSessionLocal() as db:
+        db.add(Client(id=1,name='One',phone='',email=''));await db.commit()
+    screen=SimpleNamespace(edit_text=AsyncMock())
+    await subscriptions.detail(screen,1)
+    buttons=[b for row in screen.edit_text.call_args.kwargs['reply_markup'].inline_keyboard for b in row]
+    assert any(b.callback_data=='ops:profiles:1' for b in buttons)
+    assert any(b.callback_data=='ops:toggle:1' and 'Приостановить' in b.text for b in buttons)

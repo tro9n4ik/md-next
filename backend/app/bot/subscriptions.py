@@ -266,7 +266,8 @@ async def detail(message, client_id, *, edit=True):
                 f"🔄 Новый период: {date_label(limits['traffic_period_end'])}")
     await show_screen(message, text, keyboard(
         [("🔗 Ссылка и QR-код", f"sub:link:{client_id}")], [("🛡 Файл AmneziaWG", f"sub:awg:{client_id}")],
-        [("✏️ Управлять подпиской", f"ops:detail:{client_id}")],
+        [("⏸ Приостановить подписку" if client.is_active else "▶️ Включить подписку", f"ops:toggle:{client_id}")],
+        [("🔐 Управлять профилями", f"ops:profiles:{client_id}"), ("✏️ Условия", f"ops:detail:{client_id}")],
         [("🔄 Обновить", f"sub:detail:{client_id}"), ("← Подписки", "sub:list:0")], [("🏠 Главное меню", "md:home")]), edit=edit)
 
 

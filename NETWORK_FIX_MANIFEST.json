@@ -153,7 +153,7 @@
     },
     {
       "path": "backend/app/bot/subscriptions.py",
-      "sha256": "88ce345060d6166a040b9b280db413245872d30b594d3235447b26af058d73fe"
+      "sha256": "c8a9ea708507d000e9cc4a450918b6862a6f8b2b3dad5305840ff85b50ed65a2"
     },
     {
       "path": "backend/app/services/awg_routing.py",
@@ -209,7 +209,7 @@
     },
     {
       "path": "backend/app/bot/admin_tools.py",
-      "sha256": "03a7b5eba56a2c5ce100a933821422aaa0e3bebc81b9a73a4e1c92e15d4c20e0"
+      "sha256": "e77e114249b01b171360704bd51ad22d3e1be6cd850865e64b01fc14981ffa84"
     },
     {
       "path": "backend/app/bot/portal.py",

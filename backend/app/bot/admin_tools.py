@@ -53,11 +53,14 @@ async def detail(message,client_id):
     from .subscriptions import detail as existing
     from .handlers import keyboard
     await existing(message,client_id)
+    async with AsyncSessionLocal() as db: client=await db.get(Client,client_id)
+    if not client:return
     await message.edit_reply_markup(reply_markup=keyboard(
         [('🔗 Ссылка и QR',f'sub:link:{client_id}'),('🛡 AWG',f'sub:awg:{client_id}')],
         [('📅 +30 дней',f'ops:extend:{client_id}'),('📅 Своя дата',f'ops:date:{client_id}')],
         [('📦 Лимит',f'ops:quota:{client_id}'),('🔄 Сброс расхода',f'ops:reset:{client_id}')],
-        [('⏯ Вкл./выкл.',f'ops:toggle:{client_id}'),('🔐 Профили',f'ops:profiles:{client_id}')],
+        [('⏸ Приостановить подписку' if client.is_active else '▶️ Включить подписку',f'ops:toggle:{client_id}')],
+        [('🔐 Управлять профилями',f'ops:profiles:{client_id}')],
         [('👤 Код Telegram',f'ops:bind:{client_id}'),('Отозвать привязку',f'ops:unlink:{client_id}')],
         [('← Подписки','ops:list:0'),('🏠 Меню','md:home')]))
 
@@ -68,11 +71,37 @@ async def prepare(message,actor,client_id,payload,label):
     async with AsyncSessionLocal() as db:
         client=await db.get(Client,client_id)
         if not client: raise ValueError('Клиент не найден')
+        profile_state=await current_profile_state(db,client_id,payload.get('profiles',{}))
     for token,v in list(pending.items()):
         if (v['chat'],v['message'])==(message.chat.id,message.message_id): pending.pop(token,None)
     token=secrets.token_hex(8)
-    pending[token]={'actor':actor,'chat':message.chat.id,'message':message.message_id,'id':client_id,'payload':payload,'state':fingerprint(client),'expires':time.monotonic()+120}
+    pending[token]={'actor':actor,'chat':message.chat.id,'message':message.message_id,'id':client_id,'payload':payload,'state':fingerprint(client),'profile_state':profile_state,'expires':time.monotonic()+120}
     await show_screen(message,f'<b>{escape(client.name)}</b>\n\n{escape(label)}\nПодтвердите изменение.',keyboard([('✅ Применить','ops:confirm:'+token)],[('Отмена',f'ops:detail:{client_id}')]),edit=True)
+
+
+async def current_profile_state(db,client_id,kinds):
+    if not kinds:return {}
+    from app.api.clients import get_client_profiles
+    data=await get_client_profiles(client_id,db)
+    selected={p['kind']:(p['is_enabled'],p['available']) for p in data['access'] if p['kind'] in kinds}
+    if len(selected)!=len(kinds):raise ValueError('Неизвестный профиль')
+    return selected
+
+
+async def profile_menu(message,client_id):
+    from app.api.clients import get_client_profiles
+    from .handlers import keyboard,show_screen
+    async with AsyncSessionLocal() as db:data=await get_client_profiles(client_id,db)
+    rows=[]
+    for p in data['access']:
+        if not p['available']:
+            rows.append([('⚪ '+p['label']+' · выключен в панели',f"ops:unavailable:{client_id}")])
+        else:
+            rows.append([(('✅ ' if p['is_enabled'] else '⛔ ')+p['label'],f"ops:profile:{client_id}:{p['kind']}:{int(not p['is_enabled'])}")])
+    rows.append([('⏸ Приостановить подписку' if data['client']['is_active'] else '▶️ Включить подписку',f'ops:toggle:{client_id}')])
+    rows.append([('← Карточка',f'ops:detail:{client_id}')])
+    status={None:'Подписка доступна','disabled':'Подписка приостановлена','expired':'Срок подписки истёк','monthly_quota':'Лимит подписки исчерпан'}.get(data['client']['blocked_reason'],'Подписка недоступна')
+    await show_screen(message,f"<b>Профили: {escape(data['client']['name'])}</b>\n{status}\n\n✅ Разрешён · ⛔ Запрещён · ⚪ Выключен в панели\nНажмите профиль и подтвердите включение или отключение. CDN управляется отдельно от XHTTP TLS. После изменения обновите подписку в приложении.",keyboard(*rows),edit=True)
 
 
 async def diagnosis(message):
@@ -126,23 +155,35 @@ async def callback(callback):
                 client=await db.get(Client,v['id'])
                 if not client or fingerprint(client)!=v['state']: raise ValueError('Условия уже изменились. Откройте карточку снова')
                 payload=v['payload'];from app.api import operations,clients
+                if await current_profile_state(db,client.id,payload.get('profiles',{}))!=v.get('profile_state',{}):raise ValueError('Доступ к профилю уже изменился. Откройте профили снова')
                 if payload.get('operation')=='reset': await operations.reset(client.id,db)
                 elif payload.get('operation')=='extend': await operations.extend(client.id,db)
                 elif payload.get('operation')=='unlink': await operations.unlink(client.id,db)
                 elif 'profiles' in payload: await clients.update_client_access(client.id,clients.ClientAccessUpdate(**payload),db)
                 else: await clients.update_client(client.id,clients.ClientUpdate(**payload),db)
-            await callback.message.answer('Изменения применены.');await detail(callback.message,v['id']);return
+            await callback.message.answer('Изменения применены. Обновите подписку в VPN-приложении.')
+            if 'profiles' in payload:await profile_menu(callback.message,v['id'])
+            else:await detail(callback.message,v['id'])
+            return
         command,value=action.split(':',1);parts=value.split(':');client_id=int(parts[0])
         if command=='detail': await detail(callback.message,client_id);return
         if command in ('quota','date'):
             inputs[(actor,callback.message.chat.id)]={'kind':command,'id':client_id,'expires':time.monotonic()+300}
             await callback.message.answer('Отправьте лимит в ГБ (0 = без лимита).' if command=='quota' else 'Отправьте будущую дату ДД.ММ.ГГГГ, до конца дня UTC.');return
         if command=='profiles':
+            await profile_menu(callback.message,client_id);return
+        if command=='unavailable':
+            await callback.message.answer('Этот профиль выключен для всей панели. Сначала включите его в «Протоколах» или «Обход БС».');return
+        if command=='profile':
             from app.api.clients import get_client_profiles
-            async with AsyncSessionLocal() as db: data=await get_client_profiles(client_id,db)
-            rows=[[(('✅ ' if p['is_enabled'] else '⛔ ')+p['label'],f"ops:profile:{client_id}:{p['kind']}:{int(not p['is_enabled'])}")] for p in data['access'] if p['available']]
-            await show_screen(callback.message,'<b>Профили доступа</b>\nВыберите профиль для изменения.',keyboard(*rows,[("Назад",f'ops:detail:{client_id}')]),edit=True);return
-        if command=='profile': await prepare(callback.message,actor,client_id,{'profiles':{parts[1]:bool(int(parts[2]))}},'Изменить доступ к профилю '+parts[1]);return
+            async with AsyncSessionLocal() as db:data=await get_client_profiles(client_id,db)
+            profile=next((p for p in data['access'] if p['kind']==parts[1]),None)
+            if not profile or parts[2] not in ('0','1'):raise ValueError('Неизвестный профиль')
+            enabled=parts[2]=='1'
+            if enabled and not profile['available']:raise ValueError('Профиль выключен в панели')
+            if profile['is_enabled']==enabled:
+                await profile_menu(callback.message,client_id);return
+            await prepare(callback.message,actor,client_id,{'profiles':{profile['kind']:enabled}},('Включить' if enabled else 'Отключить')+' профиль «'+profile['label']+'». Другие профили, срок и лимит сохраняются.');return
         if command=='bind':
             from app.api.operations import telegram_code
             async with AsyncSessionLocal() as db: data=await telegram_code(client_id,db)
@@ -150,7 +191,7 @@ async def callback(callback):
         if command=='toggle':
             async with AsyncSessionLocal() as db: c=await db.get(Client,client_id)
             if not c: raise ValueError('Клиент не найден')
-            await prepare(callback.message,actor,client_id,{'is_active':not c.is_active},'Включить доступ' if not c.is_active else 'Приостановить доступ');return
+            await prepare(callback.message,actor,client_id,{'is_active':not c.is_active},'Включить подписку. Срок, лимит и настройки профилей сохраняются; истёкшая подписка требует продления.' if not c.is_active else 'Приостановить подписку: отключить все её подключения. Срок, лимит и настройки профилей сохраняются.');return
         if command in ('extend','reset','unlink'):
             label={'extend':'Продлить на 30 дней. Для бессрочной подписки будет установлен срок от сегодняшней даты.','reset':'Обнулить расход месяца. Дата обновления периода сохраняется.','unlink':'Отозвать привязку Telegram и одноразовый код.'}[command]
             await prepare(callback.message,actor,client_id,{'operation':command},label)
