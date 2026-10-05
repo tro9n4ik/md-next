@@ -680,7 +680,8 @@ server {
 
 server {
     listen 127.0.0.1:8080 ssl http2 proxy_protocol;
-    server_name _;
+    listen 127.0.0.1:8443 ssl http2 proxy_protocol;
+    server_name $MAIN_DOMAIN _;
 
     set_real_ip_from 127.0.0.1;
     real_ip_header proxy_protocol;
@@ -717,6 +718,9 @@ server {
 
 server {
     listen 127.0.0.1:8443 ssl http2 proxy_protocol;
+    # HTTP/2 может повторно использовать TLS-соединение основного домена для панели.
+    # После завершения TLS выбираем панель по Host/:authority также на входе заглушки.
+    listen 127.0.0.1:8080 ssl http2 proxy_protocol;
     server_name $PANEL_DOMAIN;
 
     set_real_ip_from 127.0.0.1;
