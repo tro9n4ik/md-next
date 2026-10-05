@@ -61,7 +61,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
         {collapsed ? <PanelLeftOpen size={20} /> : <><PanelLeftClose size={20} /><span className="text-xs">Свернуть меню</span></>}
       </button>
       <div className="p-4 border-b border-white/10">
-        <div className="flex items-center justify-between mb-3">
+        <div className={`flex items-center justify-between mb-3 ${collapsed ? 'lg:justify-center' : ''}`}>
           <div className="flex items-center gap-2.5"><span className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-500 text-sm font-bold text-white">M</span><span className={`text-lg font-semibold tracking-tight ${collapsed ? 'lg:hidden' : ''}`}>MD-Next</span></div>
           <span className={`bg-emerald-500/10 text-emerald-500 text-xs px-2 py-0.5 rounded-full font-medium ${collapsed ? 'lg:hidden' : ''}`}>
             {sysInfo?.version ? `v${sysInfo.version}` : '…'}
@@ -86,7 +86,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
             aria-label={item.label}
             onClick={() => setMobileOpen(false)}
             className={({ isActive }) =>
-              `flex items-center space-x-3 px-3 py-2.5 rounded-xl transition-all text-sm font-medium ${collapsed ? 'lg:justify-center lg:space-x-0' : ''} ${
+              `flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-sm font-medium ${collapsed ? 'lg:justify-center lg:gap-0' : ''} ${
                 isActive
                   ? 'bg-emerald-600 text-white shadow-sm'
                   : 'text-neutral-300 hover:bg-white/5 hover:text-white'
@@ -100,8 +100,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
       </nav>
 
       <div className="p-4 border-t border-white/10 space-y-3">
-        <button onClick={() => setDark(!dark)} title={dark ? 'Светлая тема' : 'Тёмная тема'} aria-label={dark ? 'Светлая тема' : 'Тёмная тема'} className="flex items-center gap-3 text-neutral-300 text-sm">{dark ? <Sun size={18} /> : <Moon size={18} />}<span className={collapsed ? 'lg:hidden' : ''}>{dark ? 'Светлая тема' : 'Тёмная тема'}</span></button>
-        <div className="flex items-center space-x-2 text-xs text-neutral-400">
+        <button onClick={() => setDark(!dark)} title={dark ? 'Светлая тема' : 'Тёмная тема'} aria-label={dark ? 'Светлая тема' : 'Тёмная тема'} className={`flex w-full items-center gap-3 text-neutral-300 text-sm ${collapsed ? 'lg:justify-center lg:gap-0' : ''}`}>{dark ? <Sun size={18} /> : <Moon size={18} />}<span className={collapsed ? 'lg:hidden' : ''}>{dark ? 'Светлая тема' : 'Тёмная тема'}</span></button>
+        <div className={`flex items-center gap-2 text-xs text-neutral-400 ${collapsed ? 'lg:justify-center lg:gap-0' : ''}`}>
           <CheckCircle2 className={`w-4 h-4 shrink-0 ${systemState === "error" ? "text-red-500" : systemState === "warning" ? "text-amber-500" : "text-emerald-500"}`} />
           <span className={collapsed ? 'lg:hidden' : ''}>{systemState === "error" ? "Есть проблемы" : systemState === "warning" ? "Есть замечания" : systemState === "ok" ? "Все системы работают" : "Проверка состояния"}</span>
         </div>
@@ -109,7 +109,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
           onClick={onLogout}
           title="Выйти"
           aria-label="Выйти"
-          className="flex items-center space-x-2 text-neutral-400 hover:text-white transition-colors w-full px-3 py-2 rounded-xl hover:bg-neutral-800 text-sm font-medium"
+          className={`flex items-center gap-2 text-neutral-400 hover:text-white transition-colors w-full px-3 py-2 rounded-xl hover:bg-neutral-800 text-sm font-medium ${collapsed ? 'lg:justify-center lg:gap-0 lg:px-0' : ''}`}
         >
           <LogOut className="w-5 h-5 shrink-0" />
           <span className={collapsed ? 'lg:hidden' : ''}>Выйти</span>
