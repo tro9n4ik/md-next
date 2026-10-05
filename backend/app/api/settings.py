@@ -1,6 +1,6 @@
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -16,6 +16,35 @@ from app.services.crypto import encrypt_secret
 from app.services.events import log_event
 
 router = APIRouter(prefix="/api/v1/settings", tags=["Настройки"], dependencies=[Depends(get_current_user)])
+
+class SubscriptionSettings(BaseModel):
+    name: str = Field(default="MD-NEXT", min_length=1, max_length=25)
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value):
+        value = value.strip()
+        if not value or any(ord(char) < 32 or ord(char) == 127 for char in value):
+            raise ValueError("Введите название без управляющих символов")
+        return value
+
+
+@router.get("/subscription", response_model=SubscriptionSettings)
+async def get_subscription_settings(db: AsyncSession = Depends(get_db)):
+    row = await db.get(Setting, "subscription.name")
+    return SubscriptionSettings(name=row.value if row else "MD-NEXT")
+
+
+@router.put("/subscription", response_model=SubscriptionSettings)
+async def update_subscription_settings(req: SubscriptionSettings, db: AsyncSession = Depends(get_db)):
+    row = await db.get(Setting, "subscription.name")
+    if row:
+        row.value = req.name
+    else:
+        db.add(Setting(key="subscription.name", value=req.name))
+    await db.commit()
+    return req
+
 
 class TelegramSettingsRequest(BaseModel):
     token: Optional[str] = None

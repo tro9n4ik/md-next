@@ -27,7 +27,7 @@ async function request(path: string, method = 'GET', body?: unknown) {
   const response = await apiFetch(path, {
     method,
     ...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {})
-  });
+  }, path === '/api/v1/warp/target' ? 'warp-target-form' : path === '/api/v1/warp/mode' ? 'warp-mode-form' : path === '/api/v1/warp/license' ? 'warp-license-form' : undefined);
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.detail || 'Не удалось выполнить запрос');
   return data;
@@ -70,6 +70,8 @@ const WarpPage: React.FC = () => {
     mutationFn: () => request('/api/v1/warp/target', 'PUT', { node_id: nodeId ? Number(nodeId) : null, port: targetPort, expected_country: expectedCountry }),
     onSuccess: (data) => {
       setNotice(data.message); setTestResult(data);
+      client.setQueryData(['warp-target'], { node_id: nodeId ? Number(nodeId) : null, port: targetPort, expected_country: expectedCountry });
+      setTargetDraft(null);
       client.invalidateQueries({ queryKey: ['warp-target'] });
       client.invalidateQueries({ queryKey: ['warp-status'] });
     },
@@ -111,7 +113,7 @@ const WarpPage: React.FC = () => {
       </div>
     </section>
 
-    <section className={card}><h2 className="mb-4 font-semibold">Сервер выхода WARP</h2>
+    <section id="warp-target-form" className={card}><h2 className="mb-4 font-semibold">Сервер выхода WARP</h2>
       <div className="grid gap-4 sm:grid-cols-3"><div><label className={label} htmlFor="warp-node">Сервер</label><select id="warp-node" className={input} value={nodeId} onChange={e => setNodeId(e.target.value)}><option value="">Сервер панели</option>{(nodes.data || []).filter(node => node.is_enabled).map(node => <option key={node.id} value={node.id}>{node.name}</option>)}</select></div>
       <div><label className={label} htmlFor="warp-node-port">Порт прокси на сервере</label><input id="warp-node-port" className={input} type="number" min={1} max={65535} value={targetPort} onChange={e => setTargetPort(Number(e.target.value))} /></div>
       <div><label className={label} htmlFor="warp-country">Проверять страну</label><input id="warp-country" className={input} maxLength={2} value={expectedCountry} onChange={e => setExpectedCountry(e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))} placeholder="DE, NL или пусто" /></div></div>
@@ -121,8 +123,8 @@ const WarpPage: React.FC = () => {
 
     {!status.data?.remote && <details className={card}><summary className="cursor-pointer text-sm font-semibold text-neutral-700">Дополнительные настройки и WARP+ (необязательно)</summary>
     <div className="mt-4 grid gap-6 lg:grid-cols-2">
-      <section className={card}><h2 className="mb-4 font-semibold">Режим и порт прокси</h2><div className="grid gap-4 sm:grid-cols-2"><div><label className={label}>Режим</label><select className={input} value={mode} onChange={e => setMode(e.target.value as 'proxy' | 'warp')}><option value="proxy">Прокси</option><option value="warp">WARP</option></select></div><div><label className={label}>Порт SOCKS5</label><input className={input} type="number" min={1} max={65535} value={port} onChange={e => setPort(Number(e.target.value))} /></div></div></section>
-      <section className={card}><h2 className="mb-2 font-semibold">Лицензия WARP+</h2><p className="mb-4 text-sm text-neutral-500">Необязательно. Для бесплатного WARP и готовых правил ключ не нужен.</p><label className={label}>Лицензионный ключ</label><input className={input} type="password" autoComplete="off" value={license} onChange={e => setLicense(e.target.value)} placeholder="Ключ не сохраняется в панели" /><button disabled={busy || !license || !status.data?.installed} onClick={() => command.mutate({ path: '/api/v1/warp/license', body: { key: license } }, { onSuccess: () => setLicense('') })} className="mt-4 rounded-xl border border-neutral-300 px-4 py-2 text-sm font-medium disabled:opacity-50">Применить ключ</button></section>
+      <section id="warp-mode-form" className={card}><h2 className="mb-4 font-semibold">Режим и порт прокси</h2><div className="grid gap-4 sm:grid-cols-2"><div><label className={label}>Режим</label><select className={input} value={mode} onChange={e => setMode(e.target.value as 'proxy' | 'warp')}><option value="proxy">Прокси</option><option value="warp">WARP</option></select></div><div><label className={label}>Порт SOCKS5</label><input className={input} type="number" min={1} max={65535} value={port} onChange={e => setPort(Number(e.target.value))} /></div></div></section>
+      <section id="warp-license-form" className={card}><h2 className="mb-2 font-semibold">Лицензия WARP+</h2><p className="mb-4 text-sm text-neutral-500">Необязательно. Для бесплатного WARP и готовых правил ключ не нужен.</p><label className={label}>Лицензионный ключ</label><input className={input} type="password" autoComplete="off" value={license} onChange={e => setLicense(e.target.value)} placeholder="Ключ не сохраняется в панели" /><button disabled={busy || !license || !status.data?.installed} onClick={() => command.mutate({ path: '/api/v1/warp/license', body: { key: license } }, { onSuccess: () => setLicense('') })} className="mt-4 rounded-xl border border-neutral-300 px-4 py-2 text-sm font-medium disabled:opacity-50">Применить ключ</button></section>
     </div>
     </details>}
 
@@ -156,7 +158,7 @@ const WarpPage: React.FC = () => {
       <p className="mt-4 text-xs leading-5 text-neutral-500">Повторное применение не создаёт дублей: уже существующие правила обновляются, а правила, созданные вручную, не затрагиваются. Домены перечислены явно, поэтому пресеты работают без файлов geosite.</p>
     </section>
 
-    <section className={card}><div className="mb-4 flex items-center gap-3"><ShieldCheck className="h-5 w-5 text-indigo-600" /><h2 className="font-semibold">Использование WARP в Xray</h2></div><select className={input} value={usage.data?.usage || 'off'} disabled={busy} onChange={e => usageMutation.mutate(e.target.value as WarpUsage['usage'])}><option value="off">Выключен</option><option value="rules">По правилам маршрутизации</option><option value="all">Весь трафик</option></select><p className="mt-3 text-sm text-neutral-500">В режиме «По правилам» WARP применяется только для правил с действием «WARP». Режим «Весь трафик» использует WARP по умолчанию, включая случай выбранной ноды выхода. Трафик AmneziaWG также проходит через выбранную ноду и эти правила WARP.</p></section>
+    <section data-autosave className={card}><div className="mb-4 flex items-center gap-3"><ShieldCheck className="h-5 w-5 text-indigo-600" /><h2 className="font-semibold">Использование WARP в Xray</h2></div><select className={input} value={usage.data?.usage || 'off'} disabled={busy} onChange={e => usageMutation.mutate(e.target.value as WarpUsage['usage'])}><option value="off">Выключен</option><option value="rules">По правилам маршрутизации</option><option value="all">Весь трафик</option></select><p className="mt-3 text-sm text-neutral-500">В режиме «По правилам» WARP применяется только для правил с действием «WARP». Режим «Весь трафик» использует WARP по умолчанию, включая случай выбранной ноды выхода. Трафик AmneziaWG также проходит через выбранную ноду и эти правила WARP.</p></section>
 
     <section className={card}><div className="mb-3 flex items-center gap-3"><Activity className="h-5 w-5 text-emerald-600" /><h2 className="font-semibold">Проверка соединения</h2></div><p className="mb-4 text-sm text-neutral-500">Проверить внешний IP через выбранный выход WARP.</p>{testResult && <div className="mt-4 flex flex-wrap gap-4 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900"><span>IP: <b>{testResult.ip || '—'}</b></span><span>Страна: <b>{testResult.country || '—'}</b></span><span>WARP: <b>{testResult.warp}</b></span><CheckCircle2 className="ml-auto h-5 w-5" /></div>}</section>
     <div className="ui-actionbar"><div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap"><button disabled={busy || !status.data?.installed} onClick={() => command.mutate({ path: '/api/v1/warp/setup' })} className="ui-button ui-button-primary"><Play className="h-4 w-4" />{command.isPending && command.variables?.path === '/api/v1/warp/setup' ? 'Проверка…' : status.data?.remote ? 'Проверить WARP ноды' : 'Включить WARP'}</button><button disabled={busy || target.isLoading || nodes.isLoading} onClick={() => targetMutation.mutate()} className="ui-button ui-button-primary">{targetMutation.isPending ? 'Проверка выхода…' : 'Сохранить и проверить выход'}</button>{!status.data?.remote && (<button disabled={busy || !status.data?.installed} onClick={() => command.mutate({ path: '/api/v1/warp/mode', body: { mode, port } })} className="ui-button ui-button-primary">Сохранить режим</button>)}<button disabled={busy || !status.data?.installed} onClick={() => command.mutate({ path: '/api/v1/warp/test' }, { onSuccess: setTestResult })} className="ui-button ui-button-primary">Проверить внешний IP</button></div></div>

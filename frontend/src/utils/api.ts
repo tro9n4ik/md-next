@@ -1,6 +1,6 @@
-export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}, mutationScope?: string): Promise<Response> {
   const mutation = ['PUT', 'PATCH', 'DELETE', 'POST'].includes((init.method || 'GET').toUpperCase()) && !/\/(login|test|check|diagnostics|extend|reset|telegram-code|backups)$/.test(String(input));
-  const detail: { scope: Element | null } = { scope: null };
+  const detail: { scope: Element | null } = { scope: mutationScope ? document.getElementById(mutationScope) : null };
   if (mutation) window.dispatchEvent(new CustomEvent('api:mutation-start', { detail }));
   const token = localStorage.getItem('token');
   const headers = new Headers(init.headers || {});

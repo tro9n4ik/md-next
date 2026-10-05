@@ -97,7 +97,7 @@ async def test_subscription_headers_base64_disable_and_unknown_token():
         response = await client.get("/api/v1/sub/subscription-test-token")
         assert response.status_code == 200
         assert base64.b64decode(response.text).decode().startswith("vless://")
-        assert response.headers["profile-title"] == base64.b64encode("Юзер".encode()).decode()
+        assert response.headers["profile-title"] == "base64:" + base64.b64encode("MD-NEXT".encode()).decode()
         assert response.headers["Subscription-Userinfo"] == "upload=12; download=34; total=0"
         assert response.headers["profile-update-interval"] == "12"
         invalid = await client.get("/api/v1/sub/unknown-token")

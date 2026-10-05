@@ -58,7 +58,7 @@ def make_cdn_link(client, profile, settings: dict[str, str], *, preview: bool = 
               "extra": json.dumps(cdn_transport(), separators=(",", ":")), "alpn": "h2"}
     quota = getattr(client, 'cdn_monthly_traffic_limit', 0) or 0
     suffix = f" · {traffic_size(quota)}/мес" if quota else ""
-    name = quote(f"{client.name} · Обход БС · CDN{suffix}", safe="")
+    name = quote(f"{client.name} · Обход БС{suffix}", safe="")
     return f"vless://{profile.uuid}@{domain}:443?{urlencode(params)}#{name}"
 
 

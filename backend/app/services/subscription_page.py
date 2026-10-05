@@ -42,7 +42,7 @@ def render_subscription_page(client, profiles, settings, enabled, url, usage, to
     status = reasons.get(limits["blocked_reason"], "Активна")
     names = [PROFILE_LABELS[p.kind] for p in profiles if p.is_enabled and p.kind in enabled]
     if any(p.kind in enabled and make_cdn_link(client, p, settings) for p in profiles):
-        names.append("Обход БС · CDN")
+        names.append("Обход БС")
     cdn_available = any(p.kind == 'vless_xhttp_tls' and p.kind in enabled
                         and settings.get('cdn.enabled') == 'true' and cdn_access_allowed(client, p, settings)
                         for p in profiles)

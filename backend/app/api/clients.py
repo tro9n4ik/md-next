@@ -193,14 +193,14 @@ async def get_client_profiles(client_id: int, db: AsyncSession = Depends(get_db)
                "is_enabled": any(p.kind == kind and p.is_enabled for p in profiles),
                "available": kind in globally_enabled} for kind in PROFILE_KINDS]
     cdn_available = "vless_xhttp_tls" in globally_enabled and settings.get("cdn.enabled") == "true"
-    access.append({"kind": "cdn", "label": "Обход БС · CDN", "is_enabled": bool(tls and cdn_access_allowed(client, tls, settings)), "available": cdn_available})
+    access.append({"kind": "cdn", "label": "Обход БС", "is_enabled": bool(tls and cdn_access_allowed(client, tls, settings)), "available": cdn_available})
     return {
         "client": {"id": client.id, "name": client.name, "is_active": client.is_active, **limit_info(client)},
         "profiles": [
             {"id": p.id, "kind": p.kind, "label": p.kind.replace("_", " ").upper(), "is_enabled": p.is_enabled,
              "data": make_profile_data(client, p, settings), "key_available": bool(decrypt_secret(p.private_key_enc or "")) if p.kind == "awg" else True}
             for p in profiles if p.kind in globally_enabled
-        ] + ([{"id": tls.id, "kind": "cdn", "label": "Обход БС · CDN", "is_enabled": cdn_access_allowed(client, tls, settings),
+        ] + ([{"id": tls.id, "kind": "cdn", "label": "Обход БС", "is_enabled": cdn_access_allowed(client, tls, settings),
                 "data": make_cdn_link(client, tls, settings, preview=True), "key_available": True}] if tls and cdn_available else []),
         "access": access,
         "subscription_url": f"{os.getenv('PANEL_PUBLIC_URL', '').rstrip('/')}/sub/{client.sub_token}",
@@ -385,7 +385,7 @@ async def get_subscription(token: str, request: Request, format: Literal["raw", 
                         "X-Content-Type-Options": "nosniff"})
     return Response(content=content, media_type="text/plain", headers={
         "Cache-Control": "no-store", "Vary": "Accept, User-Agent, Sec-Fetch-Mode",
-        "profile-title": "MD-NEXT",
+        "profile-title": "base64:" + base64.b64encode(settings.get("subscription.name", "MD-NEXT").encode("utf-8")).decode("ascii"),
         "Subscription-Userinfo": userinfo,
         "announce": cdn_announcement(limits, cdn_available),
         "profile-web-page-url": page_url,

@@ -35,7 +35,7 @@ export default function BypassPage() {
       cache.setQueryData(['cdnDraft'], result);
       setDomain(null);
       setEnabled(null);
-      setNotice({ error: false, text: result.enabled ? 'Обход БС включён. Обновите подписку в Happ и выберите профиль «Обход БС · CDN». Проверьте его работу в вашей сети.' : 'Настройки сохранены. Профиль CDN отключён. После обновления подписки он исчезнет из списка.' });
+      setNotice({ error: false, text: result.enabled ? 'Обход БС включён. Обновите подписку в Happ и выберите профиль «Обход БС». Проверьте его работу в вашей сети.' : 'Настройки сохранены. Профиль CDN отключён. После обновления подписки он исчезнет из списка.' });
     },
     onError: (error: Error) => setNotice({ error: true, text: error.message }),
   });

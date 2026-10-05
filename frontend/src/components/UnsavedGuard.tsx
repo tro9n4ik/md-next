@@ -15,13 +15,14 @@ export default function UnsavedGuard() {
     function remember(event: Event) { lastSection.current = targetSection(event); }
     function change(event: Event) {
       const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('[data-autosave]')) return;
       if (!target || (!editable && !target.closest('[data-editable]'))) return;
       if (target.matches('input[readonly], textarea[readonly], input[type=file]')) return;
       const section = targetSection(event);
       if (section) { sections.current.add(section); setDirty(true); }
     }
-    function click(event: Event) { remember(event); const target = event.target instanceof Element ? event.target : null; if (target?.closest('[role=switch], [data-editable] button[type=button]')) change(event); }
-    function start(event: Event) { const detail = (event as CustomEvent).detail; detail.scope = lastSection.current; }
+    function click(event: Event) { remember(event); const target = event.target instanceof Element ? event.target : null; if (target?.closest('[role=switch]')) change(event); }
+    function start(event: Event) { const detail = (event as CustomEvent).detail; detail.scope ??= lastSection.current; }
     function saved(event: Event) { const scope = (event as CustomEvent).detail.scope; if (scope) sections.current.delete(scope); setDirty(sections.current.size > 0); }
     function unload(event: BeforeUnloadEvent) { if (sections.current.size) { event.preventDefault(); event.returnValue = ''; } }
     function logout(event: Event) { if (sections.current.size && !window.confirm('Есть несохранённые изменения. Выйти из панели?')) (event as CustomEvent).detail.cancelled = true; }
