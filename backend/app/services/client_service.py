@@ -15,7 +15,7 @@ from app.services.xray import XrayService
 from app.services.routing_rules import to_xray_rule
 from app.services.events import log_event
 from app.services.nginx import apply_reality_sni
-from app.services.client_limits import access_allowed
+from app.services.client_limits import access_allowed, cdn_quota_exhausted
 from app.services.cdn import cdn_access_allowed
 
 _USE_STORED_ACTIVE_NODE = object()
@@ -60,8 +60,8 @@ class ClientService:
             if not access_allowed(client):
                 continue
             email = f"c{client.id}-{profile.kind}@md-next"
-            if profile.kind == "vless_xhttp_tls" and profile.uuid and settings.get("cdn.enabled") == "true" and cdn_access_allowed(client, profile, settings):
-                cdn_clients.append({"id": profile.uuid, "email": email})
+            if profile.kind == "vless_xhttp_tls" and profile.uuid and settings.get("cdn.enabled") == "true" and cdn_access_allowed(client, profile, settings) and not cdn_quota_exhausted(client):
+                cdn_clients.append({"id": profile.uuid, "email": f"c{client.id}-cdn@md-next"})
             if not profile.is_enabled:
                 continue
             if profile.kind == "vless_reality_tcp" and profile.uuid:

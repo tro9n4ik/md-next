@@ -31,7 +31,7 @@ const ClientsTable: React.FC = () => {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
-  const [subscription, setSubscription] = useState<SubscriptionValues>({ period: 'month', date: '', quotaGB: '' });
+  const [subscription, setSubscription] = useState<SubscriptionValues>({ period: 'month', date: '', quotaGB: '', cdnQuotaGB: '' });
   const [error, setError] = useState('');
 
   const q = params.get('q') || '';
@@ -69,7 +69,7 @@ const ClientsTable: React.FC = () => {
     },
     onSuccess: (result) => {
       setCreateOpen(false); setName(''); setPhone(''); setEmail(''); setError('');
-      setSubscription({ period: 'month', date: '', quotaGB: '' });
+      setSubscription({ period: 'month', date: '', quotaGB: '', cdnQuotaGB: '' });
       navigate(`/clients/${result.client.id}/access`);
     },
     onError: (reason: Error) => setError(reason.message),
@@ -141,7 +141,7 @@ const ClientsTable: React.FC = () => {
               <td className="px-5 py-4"><span className={`inline-flex rounded-full px-2 py-1 text-xs ${client.access_allowed ? 'bg-emerald-50 text-emerald-700' : 'bg-neutral-100 text-neutral-500'}`}>{clientStatus(client.blocked_reason)}</span></td>
               <td className="px-5 py-4 font-medium text-neutral-800">{client.name}<div className="mt-1 text-xs font-normal text-neutral-500">{formatSubscriptionDate(client.expires_at)}</div></td>
               <td className="px-5 py-4 text-xs text-neutral-500">{client.phone || '—'}<br />{client.email || ''}</td>
-              <td className="px-5 py-4 text-xs text-neutral-600"><div>{formatTraffic(client.monthly_traffic_used)} / {client.monthly_traffic_limit > 0 ? formatTraffic(client.monthly_traffic_limit) : '∞'} за месяц</div><div className="mt-1 text-neutral-400">Всего: {formatTraffic(client.traffic_total)}</div><div className="mt-1 text-neutral-400">Обновление: {formatSubscriptionDate(client.traffic_period_end)}</div></td>
+              <td className="px-5 py-4 text-xs text-neutral-600"><div>{formatTraffic(client.monthly_traffic_used)} / {client.monthly_traffic_limit > 0 ? formatTraffic(client.monthly_traffic_limit) : '∞'} за месяц</div><div className="mt-1">Обход БС: {formatTraffic(client.cdn_monthly_traffic_used)} / {client.cdn_monthly_traffic_limit > 0 ? formatTraffic(client.cdn_monthly_traffic_limit) : '∞'}{client.cdn_quota_exhausted && <span className="ml-1 text-amber-700">· лимит исчерпан</span>}</div><div className="mt-1 text-neutral-400">Всего: {formatTraffic(client.traffic_total)}</div><div className="mt-1 text-neutral-400">Обновление: {formatSubscriptionDate(client.traffic_period_end)}</div></td>
               <td className="px-5 py-4"><div className="flex flex-wrap gap-1">{client.profiles.filter((profile) => profile.is_enabled).map((profile) => <span key={profile.id} className="rounded-md bg-indigo-50 px-2 py-1 text-[10px] text-indigo-700">{translateProfile(profile.kind)}</span>)}</div></td>
               <td className="px-5 py-4"><div className="flex justify-end gap-2"><button onClick={() => navigate(`/clients/${client.id}/access`)} className="rounded-md bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700">Доступ</button><button title="Удалить" onClick={() => deleteMutation.mutate(client.id)} className="rounded p-1.5 text-neutral-400 hover:bg-red-50 hover:text-red-600"><Trash2 size={16} /></button></div></td>
             </tr>)}

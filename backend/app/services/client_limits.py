@@ -41,6 +41,20 @@ def refresh_period(client: Client, now: datetime | None = None) -> None:
     if client.traffic_period_start is None or utc(client.traffic_period_start) != start:
         client.traffic_period_start = start
         client.monthly_traffic_up = client.monthly_traffic_down = 0
+        client.cdn_monthly_traffic_up = client.cdn_monthly_traffic_down = 0
+
+
+def cdn_monthly_usage(client: Client, now: datetime | None = None) -> tuple[int, int]:
+    start, _ = traffic_period(client, now)
+    saved = getattr(client, 'traffic_period_start', None)
+    if saved is None or utc(saved) != start:
+        return 0, 0
+    return int(getattr(client, 'cdn_monthly_traffic_up', 0) or 0), int(getattr(client, 'cdn_monthly_traffic_down', 0) or 0)
+
+
+def cdn_quota_exhausted(client: Client, now: datetime | None = None) -> bool:
+    limit = getattr(client, 'cdn_monthly_traffic_limit', 0) or 0
+    return bool(limit and sum(cdn_monthly_usage(client, now)) >= limit)
 
 
 def subscription_block_reason(client: Client, now: datetime | None = None) -> str | None:
@@ -61,7 +75,13 @@ def limit_info(client: Client, now: datetime | None = None) -> dict:
     now = utc(now or datetime.now(timezone.utc))
     start, end = traffic_period(client, now)
     up, down = monthly_usage(client, now)
+    cdn_up, cdn_down = cdn_monthly_usage(client, now)
     return {"expires_at": utc(client.expires_at) if client.expires_at else None,
+            "cdn_monthly_traffic_limit": client.cdn_monthly_traffic_limit or 0,
+            "cdn_monthly_traffic_up": cdn_up, "cdn_monthly_traffic_down": cdn_down,
+            "cdn_monthly_traffic_used": cdn_up + cdn_down,
+            "cdn_traffic_total": (client.cdn_traffic_up or 0) + (client.cdn_traffic_down or 0),
+            "cdn_quota_exhausted": cdn_quota_exhausted(client, now),
             "monthly_traffic_limit": client.monthly_traffic_limit or 0,
             "monthly_traffic_up": up, "monthly_traffic_down": down,
             "monthly_traffic_used": up + down,

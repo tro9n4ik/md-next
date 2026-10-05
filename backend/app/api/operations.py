@@ -111,6 +111,7 @@ async def reset(client_id:int,db=Depends(get_db)):
     if not client: raise HTTPException(404,'Клиент не найден')
     refresh_period(client)
     client.monthly_traffic_up=client.monthly_traffic_down=0
+    client.cdn_monthly_traffic_up=client.cdn_monthly_traffic_down=0
     try:
         await _sync_protocols(db); await db.commit()
     except Exception:

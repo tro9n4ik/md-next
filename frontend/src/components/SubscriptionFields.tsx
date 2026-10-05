@@ -26,7 +26,15 @@ const SubscriptionFields: React.FC<{ value: SubscriptionValues; onChange: (value
     {value.quotaGB !== '' && <label className="block text-sm font-medium text-neutral-700">Лимит, ГБ
       <input required type="number" min="0.001" step="any" max="8388607" value={value.quotaGB} onChange={event => change('quotaGB', event.target.value || '0')} className={input} />
     </label>}
-    <p className="text-xs text-neutral-500">Лимит обновляется каждый месяц от даты создания клиента. Продление подписки не обнуляет трафик.</p>
+    <label className="block text-sm font-medium text-neutral-700">Обход БС: трафик на месяц
+      <select value={value.cdnQuotaGB === '' ? 'unlimited' : 'limited'} onChange={event => change('cdnQuotaGB', event.target.value === 'unlimited' ? '' : '10')} className={input}>
+        <option value="unlimited">Без ограничений</option><option value="limited">Установить отдельный лимит</option>
+      </select>
+    </label>
+    {value.cdnQuotaGB !== '' && <label className="block text-sm font-medium text-neutral-700">Лимит обхода БС, ГБ
+      <input required type="number" min="0.001" step="any" max="8388607" value={value.cdnQuotaGB} onChange={event => change('cdnQuotaGB', event.target.value || '0')} className={input} />
+    </label>}
+    <p className="text-xs text-neutral-500">Лимиты обновляются каждый месяц от даты создания клиента. Трафик CDN входит и в общий лимит. Исчерпание отдельного лимита отключает только обход БС. Продление подписки не обнуляет трафик.</p>
   </div>;
 };
 

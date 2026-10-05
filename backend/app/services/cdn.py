@@ -7,6 +7,7 @@ import uuid
 import os
 import json
 import base64
+from app.services.client_limits import cdn_quota_exhausted
 from urllib.parse import quote, urlencode
 
 
@@ -44,6 +45,8 @@ def make_cdn_link(client, profile, settings: dict[str, str], *, preview: bool = 
     if not preview and settings.get("cdn.enabled", "false") != "true":
         return ""
     if not preview and not cdn_access_allowed(client, profile, settings):
+        return ""
+    if not preview and cdn_quota_exhausted(client):
         return ""
     domain = validate_domain(settings.get("cdn.domain", ""))
     if not domain:

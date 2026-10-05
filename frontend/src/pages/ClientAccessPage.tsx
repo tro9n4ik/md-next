@@ -46,7 +46,7 @@ const ProfileAccessEditor: React.FC<{ data: AccessData; refresh: () => Promise<v
 };
 
 const SubscriptionEditor: React.FC<{ client: AccessData['client']; refresh: () => Promise<void> }> = ({ client, refresh }) => {
-  const [values, setValues] = React.useState<SubscriptionValues>({ period: 'keep', date: '', quotaGB: client.monthly_traffic_limit ? String(client.monthly_traffic_limit / 1024 ** 3) : '' });
+  const [values, setValues] = React.useState<SubscriptionValues>({ period: 'keep', date: '', quotaGB: client.monthly_traffic_limit ? String(client.monthly_traffic_limit / 1024 ** 3) : '', cdnQuotaGB: client.cdn_monthly_traffic_limit ? String(client.cdn_monthly_traffic_limit / 1024 ** 3) : '' });
   const [notice, setNotice] = React.useState('');
   const mutation = useMutation({
     mutationFn: async () => {
@@ -59,10 +59,10 @@ const SubscriptionEditor: React.FC<{ client: AccessData['client']; refresh: () =
   return <section className="ui-card ui-panel">
     <h2 className="font-semibold text-neutral-800">Условия подписки</h2>
     <div className="mt-3 grid gap-4 md:grid-cols-2">
-      <div className="space-y-2 text-sm text-neutral-600"><p>Состояние: <b>{clientStatus(client.blocked_reason)}</b></p><p>Окончание: <b>{formatSubscriptionDate(client.expires_at)}</b></p><p>За месяц: {formatBytes(client.monthly_traffic_used)} / {client.monthly_traffic_limit ? formatBytes(client.monthly_traffic_limit) : 'без ограничений'}</p><p>Следующее обновление: {formatSubscriptionDate(client.traffic_period_end)}</p></div>
+      <div className="space-y-2 text-sm text-neutral-600"><p>Состояние: <b>{clientStatus(client.blocked_reason)}</b></p><p>Окончание: <b>{formatSubscriptionDate(client.expires_at)}</b></p><p>За месяц: {formatBytes(client.monthly_traffic_used)} / {client.monthly_traffic_limit ? formatBytes(client.monthly_traffic_limit) : 'без ограничений'}</p><p>Обход БС за месяц: {formatBytes(client.cdn_monthly_traffic_used)} / {client.cdn_monthly_traffic_limit ? formatBytes(client.cdn_monthly_traffic_limit) : 'без ограничений'}</p>{client.cdn_quota_exhausted && <p className="text-amber-700">Обход БС приостановлен: отдельный лимит исчерпан.</p>}<p>Следующее обновление: {formatSubscriptionDate(client.traffic_period_end)}</p></div>
       <form onSubmit={event => { event.preventDefault(); setNotice(''); mutation.mutate(); }} className="space-y-3">
         <SubscriptionFields value={values} onChange={setValues} editing />
-        <div className="ui-actionbar"><span className="text-xs text-neutral-500">Изменения применяются ко всем профилям подписки</span><button disabled={mutation.isPending} className="ui-button ui-button-primary">Сохранить условия</button></div>
+        <div className="ui-actionbar"><span className="text-xs text-neutral-500">Общий лимит действует на всю подписку, отдельный — только на обход БС</span><button disabled={mutation.isPending} className="ui-button ui-button-primary">Сохранить условия</button></div>
         {notice && <p role="status" className="text-sm text-neutral-600">{notice}</p>}
       </form>
     </div>
@@ -133,7 +133,7 @@ const ClientAccessPage: React.FC = () => {
   return <PageLayout title={`Доступ: ${data.client.name}`} description="Условия подписки, профили подключения и конфигурации" icon={Users}
     actions={<button onClick={() => navigate('/clients')} className="ui-button ui-button-secondary"><ArrowLeft size={16} />К клиентам</button>}>
     {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
-    <SubscriptionEditor key={`${data.client.id}-${data.client.monthly_traffic_limit}-${data.client.expires_at}`} client={data.client} refresh={refresh} />
+    <SubscriptionEditor key={`${data.client.id}-${data.client.monthly_traffic_limit}-${data.client.cdn_monthly_traffic_limit}-${data.client.expires_at}`} client={data.client} refresh={refresh} />
     <ClientQuickActions client={data.client} refresh={refresh} />
     <ProfileAccessEditor key={`${data.client.id}-${JSON.stringify(data.access)}`} data={data} refresh={refresh} />
 

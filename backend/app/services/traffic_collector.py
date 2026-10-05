@@ -15,7 +15,7 @@ from app.services.events import log_event
 from app.services.shell import run_cmd
 from app.services.telegram_settings import get_telegram_settings_from_db
 from app.bot.bot import bot_manager
-from app.services.client_limits import refresh_period, subscription_block_reason
+from app.services.client_limits import refresh_period, subscription_block_reason, cdn_quota_exhausted
 
 logger = logging.getLogger(__name__)
 
@@ -81,8 +81,16 @@ async def _collect_client_traffic() -> None:
                 key = f"c{client.id}-{profile.kind}@md-next"
                 if key in xray_deltas:
                     up, down = xray_deltas[key]
-                    profile.traffic_up = (profile.traffic_up or 0) + up
-                    profile.traffic_down = (profile.traffic_down or 0) + down
+                if profile.kind == "vless_xhttp_tls":
+                    cdn_up, cdn_down = xray_deltas.get(f"c{client.id}-cdn@md-next", (0, 0))
+                    client.cdn_monthly_traffic_up = (client.cdn_monthly_traffic_up or 0) + cdn_up
+                    client.cdn_monthly_traffic_down = (client.cdn_monthly_traffic_down or 0) + cdn_down
+                    client.cdn_traffic_up = (client.cdn_traffic_up or 0) + cdn_up
+                    client.cdn_traffic_down = (client.cdn_traffic_down or 0) + cdn_down
+                    up += cdn_up
+                    down += cdn_down
+                profile.traffic_up = (profile.traffic_up or 0) + up
+                profile.traffic_down = (profile.traffic_down or 0) + down
             client.monthly_traffic_up = (client.monthly_traffic_up or 0) + up
             client.monthly_traffic_down = (client.monthly_traffic_down or 0) + down
         profs = (await session.execute(select(ClientProfile))).scalars().all()
@@ -99,6 +107,8 @@ async def _collect_client_traffic() -> None:
                 log_event("warning", "traffic", "Клиент отключён из-за превышения лимита трафика", {"client_id": client.id, "name": client.name})
             if bool(client.access_blocked) != bool(subscription_block_reason(client, now)):
                 LIMITS_SYNC_PENDING = True
+            if bool(client.cdn_access_blocked) != cdn_quota_exhausted(client, now):
+                LIMITS_SYNC_PENDING = True
         await session.commit()
         if quota_clients or LIMITS_SYNC_PENDING:
             LIMITS_SYNC_PENDING = True
@@ -112,6 +122,10 @@ async def _collect_client_traffic() -> None:
                     if bool(client.access_blocked) != blocked:
                         log_event("info", "client", "Доступ приостановлен по условиям подписки" if blocked else "Доступ возобновлён после обновления подписки", {"client_id": client.id, "reason": subscription_block_reason(client, now)})
                     client.access_blocked = blocked
+                    cdn_blocked = cdn_quota_exhausted(client, now)
+                    if bool(client.cdn_access_blocked) != cdn_blocked:
+                        log_event("info", "client", "Обход БС приостановлен: месячный лимит исчерпан" if cdn_blocked else "Обход БС возобновлён после обновления лимита", {"client_id": client.id})
+                    client.cdn_access_blocked = cdn_blocked
                 await session.commit()
                 LIMITS_SYNC_PENDING = False
             else:

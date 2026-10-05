@@ -5,7 +5,7 @@
     {
       "path": "backend/app/api/clients.py",
       "before_sha256": "a6adeaff56c26277a375ef49524f6e65ed6cbb755e924c98257197e3896189a7",
-      "after_sha256": "e25cea673f33a617e86f5f7b4dd875b197ed7df81dfc38c1f6e0f00b862e6184",
+      "after_sha256": "650a3a7004ef1808aa9a3deadeacd34c5472e05f7c21fb8501bbf68541cb6dad",
       "accepted_sha256": [
         "765ba5ecdc619c7954ba883f53fd4e632463ecab3481a1d222f4b4df898a1e8f",
         "a6adeaff56c26277a375ef49524f6e65ed6cbb755e924c98257197e3896189a7",
@@ -13,7 +13,8 @@
         "4bf966c19dafbe402ecda6359333eb61c5709457fb64b5446cfbb4c121745483",
         "d21e9474a09c0d29dd322ff925b343e464bb4d5ba2120674c2a2fbc33dc5d4d0",
         "a5708c2596979eba803c47bcb4d63a077bfbc6638c2964649313b68b96e3dc96",
-        "6f37ccc0e66e1fb72b0cdef2f64482a691705880e37cedae34617dd8f6fcb1e4"
+        "6f37ccc0e66e1fb72b0cdef2f64482a691705880e37cedae34617dd8f6fcb1e4",
+        "e25cea673f33a617e86f5f7b4dd875b197ed7df81dfc38c1f6e0f00b862e6184"
       ]
     },
     {
@@ -61,7 +62,7 @@
     {
       "path": "backend/app/services/client_service.py",
       "before_sha256": "f9552713f326c73c7e455e9506393455ca05647a6af3cb8e6d4ef4ef417676fa",
-      "after_sha256": "1016db7b1e44ae41c83df9c93fda0e62ab91d43e3bba55cc97f7a5361c1778da",
+      "after_sha256": "de0035862cc86baceb6a512a33313ba0b5ee731297679035d1d052ede5e9915a",
       "accepted_sha256": [
         "1eda8ab5674f975b2792e6d82ac0cbf0c5e5b99f254203127e47504f8392ff11",
         "8ab263c55f7d19ee07385c5398ccb4ddf2bd22577255504f658421abf11aab19",
@@ -69,7 +70,8 @@
         "f9552713f326c73c7e455e9506393455ca05647a6af3cb8e6d4ef4ef417676fa",
         "758b943afefe7acd9f5b10957d883ebdce899508c9ce3a5cffff064551a7f973",
         "75994f810733aa3b8d598015f01fff4a108cedc960b1ece94cb2f0f049d39b2a",
-        "d1a843f293f8f9c804519370cb1b7b6406a0987bab396fee7f1679bdee649580"
+        "d1a843f293f8f9c804519370cb1b7b6406a0987bab396fee7f1679bdee649580",
+        "1016db7b1e44ae41c83df9c93fda0e62ab91d43e3bba55cc97f7a5361c1778da"
       ]
     },
     {

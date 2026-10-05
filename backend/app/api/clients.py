@@ -41,6 +41,7 @@ class ClientCreate(BaseModel):
     subscription_period: Literal["week", "month", "year", "custom", "unlimited"] = "unlimited"
     expires_at: datetime | None = None
     monthly_traffic_limit: int = Field(default=0, ge=0, le=9007199254740991)
+    cdn_monthly_traffic_limit: int = Field(default=0, ge=0, le=9007199254740991)
 
     @field_validator("name")
     @classmethod
@@ -67,6 +68,7 @@ class ClientUpdate(BaseModel):
     subscription_period: Literal["week", "month", "year", "custom", "unlimited"] | None = None
     expires_at: datetime | None = None
     monthly_traffic_limit: int | None = Field(default=None, ge=0, le=9007199254740991)
+    cdn_monthly_traffic_limit: int | None = Field(default=None, ge=0, le=9007199254740991)
 
 
 class TrafficUpdate(BaseModel):
@@ -148,7 +150,8 @@ async def create_client(client_data: ClientCreate, db: AsyncSession = Depends(ge
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     client = Client(name=client_data.name.strip(), phone=client_data.phone or "", email=client_data.email or "", protocol=None,
-                    created_at=now, expires_at=expires, monthly_traffic_limit=client_data.monthly_traffic_limit, traffic_period_start=now)
+                    created_at=now, expires_at=expires, monthly_traffic_limit=client_data.monthly_traffic_limit,
+                    cdn_monthly_traffic_limit=client_data.cdn_monthly_traffic_limit, traffic_period_start=now)
     db.add(client)
     try:
         await db.flush()
@@ -396,6 +399,8 @@ async def update_client(client_id: int, data: ClientUpdate, db: AsyncSession = D
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if data.monthly_traffic_limit is not None:
         client.monthly_traffic_limit = data.monthly_traffic_limit
+    if data.cdn_monthly_traffic_limit is not None:
+        client.cdn_monthly_traffic_limit = data.cdn_monthly_traffic_limit
     refresh_period(client, now)
     for field in ("name", "phone", "email", "is_active"):
         value = getattr(data, field)
