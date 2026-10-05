@@ -350,7 +350,6 @@ async def get_subscription(token: str, request: Request, format: Literal["raw", 
     content = base64.b64encode("\n".join(links).encode("utf-8")).decode("ascii")
     dns_rows = (await db.execute(select(Setting).where(Setting.key.like("dns.%")))).scalars().all()
     happ_dns = build_happ_routing_link({row.key: row.value for row in dns_rows})
-    title = client.name if client.name.isascii() else base64.b64encode(client.name.encode("utf-8")).decode("ascii")
     totals = await db.execute(select(ClientProfile.traffic_up, ClientProfile.traffic_down).where(ClientProfile.client_id == client.id))
     usage = list(totals.all())
     upload = sum(up or 0 for up, _ in usage)
@@ -386,7 +385,7 @@ async def get_subscription(token: str, request: Request, format: Literal["raw", 
                         "X-Content-Type-Options": "nosniff"})
     return Response(content=content, media_type="text/plain", headers={
         "Cache-Control": "no-store", "Vary": "Accept, User-Agent, Sec-Fetch-Mode",
-        "profile-title": title,
+        "profile-title": "MD-NEXT",
         "Subscription-Userinfo": userinfo,
         "announce": cdn_announcement(limits, cdn_available),
         "profile-web-page-url": page_url,

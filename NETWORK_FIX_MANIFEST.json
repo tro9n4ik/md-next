@@ -5,7 +5,7 @@
     {
       "path": "backend/app/api/clients.py",
       "before_sha256": "a6adeaff56c26277a375ef49524f6e65ed6cbb755e924c98257197e3896189a7",
-      "after_sha256": "f38f3de94d96a0b9eeafc449b7240c35e4d028be73bc029d1ea380a132146c9a",
+      "after_sha256": "6fee16dc4167a41b863c9f638f708dc953e80ce0422596bb74b360a80b7c6f2f",
       "accepted_sha256": [
         "765ba5ecdc619c7954ba883f53fd4e632463ecab3481a1d222f4b4df898a1e8f",
         "a6adeaff56c26277a375ef49524f6e65ed6cbb755e924c98257197e3896189a7",
@@ -15,7 +15,8 @@
         "a5708c2596979eba803c47bcb4d63a077bfbc6638c2964649313b68b96e3dc96",
         "6f37ccc0e66e1fb72b0cdef2f64482a691705880e37cedae34617dd8f6fcb1e4",
         "e25cea673f33a617e86f5f7b4dd875b197ed7df81dfc38c1f6e0f00b862e6184",
-        "650a3a7004ef1808aa9a3deadeacd34c5472e05f7c21fb8501bbf68541cb6dad"
+        "650a3a7004ef1808aa9a3deadeacd34c5472e05f7c21fb8501bbf68541cb6dad",
+        "f38f3de94d96a0b9eeafc449b7240c35e4d028be73bc029d1ea380a132146c9a"
       ]
     },
     {
