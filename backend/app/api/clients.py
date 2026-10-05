@@ -289,6 +289,31 @@ async def regenerate_subscription(client_id: int, db: AsyncSession = Depends(get
     return {"subscription_url": f"{os.getenv('PANEL_PUBLIC_URL', '').rstrip('/')}/sub/{client.sub_token}"}
 
 
+def wants_subscription_page(request: Request) -> bool:
+    accepted = request.headers.get('accept', '').lower().split(',')
+    html = False
+    for item in accepted:
+        parts = [p.strip() for p in item.split(';')]
+        if parts[0] != 'text/html':
+            continue
+        try:
+            html = float(next((p[2:] for p in parts[1:] if p.startswith('q=')), '1')) > 0
+        except ValueError:
+            continue
+        if html:
+            break
+    if not html:
+        return False
+    agent = request.headers.get('user-agent', '').lower()
+    if any(client in agent for client in ('happ', 'v2rayng', 'hiddify', 'streisand', 'shadowrocket')):
+        return False
+    mode = request.headers.get('sec-fetch-mode', '').lower()
+    if mode:
+        return mode == 'navigate'
+    # Older browsers may omit Fetch Metadata. Ambiguous HTTP clients receive raw.
+    return agent.startswith('mozilla/') and any(browser in agent for browser in ('chrome/', 'firefox/', 'safari/', 'edg/'))
+
+
 @subscription_router.get("/{token}", response_class=Response)
 async def get_subscription(token: str, request: Request, format: Literal["raw", "page"] | None = None, db: AsyncSession = Depends(get_db)):
     now = time.time()
@@ -335,18 +360,19 @@ async def get_subscription(token: str, request: Request, format: Literal["raw", 
     userinfo = f"upload={upload}; download={download}; total={total}"
     if client.expires_at:
         userinfo += f"; expire={int(utc(client.expires_at).timestamp())}"
-    if format == "page" or (format != "raw" and "text/html" in request.headers.get("accept", "").lower()):
-        from app.services.subscription_page import render_subscription_page
+    if format == "page" or (format != "raw" and wants_subscription_page(request)):
+        from app.services.subscription_page import render_subscription_page, SUBSCRIPTION_CSP
         public_url = os.getenv("PANEL_PUBLIC_URL", "").rstrip("/")
         if not public_url:
             public_url = str(request.base_url).rstrip("/")
         return Response(render_subscription_page(client, profiles, settings, globally_enabled,
                         f"{public_url}/sub/{client.sub_token}?format=raw", upload + download, total),
-                        media_type="text/html", headers={"Cache-Control": "no-store", "Vary": "Accept",
+                        media_type="text/html", headers={"Cache-Control": "no-store", "Vary": "Accept, User-Agent, Sec-Fetch-Mode",
+                        "Content-Security-Policy": SUBSCRIPTION_CSP,
                         "X-Robots-Tag": "noindex, nofollow", "Referrer-Policy": "no-referrer",
                         "X-Content-Type-Options": "nosniff"})
     return Response(content=content, media_type="text/plain", headers={
-        "Cache-Control": "no-store", "Vary": "Accept",
+        "Cache-Control": "no-store", "Vary": "Accept, User-Agent, Sec-Fetch-Mode",
         "profile-title": title,
         "Subscription-Userinfo": userinfo,
         "profile-update-interval": "12",

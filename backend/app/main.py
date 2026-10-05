@@ -97,7 +97,7 @@ async def lifespan(app: FastAPI):
             async with AsyncSessionLocal() as session:
                 proxy = await resolve_telegram_proxy(session, tg_settings)
             await bot_manager.start(tg_settings["token"], proxy)
-    except Exception as e:
+    except Exception:
         bot_manager.status = "error"
         bot_manager.last_error = "Не удалось запустить бота. Проверьте выбранную ноду и настройки Telegram."
 

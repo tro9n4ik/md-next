@@ -80,7 +80,7 @@ async def update_telegram_settings(req: TelegramSettingsRequest, db: AsyncSessio
     if token_to_use:
         try:
             await bot_manager.validate_token(token_to_use, proxy_to_use)
-        except Exception as e:
+        except Exception:
             raise HTTPException(status_code=400, detail="Не удалось проверить токен через выбранный выход. Проверьте токен и доступность Telegram; настройки сохранены без изменений.")
 
     if req.token is not None and req.token.strip():
@@ -161,5 +161,5 @@ async def send_test_telegram_message(db: AsyncSession = Depends(get_db)):
     try:
         await bot.send_message(chat_id=admin_id, text="🟢 **Тестовое сообщение от MD-Next Панели**\nУведомления успешно настроены!", parse_mode="Markdown")
         return {"status": "ok", "message": "Тестовое сообщение отправлено"}
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=502, detail="Не удалось отправить сообщение. Проверьте выход бота и начните диалог с ним командой /start.")

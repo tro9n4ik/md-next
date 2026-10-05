@@ -107,14 +107,44 @@ async def test_subscription_page_and_raw_are_isolated_and_escaped(monkeypatch):
         client.email = 'private@example.com'
         await db.commit()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http:
-        page = await http.get("/api/v1/sub/access-test", headers={"Accept": "text/html"})
+        page = await http.get("/api/v1/sub/access-test", headers={"Accept": "text/html", "Sec-Fetch-Mode": "navigate"})
         assert page.status_code == 200 and "text/html" in page.headers["content-type"]
         assert '&lt;script&gt;' in page.text and '<script>alert(' not in page.text
         assert 'private@example.com' not in page.text and 'existing-id' not in page.text
         assert '?format=raw' in page.text and 'data:image/png;base64,' in page.text
         assert page.headers['cache-control'] == 'no-store'
+        import hashlib,re
+        scripts=re.findall(r'<script>(.*?)</script>',page.text,re.DOTALL)
+        assert len(scripts)==1
+        digest=base64.b64encode(hashlib.sha256(scripts[0].encode()).digest()).decode()
+        csp=page.headers['content-security-policy']
+        assert f"script-src 'sha256-{digest}'" in csp
+        assert "default-src 'none'" in csp and "frame-ancestors 'none'" in csp
+        assert "img-src data:" in csp and "'unsafe-inline'" not in csp.split('script-src')[1]
         raw = await http.get("/api/v1/sub/access-test?format=raw", headers={"Accept": "text/html"})
         assert 'text/plain' in raw.headers['content-type']
         assert len(base64.b64decode(raw.text).decode().splitlines()) == 2
         assert (await http.get("/api/v1/sub/other-token", headers={"Accept": "text/html"})).status_code == 404
         assert (await http.get("/api/v1/sub/access-test?format=invalid")).status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_subscription_format_requires_browser_navigation():
+    await seed()
+    browser='Mozilla/5.0 AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36'
+    async with AsyncClient(transport=ASGITransport(app=app),base_url='http://test') as http:
+        cases=[({'Accept':'text/html'},False),
+               ({'Accept':'text/html','User-Agent':browser},True),
+               ({'Accept':'text/html','User-Agent':browser,'Sec-Fetch-Mode':'cors'},False),
+               ({'Accept':'text/html;q=0','Sec-Fetch-Mode':'navigate'},False),
+               ({'Accept':'text/html','Sec-Fetch-Mode':'navigate'},True)]
+        # Compatibility examples, not captures from real devices/apps.
+        cases += [({'Accept':'text/html,*/*','User-Agent':name},False)
+                  for name in ['Happ','v2rayNG','Hiddify','Streisand','Shadowrocket']]
+        for headers,html in cases:
+            response=await http.get('/api/v1/sub/access-test',headers=headers)
+            assert response.status_code==200
+            assert ('text/html' in response.headers['content-type'])==html
+            assert 'Sec-Fetch-Mode' in response.headers['vary']
+        forced=await http.get('/api/v1/sub/access-test?format=page',headers={'User-Agent':'Happ'})
+        assert 'text/html' in forced.headers['content-type']

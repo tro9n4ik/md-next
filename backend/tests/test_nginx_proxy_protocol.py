@@ -86,6 +86,10 @@ def test_nginx_proxy_protocol(tmp_path):
     panel_html = www_dir / "panel"
     panel_html.mkdir()
     (panel_html / "index.html").write_text("Panel Static Content")
+    # Default nginx workers may run as any unprivileged user. Give them access
+    # only to these public fixture files, including the pytest parent folders.
+    for directory in (tmp_path.parent.parent, tmp_path.parent, tmp_path, ssl_dir, www_dir, fake_html, panel_html):
+        directory.chmod(directory.stat().st_mode | 0o005)
 
     cert_path = ssl_dir / "fullchain.pem"
     key_path = ssl_dir / "privkey.pem"
@@ -99,6 +103,8 @@ def test_nginx_proxy_protocol(tmp_path):
         "-subj", f"/CN={main_domain}",
         "-addext", f"subjectAltName=DNS:{main_domain},DNS:{panel_domain}"
     ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    cert_path.chmod(0o644)
+    key_path.chmod(0o644)  # Disposable self-signed key, never a production key.
 
     # Модуль stream для Debian/Ubuntu
     load_module_directive = ""
@@ -124,7 +130,6 @@ def test_nginx_proxy_protocol(tmp_path):
     nginx_conf = tmp_path / "nginx.conf"
     nginx_conf.write_text(f"""
 {load_module_directive}worker_processes 1;
-user {__import__('pwd').getpwuid(os.getuid()).pw_name};
 pid {tmp_path}/nginx.pid;
 error_log {tmp_path}/error.log debug;
 

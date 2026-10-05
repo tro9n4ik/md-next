@@ -183,10 +183,13 @@ EOF
 
 install_awg_routing() {
   apt-get install -y -qq iproute2 iptables
+  mkdir -p /etc/sysctl.d
+  printf '%s\n' 'net.ipv4.ip_forward=1' > /etc/sysctl.d/90-md-next-awg.conf
+  sysctl -p /etc/sysctl.d/90-md-next-awg.conf
   mkdir -p /etc/systemd/system/xray.service.d
   cat > /etc/systemd/system/xray.service.d/30-md-next-awg-routing.conf <<'EOF'
 [Service]
-ExecStartPost=+/usr/bin/python3 /opt/md-next/scripts/awg-routing.py
+ExecStartPost=-+/usr/bin/python3 /opt/md-next/scripts/awg-routing.py
 EOF
   systemctl daemon-reload
 }

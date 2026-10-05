@@ -5,14 +5,15 @@
     {
       "path": "backend/app/api/clients.py",
       "before_sha256": "a6adeaff56c26277a375ef49524f6e65ed6cbb755e924c98257197e3896189a7",
-      "after_sha256": "6f37ccc0e66e1fb72b0cdef2f64482a691705880e37cedae34617dd8f6fcb1e4",
+      "after_sha256": "e25cea673f33a617e86f5f7b4dd875b197ed7df81dfc38c1f6e0f00b862e6184",
       "accepted_sha256": [
         "765ba5ecdc619c7954ba883f53fd4e632463ecab3481a1d222f4b4df898a1e8f",
         "a6adeaff56c26277a375ef49524f6e65ed6cbb755e924c98257197e3896189a7",
         "c168562e55cc47c640298d02e6b0232050601a8a2ccab72c730c52ec57204cbb",
         "4bf966c19dafbe402ecda6359333eb61c5709457fb64b5446cfbb4c121745483",
         "d21e9474a09c0d29dd322ff925b343e464bb4d5ba2120674c2a2fbc33dc5d4d0",
-        "a5708c2596979eba803c47bcb4d63a077bfbc6638c2964649313b68b96e3dc96"
+        "a5708c2596979eba803c47bcb4d63a077bfbc6638c2964649313b68b96e3dc96",
+        "6f37ccc0e66e1fb72b0cdef2f64482a691705880e37cedae34617dd8f6fcb1e4"
       ]
     },
     {
@@ -47,13 +48,14 @@
     {
       "path": "backend/app/main.py",
       "before_sha256": "aeef878be100f49ec97ed216b01016bbe281093689feae1bf26d28495040e98e",
-      "after_sha256": "71e3bd4dde098452e79839a3502547575e5c45dcd73c89a319ed13302d5e8504",
+      "after_sha256": "87934cca9f54149f92ad70cba0abe812031adb7af5be027cbd3f1886bd8dc5d4",
       "accepted_sha256": [
         "aeef878be100f49ec97ed216b01016bbe281093689feae1bf26d28495040e98e",
         "fee6f8e70056b0492976e83420a4be14988158ef3fd7e5df8e9136f2676d0957",
         "d2eee96f6c4a91fb7b5abb4561561911bf0820a4fcf96d43348c72d7ea3a3b3a",
         "d2354cd55a50fda1918df4b14d6bfd05f8b28cf13ea3aaa5ee25f35bb73d81fb",
-        "57e3bf3f005bb810d688f5cbcda5e42e6701fa81dbe2fd96aafaa8682e627a68"
+        "57e3bf3f005bb810d688f5cbcda5e42e6701fa81dbe2fd96aafaa8682e627a68",
+        "71e3bd4dde098452e79839a3502547575e5c45dcd73c89a319ed13302d5e8504"
       ]
     },
     {
@@ -108,7 +110,7 @@
         "e8c48303741c999189c0f01d9ed01ca76f4551984503da91d6e453b2edbd9231",
         "440c0ec5b6088b5fec6639de0f2d2d1813dd0c2063c809793b2e5f7d5140e682"
       ],
-      "after_sha256": "440c0ec5b6088b5fec6639de0f2d2d1813dd0c2063c809793b2e5f7d5140e682"
+      "after_sha256": "e52a3615d8d94efbd49d1318dea71a16234b38cc9661b4ff78bbda2d74e80050"
     }
   ],
   "required_schema_revision": "0012_operations",
@@ -175,7 +177,7 @@
     },
     {
       "path": "backend/app/services/subscription_page.py",
-      "sha256": "d06ae0d5ed21237c57a69513b3198f12b253616d58f77459972e939f4dad23e9"
+      "sha256": "d1cbe5e8ea622d858915554be961c8c2c5120327c9d68c11b80cadb111fbe5a5"
     },
     {
       "path": "backend/app/templates/subscription.html",
@@ -191,7 +193,7 @@
     },
     {
       "path": "backend/app/services/backups.py",
-      "sha256": "7e4f65b041f29ade5958c1f2cf0e06c01011bc1e59cb84b07f5c3d87e6158043"
+      "sha256": "eb4293c493d8da960ef258ea68113e814ea324a1baa7b513e7096e9596a59ee8"
     },
     {
       "path": "backend/app/services/diagnostics.py",

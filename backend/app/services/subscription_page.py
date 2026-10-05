@@ -1,5 +1,7 @@
 """Личная страница без доступа к административным API и данным других клиентов."""
 import base64
+import hashlib
+import re
 from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
@@ -13,6 +15,17 @@ from app.services.profiles import PROFILE_LABELS
 
 environment = Environment(loader=FileSystemLoader(Path(__file__).parent.parent / "templates"),
                           autoescape=select_autoescape(["html"]))
+
+# Hash the static script source, never rendered client data. The browser hashes
+# the UTF-8 text between script tags, including its leading/trailing newlines.
+_template_source = environment.loader.get_source(environment, "subscription.html")[0]
+_scripts = re.findall(r'<script>(.*?)</script>', _template_source, re.DOTALL)
+if len(_scripts) != 1 or any(marker in _scripts[0] for marker in ('{{', '{%')):
+    raise RuntimeError('Subscription page must contain exactly one static script')
+_script_hash = base64.b64encode(hashlib.sha256(_scripts[0].encode('utf-8')).digest()).decode('ascii')
+SUBSCRIPTION_CSP = ("default-src 'none'; img-src data:; style-src 'unsafe-inline'; "
+                    f"script-src 'sha256-{_script_hash}'; frame-ancestors 'none'; "
+                    "base-uri 'none'; form-action 'none'")
 
 
 def size(value):

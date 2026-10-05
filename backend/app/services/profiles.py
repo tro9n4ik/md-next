@@ -7,7 +7,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client import Client, ClientProfile
-from app.models.node import Node
 from app.models.setting import Setting
 from app.services.awg import AWGService
 from app.services.crypto import encrypt_secret, decrypt_secret

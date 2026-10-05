@@ -7,7 +7,6 @@ import json
 from pathlib import Path
 import sqlite3
 import subprocess
-from urllib.parse import urlparse
 
 
 def run(*args):
