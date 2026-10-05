@@ -117,3 +117,53 @@ async def test_create_with_separate_limit_and_remove_limit(auth_headers):
             assert c['cdn_monthly_traffic_limit'] == 1024 and c['monthly_traffic_limit'] == 0
             r = await api.put(f"/api/v1/clients/{c['id']}", headers=auth_headers, json={'cdn_monthly_traffic_limit':0})
             assert r.json()['cdn_monthly_traffic_limit'] == 0 and not r.json()['cdn_quota_exhausted']
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('normal,general,expected_total,expected_used', [(True, 0, 0, 0), (False, 0, 100, 30), (False, 500, 500, 5)])
+async def test_happ_metadata_distinguishes_cdn_and_general_quota(normal, general, expected_total, expected_used):
+    cid = await seed(100, 30)
+    async with TestingSessionLocal() as db:
+        c = await db.get(Client, cid)
+        c.monthly_traffic_limit = general
+        c.monthly_traffic_up = 2
+        c.monthly_traffic_down = 3
+        p = (await db.execute(select(ClientProfile))).scalar_one()
+        p.is_enabled = normal
+        db.add(Setting(key=f'client.cdn.{cid}', value='true'))
+        await db.commit()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as api:
+        r = await api.get('/api/v1/sub/cdn-quota', headers={'User-Agent':'Happ/4.6.0','Accept':'text/html'})
+        assert r.headers['content-type'].startswith('text/plain')
+        assert r.headers['announce'].startswith('base64:')
+        text = base64.b64decode(r.headers['announce'][7:]).decode()
+        assert 'Обход БС: 30 Б из 100 Б' in text and 'Осталось 70 Б' in text
+        assert len(text) <= 200
+        assert r.headers['profile-web-page-url'].endswith('/sub/cdn-quota?format=page')
+        fields = dict(part.strip().split('=') for part in r.headers['subscription-userinfo'].split(';'))
+        assert int(fields['total']) == expected_total
+        assert int(fields['upload']) + int(fields['download']) == expected_used
+        assert len(base64.b64decode(r.text).decode().splitlines()) == 1 + int(normal)
+        from urllib.parse import unquote
+        assert '100 Б/мес' in unquote(base64.b64decode(r.text).decode())
+        page = await api.get('/api/v1/sub/cdn-quota?format=page')
+        assert 'Обход БС: отдельный трафик' in page.text and '100.0 Б' in page.text
+
+
+@pytest.mark.asyncio
+async def test_happ_announcement_reports_exhaustion_and_clears_removed_limit():
+    cid = await seed(100, 100)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as api:
+        r = await api.get('/api/v1/sub/cdn-quota')
+        assert 'Лимит БС исчерпан' in base64.b64decode(r.headers['announce'][7:]).decode()
+        assert 'Лимит обхода БС исчерпан' in (await api.get('/api/v1/sub/cdn-quota?format=page')).text
+        async with TestingSessionLocal() as db:
+            c = await db.get(Client, cid)
+            c.cdn_monthly_traffic_limit = 0
+            await db.commit()
+        r = await api.get('/api/v1/sub/cdn-quota')
+        assert 'без лимита' in base64.b64decode(r.headers['announce'][7:]).decode()
+        async with TestingSessionLocal() as db:
+            row = await db.get(Setting,'cdn.enabled'); row.value = 'false'; await db.commit()
+        r = await api.get('/api/v1/sub/cdn-quota')
+        assert 'не подключён' in base64.b64decode(r.headers['announce'][7:]).decode()

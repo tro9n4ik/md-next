@@ -10,7 +10,7 @@ from urllib.parse import quote
 import qrcode
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from app.services.client_limits import limit_info, utc
-from app.services.cdn import make_cdn_link
+from app.services.cdn import make_cdn_link, cdn_access_allowed
 from app.services.profiles import PROFILE_LABELS
 
 environment = Environment(loader=FileSystemLoader(Path(__file__).parent.parent / "templates"),
@@ -43,6 +43,9 @@ def render_subscription_page(client, profiles, settings, enabled, url, usage, to
     names = [PROFILE_LABELS[p.kind] for p in profiles if p.is_enabled and p.kind in enabled]
     if any(p.kind in enabled and make_cdn_link(client, p, settings) for p in profiles):
         names.append("Обход БС · CDN")
+    cdn_available = any(p.kind == 'vless_xhttp_tls' and p.kind in enabled
+                        and settings.get('cdn.enabled') == 'true' and cdn_access_allowed(client, p, settings)
+                        for p in profiles)
     buffer = BytesIO()
     qrcode.make(url).save(buffer, format="PNG")
     expiry = utc(client.expires_at) if client.expires_at else None
@@ -52,6 +55,10 @@ def render_subscription_page(client, profiles, settings, enabled, url, usage, to
         days=days, usage=size(usage), total=size(total) if total else "Без ограничений",
         percent=min(100, round(usage / total * 100)) if total else 0,
         monthly=bool(client.monthly_traffic_limit), reset=limits["traffic_period_end"],
+        cdn_available=cdn_available, cdn_usage=size(limits['cdn_monthly_traffic_used']),
+        cdn_total=size(limits['cdn_monthly_traffic_limit']) if limits['cdn_monthly_traffic_limit'] else 'Без ограничений',
+        cdn_remaining=size(max(0, limits['cdn_monthly_traffic_limit']-limits['cdn_monthly_traffic_used'])),
+        cdn_limited=bool(limits['cdn_monthly_traffic_limit']), cdn_exhausted=limits['cdn_quota_exhausted'],
         profiles=names, url=url, happ="happ://add/" + url,
         v2ray="v2rayng://install-sub?url=" + quote(url, safe=""),
         qr="data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode())

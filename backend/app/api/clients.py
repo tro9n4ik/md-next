@@ -24,6 +24,7 @@ from app.services.events import log_event
 from app.models.setting import Setting
 from app.services.happ_routing import build_happ_routing_link
 from app.services.client_limits import access_allowed, expiry_for_period, limit_info, refresh_period, utc
+from app.services.subscription_metadata import cdn_announcement
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/clients", tags=["Клиенты"], dependencies=[Depends(get_current_user)])
@@ -360,9 +361,18 @@ async def get_subscription(token: str, request: Request, format: Literal["raw", 
     if client.monthly_traffic_limit:
         upload, download = limits["monthly_traffic_up"], limits["monthly_traffic_down"]
         total = limits["monthly_traffic_limit"]
+    cdn_available = any(p.kind == "vless_xhttp_tls" and p.kind in globally_enabled
+                        and settings.get("cdn.enabled") == "true" and cdn_access_allowed(client, p, settings)
+                        for p in profiles)
+    normal_available = any(p.kind != "awg" and p.kind in globally_enabled and p.is_enabled for p in profiles)
+    if cdn_available and not normal_available and not total:
+        upload, download = limits["cdn_monthly_traffic_up"], limits["cdn_monthly_traffic_down"]
+        total = limits["cdn_monthly_traffic_limit"]
     userinfo = f"upload={upload}; download={download}; total={total}"
     if client.expires_at:
         userinfo += f"; expire={int(utc(client.expires_at).timestamp())}"
+    public_url = os.getenv("PANEL_PUBLIC_URL", "").rstrip("/") or str(request.base_url).rstrip("/")
+    page_url = f"{public_url}/sub/{client.sub_token}?format=page"
     if format == "page" or (format != "raw" and wants_subscription_page(request)):
         from app.services.subscription_page import render_subscription_page, SUBSCRIPTION_CSP
         public_url = os.getenv("PANEL_PUBLIC_URL", "").rstrip("/")
@@ -378,6 +388,8 @@ async def get_subscription(token: str, request: Request, format: Literal["raw", 
         "Cache-Control": "no-store", "Vary": "Accept, User-Agent, Sec-Fetch-Mode",
         "profile-title": title,
         "Subscription-Userinfo": userinfo,
+        "announce": cdn_announcement(limits, cdn_available),
+        "profile-web-page-url": page_url,
         "profile-update-interval": "12",
         "routing": happ_dns,
     })

@@ -8,6 +8,7 @@ import os
 import json
 import base64
 from app.services.client_limits import cdn_quota_exhausted
+from app.services.subscription_metadata import traffic_size
 from urllib.parse import quote, urlencode
 
 
@@ -55,7 +56,9 @@ def make_cdn_link(client, profile, settings: dict[str, str], *, preview: bool = 
               "host": domain, "type": "xhttp", "mode": "packet-up",
               "path": cdn_path(settings.get("profiles.path.vless_xhttp_tls", "/md-next-xhttp")),
               "extra": json.dumps(cdn_transport(), separators=(",", ":")), "alpn": "h2"}
-    name = quote(f"{client.name} · Обход БС · CDN", safe="")
+    quota = getattr(client, 'cdn_monthly_traffic_limit', 0) or 0
+    suffix = f" · {traffic_size(quota)}/мес" if quota else ""
+    name = quote(f"{client.name} · Обход БС · CDN{suffix}", safe="")
     return f"vless://{profile.uuid}@{domain}:443?{urlencode(params)}#{name}"
 
 
