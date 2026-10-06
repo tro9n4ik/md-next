@@ -345,13 +345,8 @@ async def register_node(node_data: NodeRegister, db: AsyncSession = Depends(get_
     active_node = await XrayService.get_active_node(db)
 
     if failover_mode == "auto" and active_node is None and not await is_manual_direct_route(db):
-        setting_res = await db.execute(select(Setting).where(Setting.key == "active_node_id"))
-        setting = setting_res.scalar_one_or_none()
-        if setting:
-            setting.value = str(target_node.id)
-        else:
-            db.add(Setting(key="active_node_id", value=str(target_node.id)))
-
+        # The route lock owns creation/update of active_node_id. Creating it
+        # before acquiring that lock races with a simultaneous registration.
         success, reason = await apply_active_node(db, target_node, source="auto")
         if not success:
             await db.rollback()
