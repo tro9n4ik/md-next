@@ -97,8 +97,9 @@ export const NodesManager: React.FC = () => {
   const [nodeToDelete, setNodeToDelete] = useState<NodeData | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [clusterError, setClusterError] = useState<string | null>(null);
-  const [failoverForm, setFailoverForm] = useState<FailoverSettings | null>(null);
-  const [routeCheck, setRouteCheck] = useState<RouteCheckResult | null>(null);
+  const [failoverDraft, setFailoverForm] = useState<FailoverSettings | null>(null);
+  const [routeCheckState, setRouteCheckState] = useState<{ key: string; result: RouteCheckResult } | null>(null);
+  const [now, setNow] = useState(Date.now);
 
   const { data: nodes = [] } = useQuery<NodeData[]>({
     queryKey: ['nodes'],
@@ -129,13 +130,14 @@ export const NodesManager: React.FC = () => {
     },
   });
 
+  const failoverForm = failoverDraft ?? failoverSettings;
+  const routeKey = `${route?.active_node?.id}:${route?.manual_direct}`;
+  const routeCheck = routeCheckState?.key === routeKey ? routeCheckState.result : null;
+  const setRouteCheck = (result: RouteCheckResult | null) => setRouteCheckState(result ? { key: routeKey, result } : null);
   useEffect(() => {
-    if (failoverSettings) setFailoverForm(failoverSettings);
-  }, [failoverSettings]);
-
-  useEffect(() => {
-    setRouteCheck(null);
-  }, [route?.active_node?.id, route?.manual_direct]);
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const activeNodeMutation = useMutation({
     mutationFn: async (nodeId: number | null) => {
@@ -452,7 +454,7 @@ export const NodesManager: React.FC = () => {
             <tbody className="divide-y divide-neutral-100">
               {invites.map((inv) => {
                 const isUsed = !!inv.used_at;
-                const isExpired = new Date(inv.expires_at) < new Date();
+                      const isExpired = new Date(inv.expires_at).getTime() < now;
                 let statusLabel = 'Активен';
                 let statusStyle = 'bg-emerald-50 text-emerald-700';
 

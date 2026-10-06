@@ -71,7 +71,7 @@ async def _apply_active_node(db: AsyncSession, node: Optional[Node], *, source: 
         if telegram_use_node and telegram_use_node.value.lower() in {"true", "1", "yes"}:
             from app.services.telegram_settings import resolve_telegram_proxy
             try:
-                telegram_proxy = await resolve_telegram_proxy(db, {"use_node": True, "node_id": node.id})
+                telegram_proxy = await resolve_telegram_proxy(db, {"use_node": True, "node_id": node.id}, active_node=node)
             except ValueError as exc:
                 await db.rollback()
                 return False, str(exc)

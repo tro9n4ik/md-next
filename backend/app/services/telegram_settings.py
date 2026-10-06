@@ -59,14 +59,14 @@ async def get_telegram_settings_from_db() -> Dict[str, Any]:
     }
 
 
-async def resolve_telegram_proxy(db, settings: Dict[str, Any]) -> str:
+async def resolve_telegram_proxy(db, settings: Dict[str, Any], *, active_node=None) -> str:
     """Выбранная нода использует свой SOCKS-вход Xray без изменения маршрутов клиентов."""
     from app.models.node import Node
     from app.services.xray import probe_enabled, probe_port_for_node
     if not probe_enabled():
         raise ValueError("Для работы через ноду включите NODE_PROBE_ENABLED на сервере панели")
     from app.services.xray import XrayService
-    node = await XrayService.get_active_node(db)
+    node = active_node if active_node is not None else await XrayService.get_active_node(db)
     if not node or not node.is_enabled or not node.secret:
         raise ValueError("Выберите активную ноду в разделе «Узлы». Telegram работает только через ноду.")
     port = probe_port_for_node(node.id)

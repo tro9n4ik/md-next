@@ -57,15 +57,19 @@ def validate_ownership():
                 raise RuntimeError('Таблица 10086 занята другим маршрутом; маршрут AWG не изменён')
 
 
+def remove_owned():
+    if STATE.exists():
+        validate_ownership()
+        remove()
+        STATE.unlink()
+
+
 def apply(config_path):
     config = json.loads(Path(config_path).read_text())
     enabled = any(i.get('protocol') == 'tun' and i.get('tag') == TAG
                   and i.get('settings', {}).get('name') == TUN for i in config.get('inbounds', []))
     if not enabled:
-        if STATE.exists():
-            validate_ownership()
-            remove()
-            STATE.unlink()
+        remove_owned()
         return
     validate_ownership()
     if not STATE.exists():
@@ -106,6 +110,10 @@ def apply(config_path):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', default='/usr/local/etc/xray/config.json')
+    parser.add_argument('--remove', action='store_true', help='Remove only routing owned by MD-Next')
     args = parser.parse_args()
-    apply(args.config)
+    if args.remove:
+        remove_owned()
+    else:
+        apply(args.config)
     print('Маршрут AmneziaWG согласован с Xray')

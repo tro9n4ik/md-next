@@ -79,13 +79,16 @@ async def create_profiles(db: AsyncSession, client: Client) -> list[ClientProfil
     for kind in PROFILE_KINDS:
         if kind not in enabled or kind in existing:
             continue
+        # Allocate before attaching a transient profile to the relationship:
+        # allocation queries can autoflush the session.
+        awg_ip = await AWGService.allocate_profile_ip(db) if kind == "awg" else None
         profile = ClientProfile(client=client, kind=kind, is_enabled=True)
         if kind.startswith("vless_"):
             profile.uuid = str(uuid.uuid4())
         elif kind == "hysteria2":
             profile.auth = secrets.token_urlsafe(24)
         elif kind == "awg":
-            profile.ip_address = await AWGService.allocate_profile_ip(db)
+            profile.ip_address = awg_ip
             private_key, profile.public_key = AWGService.generate_keypair()
             profile.private_key_enc = encrypt_secret(private_key)
         db.add(profile)

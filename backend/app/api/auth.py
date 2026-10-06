@@ -5,7 +5,7 @@ import jwt
 import pyotp
 from typing import Dict, Tuple
 from pydantic import BaseModel
-from passlib.context import CryptContext
+import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,7 +20,6 @@ SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 
 LOGIN_ATTEMPTS: Dict[Tuple[str, str], list] = {}
@@ -33,10 +32,14 @@ RATE_LIMIT_WINDOW_SECONDS = 15 * 60
 router = APIRouter(prefix="/api/v1/auth", tags=["Вход и двухфакторная аутентификация"])
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        # Preserve passlib's 72-byte handling for existing bcrypt hashes.
+        return bcrypt.checkpw(plain_password.encode("utf-8")[:72], hashed_password.encode("ascii"))
+    except (ValueError, UnicodeError):
+        return False
 
 def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(password.encode("utf-8")[:72], bcrypt.gensalt()).decode("ascii")
 
 def create_access_token(data: dict) -> str:
     secret = os.getenv("JWT_SECRET_KEY")

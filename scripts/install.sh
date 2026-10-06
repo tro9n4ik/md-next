@@ -25,12 +25,15 @@ echo "1) Установить"
 echo "2) Обновить"
 echo "3) Удалить"
 echo ""
-read -r -p "Выберите действие [1-3]: " ACTION
+ACTION="${1:-}"
+if [ -z "$ACTION" ]; then
+  read -r -p "Выберите действие [1-3]: " ACTION
+fi
 
 case "$ACTION" in
   1) ACTION="install" ;;
   2) ACTION="update" ;;
-  3) ACTION="remove" ;;
+  3|remove) ACTION="remove" ;;
   *) echo "Неверный выбор."; exit 1 ;;
 esac
 
@@ -298,6 +301,18 @@ remove_installation() {
   fi
 
   systemctl disable --now md-next-backend 2>/dev/null || true
+  # Remove owned AWG policy before deleting its helper or state marker.
+  local routing_helper
+  routing_helper="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/awg-routing.py"
+  if [ -f "$routing_helper" ]; then
+    /usr/bin/python3 "$routing_helper" --remove
+  elif [ -f /var/lib/md-next/awg-routing-owned ]; then
+    echo "Не найден помощник AWG. Восстановите scripts/awg-routing.py перед удалением."
+    exit 1
+  fi
+  systemctl disable --now md-next-awg awg-quick@awg0 2>/dev/null || true
+  rm -f /etc/sysctl.d/90-md-next-awg.conf
+  rm -f /etc/systemd/system/md-next-awg.service /etc/systemd/system/xray.service.d/md-next-awg.conf /etc/systemd/system/xray.service.d/30-md-next-awg-routing.conf
   rm -f /etc/systemd/system/md-next-backend.service
   rm -f /etc/nginx/sites-enabled/md-next.conf /etc/nginx/sites-available/md-next.conf
   rm -f /etc/nginx/stream-enabled/md-next-stream.conf /etc/nginx/stream-available/md-next-stream.conf
@@ -307,6 +322,7 @@ remove_installation() {
   read -r -p "Удалить базу данных и файлы приложения из $APP_DIR? [y/N]: " delete_data
   if [[ "$delete_data" =~ ^[Yy]$ ]]; then
     rm -rf "$APP_DIR"
+    rm -rf /var/lib/md-next
     echo "Приложение и его данные удалены."
   else
     echo "Конфигурация удалена; данные приложения сохранены в $APP_DIR."
@@ -422,7 +438,7 @@ install_warp() {
 }
 
 install_node() {
-  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
   apt-get install -y -qq nodejs
 }
 
@@ -757,6 +773,14 @@ EOF
 
   mkdir -p /var/www/html
 
+  # Explicit test mode for an isolated VPS without public DNS.
+  if [ "${MDNEXT_TEST_SELF_SIGNED:-0}" = "1" ]; then
+    install_xray_tls_files /etc/nginx/ssl_dummy
+    systemctl restart md-next-backend.service
+    echo "Тестовый режим: самоподписанный сертификат; выпуск Let's Encrypt пропущен."
+    return 0
+  fi
+
   # Certbot в режиме standalone должен занять 80-й порт. Останавливаем nginx
   # перед запуском и гарантированно возвращаем его после завершения certbot,
   # включая сценарий с ошибкой или прерыванием установки.
@@ -805,8 +829,7 @@ EOF
 
 run_step "Установка системных зависимостей, Nginx и Certbot" install_deps
 run_step "Установка AmneziaWG" install_awg
-run_step "Установка Cloudflare WARP" install_warp
-run_step "Установка Node.js (v20)" install_node
+run_step "Установка Node.js (v24)" install_node
 run_step "Установка Xray-core" install_xray
 run_step "Развертывание MD-Next из рабочей директории" setup_repo
 run_step "Настройка выхода AmneziaWG через ноды" install_awg_routing

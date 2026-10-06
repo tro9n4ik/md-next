@@ -51,14 +51,9 @@ const router = createHashRouter([{ element: <Shell />, children: [
 ].map(route => ({ ...route, errorElement: <PageError /> })) }]);
 
 const App: React.FC = () => {
-  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [authToken, setAuthToken] = useState<string | null>(() => localStorage.getItem('token'));
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      setAuthToken(token);
-    }
-
     const handleUnauthorized = () => {
       setAuthToken(null);
     };

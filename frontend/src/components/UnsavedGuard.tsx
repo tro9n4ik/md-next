@@ -2,12 +2,16 @@ import { useEffect, useRef, useState } from 'react';
 import { useBlocker, useLocation } from 'react-router-dom';
 
 export default function UnsavedGuard() {
-  const location = useLocation(); const [dirty, setDirty] = useState(false);
+  const location = useLocation();
+  return <PageUnsavedGuard key={location.pathname} pathname={location.pathname} />;
+}
+
+function PageUnsavedGuard({ pathname }: { pathname: string }) {
+  const [dirty, setDirty] = useState(false);
   const sections = useRef(new Set<Element>()); const lastSection = useRef<Element | null>(null);
   const blocker = useBlocker(dirty);
-  useEffect(() => { sections.current.clear(); setDirty(false); }, [location.pathname]);
   useEffect(() => {
-    const editable = /\/(settings|dns|routing|protocols|telegram|warp|bypass)$|\/clients\/\d+\/access$/.test(location.pathname);
+    const editable = /\/(settings|dns|routing|protocols|telegram|warp|bypass)$|\/clients\/\d+\/access$/.test(pathname);
     function targetSection(event: Event) {
       const target = event.target instanceof Element ? event.target : null;
       return target?.closest('[data-editable], .ui-card') || null;
@@ -33,10 +37,10 @@ export default function UnsavedGuard() {
     window.addEventListener('ui:before-logout', logout);
     window.addEventListener('ui:unsaved-change', controlled);
     return () => { document.removeEventListener('input', change, true); document.removeEventListener('change', change, true); document.removeEventListener('click', click, true); document.removeEventListener('submit', remember, true); window.removeEventListener('api:mutation-start', start); window.removeEventListener('api:mutation-saved', saved); window.removeEventListener('beforeunload', unload); window.removeEventListener('ui:before-logout', logout); window.removeEventListener('ui:unsaved-change', controlled); };
-  }, [location.pathname]);
+  }, [pathname]);
   useEffect(() => {
     if (blocker.state === 'blocked') {
-      if (window.confirm('Есть несохранённые изменения. Уйти со страницы?')) { sections.current.clear(); setDirty(false); blocker.proceed(); }
+      if (window.confirm('Есть несохранённые изменения. Уйти со страницы?')) { sections.current.clear(); blocker.proceed(); }
       else blocker.reset();
     }
   }, [blocker]);
