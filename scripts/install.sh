@@ -216,12 +216,12 @@ install_awg() {
   fi
 
   . /etc/os-release
-  apt-get update -qq
+  apt-get update -qq || return 1
   apt-get install -y -qq software-properties-common python3-launchpadlib gnupg2 git curl || return 1
 
   case "${ID:-}" in
     ubuntu)
-      add-apt-repository -y ppa:amnezia/ppa
+      add-apt-repository -y ppa:amnezia/ppa || return 1
       ;;
     debian)
       local awg_key="/usr/share/keyrings/md-next-amnezia.gpg"
@@ -301,6 +301,7 @@ update_installation() {
   write_backend_service
   systemctl daemon-reload
   systemctl restart md-next-backend
+  wait_backend_ready
   systemctl reload nginx
   echo "MD-Next успешно обновлён. Резервная копия: $backup_dir"
 }
@@ -321,6 +322,10 @@ remove_installation() {
 
   systemctl disable --now md-next-backend 2>/dev/null || true
   local owns_xray=0
+  local owns_awg=0
+  if [ -f /var/lib/md-next/awg-config-owned ] || [ -f /var/lib/md-next/awg-routing-owned ]; then
+    owns_awg=1
+  fi
   if [ -f /var/lib/md-next/xray-owned ] || [ -f /var/lib/md-next/awg-routing-owned ]; then
     owns_xray=1
     systemctl disable --now xray 2>/dev/null || true
@@ -335,6 +340,9 @@ remove_installation() {
     exit 1
   fi
   systemctl disable --now md-next-awg awg-quick@awg0 2>/dev/null || true
+  if [ "$owns_awg" -eq 1 ] && ip link show awg0 >/dev/null 2>&1; then
+    awg-quick down awg0 || ip link delete awg0
+  fi
   rm -f /etc/sysctl.d/90-md-next-awg.conf
   rm -f /etc/systemd/system/md-next-awg.service /etc/systemd/system/xray.service.d/md-next-awg.conf /etc/systemd/system/xray.service.d/30-md-next-awg-routing.conf
   rm -f /etc/systemd/system/md-next-backend.service
@@ -346,6 +354,9 @@ remove_installation() {
 
   read -r -p "Удалить базу данных и файлы приложения из $APP_DIR? [y/N]: " delete_data
   if [[ "$delete_data" =~ ^[Yy]$ ]]; then
+    if [ "$owns_awg" -eq 1 ]; then
+      rm -f /etc/amnezia/amneziawg/awg0.conf
+    fi
     if [ "$owns_xray" -eq 1 ]; then
       rm -f /usr/local/etc/xray/config.json /usr/local/etc/xray/tls/fullchain.pem /usr/local/etc/xray/tls/privkey.pem
     fi
@@ -622,6 +633,8 @@ with open('/usr/local/etc/xray/config.json', 'w') as f:
   mkdir -p /var/lib/md-next
   printf '%s\n' 'MD-Next Xray configuration v1' > /var/lib/md-next/xray-owned
   chmod 600 /var/lib/md-next/xray-owned
+  printf '%s\n' 'MD-Next AWG configuration v1' > /var/lib/md-next/awg-config-owned
+  chmod 600 /var/lib/md-next/awg-config-owned
 
   if xray run -test -format json -config /usr/local/etc/xray/config.json; then
     systemctl enable xray || true

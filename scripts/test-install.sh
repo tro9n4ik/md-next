@@ -22,6 +22,7 @@ INPUT
 systemctl is-active --quiet md-next-backend
 systemctl is-active --quiet xray
 systemctl is-active --quiet nginx
+awg show awg0 > /dev/null
 nginx -t
 test "$(curl -ksS --resolve panel.md-next.test:443:127.0.0.1 https://panel.md-next.test/ -o /dev/null -w '%{http_code}')" = "200"
 cd /opt/md-next/backend
@@ -52,6 +53,7 @@ systemctl is-active --quiet md-next-backend
 printf 'УДАЛИТЬ\nn\n' | bash "$SCRIPT_DIR/uninstall.sh" >> "$TEST_LOG" 2>&1
 if systemctl is-active --quiet md-next-backend; then exit 1; fi
 if systemctl is-active --quiet xray; then exit 1; fi
+if ip link show awg0 >/dev/null 2>&1; then exit 1; fi
 test -f md_next.db
 test "$(sha256sum .env)" = "$ENV_HASH"
 test -n "$(find backups -name '*.mdbackup' -print -quit)"
@@ -64,6 +66,7 @@ printf 'УДАЛИТЬ\ny\n' | bash "$SCRIPT_DIR/uninstall.sh" >> "$TEST_LOG" 2>
 test ! -e /opt/md-next
 test ! -e /var/lib/md-next
 test ! -e /usr/local/etc/xray/config.json
+test ! -e /etc/amnezia/amneziawg/awg0.conf
 test ! -e /etc/letsencrypt/renewal-hooks/deploy/md-next-xray-certificate.sh
 ip rule show | grep -q '^12345:'
 ip route show table 12345 | grep -q blackhole
