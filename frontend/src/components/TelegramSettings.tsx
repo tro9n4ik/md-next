@@ -1,5 +1,5 @@
 import Switch from './ui/Switch';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Send, Check, AlertCircle, Loader2 } from 'lucide-react';
 import { apiFetch } from '../utils/api';
@@ -47,6 +47,15 @@ const TelegramForm: React.FC<{ tgSettings: TelegramSettings; tgMessage: Telegram
   const [notifyNodeDown, setNotifyNodeDown] = useState(tgSettings.notify_node_down);
   const [notifyFailover, setNotifyFailover] = useState(tgSettings.notify_failover);
   const [notifyQuota, setNotifyQuota] = useState(tgSettings.notify_quota);
+  const sectionRef = useRef<HTMLDivElement>(null);
+  const dirty = !!tgToken.trim() || tgAdminId.trim() !== tgSettings.admin_id || tgProxyUrl.trim() !== tgSettings.proxy_url
+    || useNode !== tgSettings.use_node || nodeId !== (tgSettings.node_id ? String(tgSettings.node_id) : '')
+    || notifyNodeDown !== tgSettings.notify_node_down || notifyFailover !== tgSettings.notify_failover || notifyQuota !== tgSettings.notify_quota;
+  useEffect(() => {
+    const scope = sectionRef.current;
+    window.dispatchEvent(new CustomEvent('ui:unsaved-change', { detail: { scope, dirty } }));
+    return () => { window.dispatchEvent(new CustomEvent('ui:unsaved-change', { detail: { scope, dirty: false } })); };
+  }, [dirty]);
 
   const { data: nodes = [], error: nodesError } = useQuery<Array<{ id: number; name: string; is_enabled: boolean }>>({
     queryKey: ['telegramNodes'],
@@ -125,7 +134,7 @@ const TelegramForm: React.FC<{ tgSettings: TelegramSettings; tgMessage: Telegram
   };
 
   return (
-    <div className="ui-card ui-panel">
+    <div ref={sectionRef} data-unsaved-controlled className="ui-card ui-panel">
         <div className="space-y-6">
           <div>
             <h3 className="text-base font-bold text-neutral-800 mb-1">Подключение бота</h3>
@@ -143,7 +152,7 @@ const TelegramForm: React.FC<{ tgSettings: TelegramSettings; tgMessage: Telegram
             </div>
           )}
 
-            <form onSubmit={handleTgSubmit} className="space-y-4">
+            <form onSubmit={handleTgSubmit} autoComplete="off" className="space-y-4">
               <div className="p-4 bg-neutral-50 border border-neutral-200 rounded-xl space-y-3">
                 <label className="flex items-center justify-between cursor-pointer gap-3">
                   <span className="text-sm font-semibold">Работать через ноду</span>
@@ -164,6 +173,8 @@ const TelegramForm: React.FC<{ tgSettings: TelegramSettings; tgMessage: Telegram
                 <label className="block text-xs font-semibold text-neutral-500 uppercase mb-1">Токен Telegram Бота</label>
                 <input
                   type="password"
+                  name="telegram-bot-token"
+                  autoComplete="new-password"
                   value={tgToken}
                   onChange={(e) => setTgToken(e.target.value)}
                   placeholder={tgSettings?.token_set ? `Задан (${tgSettings.token_masked})` : 'Введите токен от @BotFather'}
@@ -177,6 +188,10 @@ const TelegramForm: React.FC<{ tgSettings: TelegramSettings; tgMessage: Telegram
                 <input
                   type="text"
                   value={tgAdminId}
+                  name="telegram-admin-id"
+                  autoComplete="off"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   onChange={(e) => setTgAdminId(e.target.value)}
                   placeholder="Например: 123456789"
                   className="w-full px-3.5 py-2.5 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-mono"

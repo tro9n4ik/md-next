@@ -102,7 +102,7 @@ OnUnitActiveSec=5min
 WantedBy=timers.target
 UNIT
 systemctl daemon-reload
-systemctl reset-failed md-next-krawl
+systemctl reset-failed md-next-krawl 2>/dev/null || true
 systemctl enable --now md-next-krawl
 systemctl restart md-next-krawl
 systemctl enable --now md-next-krawl-guard.timer

@@ -63,3 +63,15 @@ md-next-backup-*/
 *.pcap
 *.pcapng
 *.tsbuildinfo
+
+# Private runtime data and credentials
+*.db-*
+*.sqlite-*
+*.pem
+*.key
+*.p12
+*.pfx
+coverage/
+.cache/
+.agents/
+.codex/

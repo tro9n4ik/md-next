@@ -41,7 +41,8 @@ ssh -L 5001:127.0.0.1:5001 root@SERVER
 ## Проверка и отключение
 
 ```sh
-python3 scripts/test-security.py
+sudo nginx -t
+sudo systemctl is-active nginx fail2ban md-next-krawl
 fail2ban-client status sshd
 fail2ban-client status md-next-panel
 systemctl show md-next-krawl -p MemoryCurrent -p MemoryMax
