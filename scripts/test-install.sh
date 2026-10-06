@@ -46,7 +46,8 @@ test -f /var/lib/md-next/awg-routing-owned
 test -n "$(find backups -name '*.mdbackup' -print -quit)"
 ENV_HASH="$(sha256sum .env)"
 # A foreign policy must survive both forms of removal.
-ip rule add priority 12345 lookup 12345
+ip link add md-test-foreign type dummy
+ip rule add priority 12345 iif md-test-foreign lookup 12345
 ip route add blackhole default table 12345
 printf 'ОТМЕНА\n' | bash "$SCRIPT_DIR/uninstall.sh" >> "$TEST_LOG" 2>&1
 systemctl is-active --quiet md-next-backend
