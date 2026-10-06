@@ -21,6 +21,7 @@ import app.db.database as db_module
 from app.db.database import Base, get_db
 from app.models.user import User
 from app.api.auth import create_access_token, get_password_hash
+from app.services.events import flush_pending_events
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///" + (Path(test_directory.name) / "test.db").as_posix()
 
@@ -52,6 +53,9 @@ async def setup_test_db():
 
     yield
 
+    # Requests enqueue journal writes in separate sessions. Finish them before
+    # dropping tables or closing the event loop for the next test.
+    await flush_pending_events()
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
     await test_engine.dispose()
