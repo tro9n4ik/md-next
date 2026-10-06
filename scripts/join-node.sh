@@ -59,7 +59,37 @@ run_step() {
 }
 
 install_xray_node() {
-  bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
+  local installer
+  installer=$(mktemp) || return 1
+  if ! curl -fsSL --retry 3 --connect-timeout 15 --max-time 120 \
+    https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh -o "$installer"; then
+    rm -f -- "$installer"
+    echo 'Не удалось скачать официальный установщик Xray.'
+    return 1
+  fi
+  local result=0
+  bash "$installer" install || result=$?
+  rm -f -- "$installer"
+  return "$result"
+}
+
+prepare_node_dependencies() {
+  # Explicit failures: run_step invokes this function in an if condition.
+  if [ "$(id -u)" -ne 0 ]; then echo 'Запустите установку от root.'; return 1; fi
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get -o DPkg::Lock::Timeout=120 -o Acquire::Retries=3 \
+      -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update || return 1
+    apt-get -o DPkg::Lock::Timeout=120 -o Acquire::Retries=3 \
+      install -y --no-install-recommends ca-certificates curl unzip || return 1
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf install -y ca-certificates curl unzip || return 1
+  elif command -v yum >/dev/null 2>&1; then
+    yum install -y ca-certificates curl unzip || return 1
+  else
+    echo 'Неизвестный пакетный менеджер. Установите ca-certificates, curl и unzip вручную.'
+    return 1
+  fi
+  command -v unzip >/dev/null 2>&1 || return 1
 }
 
 register_node() {
@@ -197,6 +227,7 @@ exit 1
 WARP
 }
 
+run_step "Подготовка системных зависимостей" prepare_node_dependencies
 run_step "Установка Xray-core на узле" install_xray_node
 run_step "Регистрация узла в мастер-панели" register_node
 run_step "Создание конфигурации Trojan/gRPC" configure_xray_node
