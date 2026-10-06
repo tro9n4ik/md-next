@@ -47,9 +47,7 @@ class WarpTargetRequest(BaseModel):
 
 
 async def _require_local(db: AsyncSession) -> None:
-    if (await WarpService.target(db))["node_id"]:
-        raise HTTPException(status_code=409, detail="Выбран WARP ноды. Команды warp-cli выполняются на самой ноде; настройки сервера панели сохранены.")
-    _require_cli()
+    raise HTTPException(status_code=409, detail="WARP работает только через активную ноду. Локальное управление отключено.")
 
 
 @router.get("/target")
@@ -59,39 +57,7 @@ async def get_warp_target(db: AsyncSession = Depends(get_db)):
 
 @router.put("/target")
 async def set_warp_target(request: WarpTargetRequest, db: AsyncSession = Depends(get_db)):
-    from app.services.warp import _setup_lock
-    async with _setup_lock:
-        target = request.model_dump()
-        # Сначала отдельная проверка: действующие маршруты клиентов не меняются.
-        try:
-            trace = await WarpService.test_target(db, target)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        except (RuntimeError, OSError, TimeoutError) as exc:
-            raise HTTPException(status_code=502, detail="Выбранный прокси WARP не прошёл проверку. Действующий выход сохранён.") from exc
-        except Exception as exc:
-            logger.warning("Проверка выхода WARP завершилась ошибкой (%s)", type(exc).__name__)
-            raise HTTPException(status_code=502, detail="Выбранный прокси WARP недоступен. Действующий выход сохранён.") from exc
-        if trace["warp"] not in {"on", "plus"}:
-            raise HTTPException(status_code=422, detail="Выбранный выход работает без WARP. Настройки не изменены.")
-        if request.expected_country and trace["country"] != request.expected_country:
-            raise HTTPException(status_code=422, detail=f"Фактическая страна WARP: {trace['country'] or 'не определена'}. Настройки не изменены.")
-        for key, value in (("warp.node_id", str(request.node_id or "")),
-                           ("warp.node_port" if request.node_id else "warp.proxy_port", str(request.port)),
-                           ("warp.expected_country", request.expected_country)):
-            row = await db.get(Setting, key)
-            if row is None:
-                db.add(Setting(key=key, value=value))
-            else:
-                row.value = value
-        await db.flush()
-        applied, reason = await ClientService.sync_xray_clients(db)
-        if not applied:
-            await db.rollback()
-            raise HTTPException(status_code=502, detail=reason)
-        await db.commit()
-        log_event("info", "warp", "Изменён проверенный выход WARP", {"node_id": request.node_id, "country": trace["country"]})
-        return {"status": "ok", "message": "Выход WARP проверен и сохранён", **trace}
+    raise HTTPException(status_code=409, detail="WARP автоматически использует активную ноду. Отдельный выбор выхода больше не поддерживается.")
 
 
 def _require_cli() -> None:
@@ -172,6 +138,15 @@ async def get_warp_usage(db: AsyncSession = Depends(get_db)):
 
 @router.put("/usage")
 async def set_warp_usage(request: WarpUsageRequest, db: AsyncSession = Depends(get_db)):
+    if request.usage == "all":
+        raise HTTPException(status_code=422, detail="WARP применяется только по правилам и пресетам")
+    if request.usage == "rules":
+        try:
+            trace = await WarpService.test_target(db)
+            if trace["warp"] not in {"on", "plus"}:
+                raise ValueError("WARP не подключён на активной ноде")
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail="Не удалось включить WARP: проверьте WARP на активной ноде") from exc
     setting = (await db.execute(select(Setting).where(Setting.key == "warp.usage"))).scalar_one_or_none()
     if setting is None:
         setting = Setting(key="warp.usage", value=request.usage)
@@ -252,7 +227,7 @@ async def apply_warp_preset(request: WarpPresetRequest, db: AsyncSession = Depen
     except KeyError:
         raise HTTPException(status_code=404, detail="Такого пресета нет. Доступные: " + ", ".join(warp_presets.PRESET_ORDER))
 
-    enabled_automatically = await warp_presets.ensure_warp_rules_enabled(db)
+    enabled_automatically = False
     result = await warp_presets.apply_preset(db, preset.key)
 
     applied, reason = await ClientService.sync_xray_clients(db)

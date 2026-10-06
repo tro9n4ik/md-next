@@ -84,6 +84,12 @@ class ClientService:
         warp_node_id = int(setting_values["warp.node_id"]) if setting_values.get("warp.node_id") else None
         if warp_node_id:
             warp_port = int(setting_values.get("warp.node_port", "40000"))
+        from app.services.warp import WarpService
+        warp_target = await WarpService.target(db)
+        warp_node_id = warp_target["node_id"]
+        warp_port = warp_target["port"]
+        if active_node is not _USE_STORED_ACTIVE_NODE:
+            warp_node_id = active_node.id if active_node and active_node.is_enabled else None
         failover_rows = (await db.execute(select(Setting).where(Setting.key.like("failover.%")))).scalars().all()
         failover_values = {row.key.removeprefix("failover."): row.value for row in failover_rows}
         # fallback_action=keep запрещает выпускать клиентов через реальный IP мастер-сервера,
@@ -92,14 +98,16 @@ class ClientService:
         routing_rules = (await db.execute(
             select(RoutingRule).where(RoutingRule.is_active.is_(True)).order_by(RoutingRule.id)
         )).scalars().all()
+        if warp_usage == "off":
+            routing_rules = [rule for rule in routing_rules if rule.action != "warp"]
         node_rows = (await db.execute(select(Node).where(Node.is_enabled.is_(True)).order_by(Node.id))).scalars().all()
         nodes_by_id = {node.id: node for node in node_rows}
         try:
+            if warp_usage != "off" and not warp_node_id:
+                raise ValueError("Выберите активную ноду для WARP на странице «Узлы»")
             if warp_usage != "off" and warp_node_id and (warp_node_id not in nodes_by_id or not nodes_by_id[warp_node_id].secret):
                 raise ValueError("Выбранная нода WARP отключена или отсутствует; переключите выход WARP")
             xray_routing_rules = [to_xray_rule(rule, nodes_by_id) for rule in routing_rules]
-            if warp_usage == "off" and any(rule.action == "warp" for rule in routing_rules):
-                raise ValueError("Включите использование WARP (по правилам или для всего трафика), чтобы применить правила WARP")
         except ValueError as exc:
             log_event("error", "xray", "Не удалось подготовить правила маршрутизации", {"reason": str(exc)[:400]})
             return False, str(exc)

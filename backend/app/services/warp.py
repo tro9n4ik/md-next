@@ -75,62 +75,24 @@ class WarpService:
     @classmethod
     async def status(cls, db: AsyncSession) -> dict[str, Any]:
         target = await cls.target(db)
-        if target["node_id"]:
-            try:
-                trace = await cls.test_target(db)
-                ready = trace["warp"] in {"on", "plus"}
-                country_ok = not target["expected_country"] or trace["country"] == target["expected_country"]
-                return {**target, **trace, "remote": True, "installed": True,
-                        "service_active": None, "registered": None, "mode": "proxy",
-                        "state": "Connected" if ready and country_ok else "Disconnected",
-                        "instruction": None if ready and country_ok else "Выход ноды не прошёл проверку WARP или страны."}
-            except (ValueError, RuntimeError, OSError, httpx.HTTPError, TimeoutError):
-                return {**target, "remote": True, "installed": True, "service_active": None,
-                        "registered": None, "mode": "proxy", "state": "Disconnected",
-                        "instruction": "WARP выбранной ноды недоступен. Проверьте warp-svc на ноде; резервный выход через российский сервер не используется."}
-        cli = cls.cli_path()
-        if not cli:
-            return {
-                "installed": False, "service_active": False, "registered": False,
-                "state": "Disconnected", "mode": "unknown", "port": await cls.get_port(db),
-                "instruction": "Установите пакет cloudflare-warp и повторите проверку.",
-            }
-        service_active = await cls._systemd_active()
-        try:
-            status_code, status_output, status_error = await cls._run_process("status", timeout=cls.STATUS_TIMEOUT)
-            reg_code, registration_output, registration_error = await cls._run_process("registration", "show", timeout=cls.STATUS_TIMEOUT)
-            _, settings_output, _ = await cls._run_process("settings", timeout=cls.STATUS_TIMEOUT)
-        except (OSError, RuntimeError, TimeoutError) as exc:
-            logger.warning("Не удалось получить состояние warp-cli: %s", exc)
-            return {
-                "installed": True, "service_active": service_active, "registered": False,
-                "state": "Disconnected", "mode": "unknown", "port": await cls.get_port(db),
-                "instruction": "Не удалось получить состояние warp-cli; проверьте службу warp-svc.",
-            }
-        parsed = cls.parse_status(f"{status_output or status_error}\n{settings_output}", registration_output or registration_error, reg_code == 0)
-        parsed["runtime_port"] = parsed["port"]
-        parsed["port"] = await cls.get_port(db, parsed["port"])
-        parsed.update({"installed": True, "service_active": service_active, "instruction": None})
-        if status_code != 0:
-            parsed["state"] = "Disconnected"
-        return parsed
+        usage = await db.get(Setting, "warp.usage")
+        enabled = bool(usage and usage.value != "off")
+        return {**target, "remote": True, "installed": bool(target["node_id"]),
+                "enabled": enabled, "state": "Enabled" if enabled else "Disabled",
+                "instruction": None if target["node_id"] else "Выберите активную ноду на странице «Узлы»."}
 
     @classmethod
     async def target(cls, db: AsyncSession) -> dict[str, Any]:
-        rows = (await db.execute(select(Setting).where(Setting.key.in_(
-            ["warp.node_id", "warp.node_port", "warp.expected_country"])))).scalars().all()
-        values = {row.key: row.value for row in rows}
-        node_id = int(values["warp.node_id"]) if values.get("warp.node_id") else None
-        node = await db.get(Node, node_id) if node_id else None
-        return {"node_id": node_id, "name": node.name if node else "Сервер панели",
-                "port": int(values.get("warp.node_port", "40000")) if node_id else await cls.get_port(db),
-                "expected_country": values.get("warp.expected_country", "")}
+        from app.services.xray import XrayService
+        node = await XrayService.get_active_node(db)
+        return {"node_id": node.id if node else None, "name": node.name if node else "Нода не выбрана",
+                "port": cls.DEFAULT_PORT, "expected_country": ""}
 
     @classmethod
     async def test_target(cls, db: AsyncSession, target: dict | None = None) -> dict[str, str]:
         target = target if target is not None else await cls.target(db)
         if not target["node_id"]:
-            return await cls.test_proxy(target["port"])
+            raise ValueError("Выберите активную ноду на странице «Узлы». WARP работает только через ноду.")
         from app.services.warp_node import test_node_proxy
         node = await db.get(Node, target["node_id"])
         return await test_node_proxy(node, target["port"], cls.test_proxy)
@@ -251,9 +213,12 @@ class WarpService:
     async def test_proxy(cls, port: int, *, timeout: float = 15.0) -> dict[str, str]:
         proxy = f"socks5://127.0.0.1:{port}"
         async with httpx.AsyncClient(proxy=proxy, timeout=timeout) as client:
-            response = await client.get("https://www.cloudflare.com/cdn-cgi/trace")
+            response = await client.get("https://1.1.1.1/cdn-cgi/trace")
             response.raise_for_status()
         values = dict(line.split("=", 1) for line in response.text.splitlines() if "=" in line)
+        import ipaddress
+        if ipaddress.ip_address(values.get("ip", "")).version != 4:
+            raise ValueError("Проверка WARP не вернула IPv4")
         return {"ip": values.get("ip", ""), "country": values.get("loc", ""), "warp": values.get("warp", "off")}
 
     @classmethod
@@ -261,6 +226,8 @@ class WarpService:
         """Включает бесплатный WARP через SOCKS5, сохраняя существующую регистрацию."""
         async with _setup_lock:
             target = await cls.target(db)
+            if not target["node_id"]:
+                return False, "Выберите активную ноду. WARP работает только через ноду."
             if target["node_id"]:
                 try:
                     trace = await cls.test_target(db, target)
