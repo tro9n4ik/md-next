@@ -101,7 +101,14 @@ async def lifespan(app: FastAPI):
         bot_manager.status = "error"
         bot_manager.last_error = "Не удалось запустить бота. Проверьте выбранную ноду и настройки Telegram."
 
+    from app.services.telegram_settings import telegram_node_loop
+    telegram_node_task = asyncio.create_task(telegram_node_loop())
     yield
+    telegram_node_task.cancel()
+    try:
+        await telegram_node_task
+    except asyncio.CancelledError:
+        pass
 
     log_event("info", "service", "Сервис панели остановлен")
     traffic_task = app.state.traffic_task

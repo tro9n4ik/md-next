@@ -41,15 +41,11 @@ const TelegramForm: React.FC<{ tgSettings: TelegramSettings; tgMessage: Telegram
   // Telegram states
   const [tgToken, setTgToken] = useState('');
   const [tgAdminId, setTgAdminId] = useState(tgSettings.admin_id);
-  const [tgProxyUrl, setTgProxyUrl] = useState(tgSettings.proxy_url);
-  const [useNode, setUseNode] = useState(tgSettings.use_node);
-  const [nodeId, setNodeId] = useState(tgSettings.node_id ? String(tgSettings.node_id) : '');
   const [notifyNodeDown, setNotifyNodeDown] = useState(tgSettings.notify_node_down);
   const [notifyFailover, setNotifyFailover] = useState(tgSettings.notify_failover);
   const [notifyQuota, setNotifyQuota] = useState(tgSettings.notify_quota);
   const sectionRef = useRef<HTMLDivElement>(null);
-  const dirty = !!tgToken.trim() || tgAdminId.trim() !== tgSettings.admin_id || tgProxyUrl.trim() !== tgSettings.proxy_url
-    || useNode !== tgSettings.use_node || nodeId !== (tgSettings.node_id ? String(tgSettings.node_id) : '')
+  const dirty = !!tgToken.trim() || tgAdminId.trim() !== tgSettings.admin_id
     || notifyNodeDown !== tgSettings.notify_node_down || notifyFailover !== tgSettings.notify_failover || notifyQuota !== tgSettings.notify_quota;
   useEffect(() => {
     const scope = sectionRef.current;
@@ -57,25 +53,13 @@ const TelegramForm: React.FC<{ tgSettings: TelegramSettings; tgMessage: Telegram
     return () => { window.dispatchEvent(new CustomEvent('ui:unsaved-change', { detail: { scope, dirty: false } })); };
   }, [dirty]);
 
-  const { data: nodes = [], error: nodesError } = useQuery<Array<{ id: number; name: string; is_enabled: boolean }>>({
-    queryKey: ['telegramNodes'],
-    queryFn: async () => {
-      const res = await apiFetch('/api/v1/nodes');
-      if (!res.ok) throw new Error('Не удалось загрузить ноды');
-      return res.json();
-    },
-  });
-
   const saveTgMutation = useMutation({
     mutationFn: async (payload: {
       token?: string;
       admin_id: string;
-      proxy_url: string;
       notify_node_down: boolean;
       notify_failover: boolean;
       notify_quota: boolean;
-      use_node: boolean;
-      node_id: number | null;
     }) => {
       setTgMessage(null);
       const res = await apiFetch('/api/v1/settings/telegram', {
@@ -124,12 +108,9 @@ const TelegramForm: React.FC<{ tgSettings: TelegramSettings; tgMessage: Telegram
     saveTgMutation.mutate({
       token: tgToken.trim() || undefined,
       admin_id: tgAdminId.trim(),
-      proxy_url: tgProxyUrl.trim(),
       notify_node_down: notifyNodeDown,
       notify_failover: notifyFailover,
       notify_quota: notifyQuota,
-      use_node: useNode,
-      node_id: nodeId ? Number(nodeId) : null,
     });
   };
 
@@ -153,22 +134,7 @@ const TelegramForm: React.FC<{ tgSettings: TelegramSettings; tgMessage: Telegram
           )}
 
             <form onSubmit={handleTgSubmit} autoComplete="off" className="space-y-4">
-              <div className="p-4 bg-neutral-50 border border-neutral-200 rounded-xl space-y-3">
-                <label className="flex items-center justify-between cursor-pointer gap-3">
-                  <span className="text-sm font-semibold">Работать через ноду</span>
-                  <Switch label="Работать через ноду" checked={useNode} onChange={setUseNode} />
-                </label>
-                <p className="text-xs text-neutral-500">Запросы и уведомления бота выходят через выбранную ноду. Маршруты клиентов остаются прежними. При сбое ноды прямой выход автоматически не включается.</p>
-                {useNode && <>
-                  <label className="block text-xs font-semibold" htmlFor="telegram-node">Нода для Telegram</label>
-                  <select id="telegram-node" required value={nodeId} onChange={e => setNodeId(e.target.value)} className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm">
-                    <option value="">Выберите ноду</option>
-                    {nodeId && !nodes.some(n => String(n.id) === nodeId) && <option value={nodeId} disabled>Нода #{nodeId} недоступна</option>}
-                    {nodes.map(node => <option key={node.id} value={node.id} disabled={!node.is_enabled}>{node.name}{!node.is_enabled ? ' (отключена)' : ''}</option>)}
-                  </select>
-                  {nodesError && <p className="text-xs text-red-600">{nodesError.message}</p>}
-                </>}
-              </div>
+              <p className="rounded-xl bg-neutral-50 p-4 text-sm text-neutral-600">Бот работает через активную ноду из раздела «Узлы». При переключении выхода подключение обновляется автоматически.</p>
               <div>
                 <label className="block text-xs font-semibold text-neutral-500 uppercase mb-1">Токен Telegram Бота</label>
                 <input
@@ -198,19 +164,6 @@ const TelegramForm: React.FC<{ tgSettings: TelegramSettings; tgMessage: Telegram
                 />
               </div>
 
-              {!useNode && <details>
-                <summary className="text-xs font-semibold text-neutral-600 cursor-pointer">Ручной прокси (для продвинутых пользователей)</summary>
-                <label className="block text-xs font-semibold text-neutral-500 uppercase mb-1 mt-3">SOCKS5 прокси</label>
-                <input
-                  type="text"
-                  value={tgProxyUrl}
-                  onChange={(e) => setTgProxyUrl(e.target.value)}
-                  placeholder="socks5://127.0.0.1:10808"
-                  className="w-full px-3.5 py-2.5 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-mono"
-                />
-                <p className="text-xs text-neutral-400 mt-1">Пустое поле — прямое подключение с сервера панели.</p>
-              </details>}
-
               <div className="pt-2 border-t border-neutral-100 space-y-2">
                 <label className="block text-xs font-semibold text-neutral-500 uppercase mb-1">Типы уведомлений</label>
                 <label className="flex items-center space-x-2 text-xs text-neutral-700 cursor-pointer">
@@ -231,7 +184,7 @@ const TelegramForm: React.FC<{ tgSettings: TelegramSettings; tgMessage: Telegram
               <div className="ui-actionbar mt-6">
                 <button
                   type="submit"
-                  disabled={saveTgMutation.isPending || (useNode && (!nodeId || !!nodesError))}
+                  disabled={saveTgMutation.isPending}
                   className="ui-button ui-button-primary"
                 >
                   {saveTgMutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}

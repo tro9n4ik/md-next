@@ -50,6 +50,7 @@ class BotManager:
                 self.router_setup = True
 
             self.bot = self.create_bot(token, proxy_url)
+            self.proxy_url = proxy_url
             await self.bot.get_me()
             try:
                 await self.bot.set_my_commands([
@@ -119,6 +120,7 @@ class BotManager:
             return
         previous = self.bot.session
         self.bot.session = AiohttpSession(proxy=proxy_url, timeout=15)
+        self.proxy_url = proxy_url
         try:
             await previous.close()
         except Exception:
