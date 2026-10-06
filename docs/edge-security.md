@@ -49,4 +49,4 @@ systemctl show md-next-krawl -p MemoryCurrent -p MemoryMax
 
 Для отключения наблюдения: `systemctl disable --now md-next-krawl`. Для удаления блокировки формы входа: `fail2ban-client set md-next-panel unbanip IP`. Не останавливайте весь Fail2ban ради разблокировки одного адреса.
 
-Для полного отката восстановите сохранённый `md-next.conf`, удалите `md-next-security.conf` из `conf.d`, отключите jail `md-next-panel` в `jail.d/md-next-security.local`, затем выполните `nginx -t`, reload Nginx и reload Fail2ban. SSH jail можно оставить включённым. Публичные файлы восстановите из резервной копии.
+Для полного отката восстановите сохранённый `md-next.conf`, удалите `md-next-security.conf` из `conf.d`, отключите jail `md-next-panel` в `jail.d/md-next-security.local`, затем выполните `nginx -t`, reload Nginx и `systemctl restart fail2ban`. SSH jail можно оставить включённым. Публичные файлы восстановите из резервной копии.

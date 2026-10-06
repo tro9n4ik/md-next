@@ -16,7 +16,8 @@ def main():
     address = str(ipaddress.ip_address(address))
     if operation not in ('ban', 'unban'):
         raise ValueError('unsupported action')
-    STATE.parent.mkdir(parents=True, exist_ok=True)
+    STATE.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(STATE.parent, 0o700)
     with (STATE.parent / 'lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         banned = set(json.loads(STATE.read_text())) if STATE.exists() else set()

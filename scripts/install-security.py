@@ -144,8 +144,10 @@ action = md-next-panel
 }
 ''')
     subprocess.run(['fail2ban-client', '-t'], check=True)
-    subprocess.run(['systemctl', 'enable', '--now', 'fail2ban'], check=True)
-    subprocess.run(['fail2ban-client', 'reload'], check=True)
+    subprocess.run(['systemctl', 'enable', 'fail2ban'], check=True)
+    # Ubuntu's Fail2ban reload can discard unchanged action objects. Restart
+    # rebuilds both jails and restores existing ban tickets from its database.
+    subprocess.run(['systemctl', 'restart', 'fail2ban'], check=True)
     for name in ('index.html', 'welcome.txt', 'checklist.txt'):
         source = ROOT / 'backend/app/static/fake' / name
         target = static / name
