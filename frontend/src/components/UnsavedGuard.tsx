@@ -3,7 +3,7 @@ import { useBlocker, useLocation } from 'react-router-dom';
 
 export default function UnsavedGuard() {
   const location = useLocation();
-  return <PageUnsavedGuard key={location.pathname} pathname={location.pathname} />;
+  return <PageUnsavedGuard key={location.key} pathname={location.pathname} />;
 }
 
 function PageUnsavedGuard({ pathname }: { pathname: string }) {

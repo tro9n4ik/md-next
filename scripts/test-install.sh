@@ -50,6 +50,8 @@ ip route add blackhole default table 12345
 printf 'ОТМЕНА\n' | bash "$SCRIPT_DIR/uninstall.sh" >> "$TEST_LOG" 2>&1
 systemctl is-active --quiet md-next-backend
 printf 'УДАЛИТЬ\nn\n' | bash "$SCRIPT_DIR/uninstall.sh" >> "$TEST_LOG" 2>&1
+if systemctl is-active --quiet md-next-backend; then exit 1; fi
+if systemctl is-active --quiet xray; then exit 1; fi
 test -f md_next.db
 test "$(sha256sum .env)" = "$ENV_HASH"
 test -n "$(find backups -name '*.mdbackup' -print -quit)"
@@ -61,6 +63,8 @@ ip rule show | grep -q '^12345:'
 printf 'УДАЛИТЬ\ny\n' | bash "$SCRIPT_DIR/uninstall.sh" >> "$TEST_LOG" 2>&1
 test ! -e /opt/md-next
 test ! -e /var/lib/md-next
+test ! -e /usr/local/etc/xray/config.json
+test ! -e /etc/letsencrypt/renewal-hooks/deploy/md-next-xray-certificate.sh
 ip rule show | grep -q '^12345:'
 ip route show table 12345 | grep -q blackhole
 echo "Установка, вход, копия, отмена, сохранение данных и полное удаление проверены."

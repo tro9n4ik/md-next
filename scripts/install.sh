@@ -165,6 +165,18 @@ ensure_probe_env() {
   chmod 600 "$env_file"
 }
 
+wait_backend_ready() {
+  local attempt
+  for attempt in $(seq 1 60); do
+    if curl --silent --output /dev/null --max-time 2 http://127.0.0.1:8000/; then
+      return 0
+    fi
+    sleep 1
+  done
+  journalctl -u md-next-backend.service -n 40 --no-pager >&2
+  return 1
+}
+
 write_backend_service() {
   cat <<'EOF' > /etc/systemd/system/md-next-backend.service
 [Unit]
@@ -205,19 +217,19 @@ install_awg() {
 
   . /etc/os-release
   apt-get update -qq
-  apt-get install -y -qq software-properties-common python3-launchpadlib gnupg2 "linux-headers-$(uname -r)"
+  apt-get install -y -qq software-properties-common python3-launchpadlib gnupg2 git curl || return 1
 
   case "${ID:-}" in
     ubuntu)
       add-apt-repository -y ppa:amnezia/ppa
       ;;
     debian)
-      apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 57290828
+      local awg_key="/usr/share/keyrings/md-next-amnezia.gpg"
+      curl -fsSL 'https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x75C9DD72C799870E310542E24166F2C257290828' | gpg --dearmor --yes -o "$awg_key" || return 1
       local awg_repo="/etc/apt/sources.list.d/amneziawg.list"
       if [ ! -f "$awg_repo" ] || ! grep -q "ppa.launchpadcontent.net/amnezia/ppa/ubuntu focal main" "$awg_repo"; then
         cat > "$awg_repo" <<'EOF'
-deb https://ppa.launchpadcontent.net/amnezia/ppa/ubuntu focal main
-deb-src https://ppa.launchpadcontent.net/amnezia/ppa/ubuntu focal main
+deb [signed-by=/usr/share/keyrings/md-next-amnezia.gpg] https://ppa.launchpadcontent.net/amnezia/ppa/ubuntu jammy main
 EOF
       fi
       ;;
@@ -227,14 +239,21 @@ EOF
       ;;
   esac
 
-  apt-get update -qq
-  apt-get install -y -qq amneziawg
+  apt-get update -qq || return 1
+  apt-get install -y -qq amneziawg-tools || return 1
+  if apt-get install -y -qq "linux-headers-$(uname -r)"; then
+    apt-get install -y -qq amneziawg-dkms || return 1
+    dkms autoinstall -k "$(uname -r)" || return 1
+  fi
   if ! command -v awg >/dev/null 2>&1; then
     echo "Пакет AmneziaWG установлен, но команда awg не найдена." >&2
     return 1
   fi
 
-  modprobe amneziawg
+  if ! modprobe amneziawg; then
+    bash "$(dirname "${BASH_SOURCE[0]}")/install-awg-userspace.sh" || return 1
+    return 0
+  fi
   local awg_module_version=""
   if [ -r /sys/module/amneziawg/version ]; then
     awg_module_version="$(cat /sys/module/amneziawg/version)"
@@ -301,6 +320,11 @@ remove_installation() {
   fi
 
   systemctl disable --now md-next-backend 2>/dev/null || true
+  local owns_xray=0
+  if [ -f /var/lib/md-next/xray-owned ] || [ -f /var/lib/md-next/awg-routing-owned ]; then
+    owns_xray=1
+    systemctl disable --now xray 2>/dev/null || true
+  fi
   # Remove owned AWG policy before deleting its helper or state marker.
   local routing_helper
   routing_helper="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/awg-routing.py"
@@ -314,6 +338,7 @@ remove_installation() {
   rm -f /etc/sysctl.d/90-md-next-awg.conf
   rm -f /etc/systemd/system/md-next-awg.service /etc/systemd/system/xray.service.d/md-next-awg.conf /etc/systemd/system/xray.service.d/30-md-next-awg-routing.conf
   rm -f /etc/systemd/system/md-next-backend.service
+  rm -f /etc/letsencrypt/renewal-hooks/deploy/md-next-xray-certificate.sh
   rm -f /etc/nginx/sites-enabled/md-next.conf /etc/nginx/sites-available/md-next.conf
   rm -f /etc/nginx/stream-enabled/md-next-stream.conf /etc/nginx/stream-available/md-next-stream.conf
   systemctl daemon-reload
@@ -321,6 +346,9 @@ remove_installation() {
 
   read -r -p "Удалить базу данных и файлы приложения из $APP_DIR? [y/N]: " delete_data
   if [[ "$delete_data" =~ ^[Yy]$ ]]; then
+    if [ "$owns_xray" -eq 1 ]; then
+      rm -f /usr/local/etc/xray/config.json /usr/local/etc/xray/tls/fullchain.pem /usr/local/etc/xray/tls/privkey.pem
+    fi
     rm -rf "$APP_DIR"
     rm -rf /var/lib/md-next
     echo "Приложение и его данные удалены."
@@ -591,6 +619,9 @@ os.makedirs('/usr/local/etc/xray', exist_ok=True)
 with open('/usr/local/etc/xray/config.json', 'w') as f:
     f.write(config_json)
 "
+  mkdir -p /var/lib/md-next
+  printf '%s\n' 'MD-Next Xray configuration v1' > /var/lib/md-next/xray-owned
+  chmod 600 /var/lib/md-next/xray-owned
 
   if xray run -test -format json -config /usr/local/etc/xray/config.json; then
     systemctl enable xray || true
@@ -836,6 +867,7 @@ run_step "Настройка выхода AmneziaWG через ноды" install
 run_step "Настройка Backend, миграции БД и конфигурация Xray" setup_backend
 run_step "Сборка Frontend (React/Vite)" setup_frontend
 run_step "Настройка Nginx, SSL и системных сервисов" setup_services_and_nginx
+run_step "Ожидание готовности API" wait_backend_ready
 
 echo ""
 echo "================================================="
