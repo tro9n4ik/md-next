@@ -5,6 +5,7 @@ import datetime
 import os
 import shutil
 import subprocess
+import time
 
 ROOT = Path(__file__).resolve().parent.parent
 CONF = Path('/etc/nginx/sites-available/md-next.conf')
@@ -148,6 +149,16 @@ action = md-next-panel
     # Ubuntu's Fail2ban reload can discard unchanged action objects. Restart
     # rebuilds both jails and restores existing ban tickets from its database.
     subprocess.run(['systemctl', 'restart', 'fail2ban'], check=True)
+    for attempt in range(20):
+        ready = True
+        for jail, action in (('sshd', 'nftables-multiport'), ('md-next-panel', 'md-next-panel')):
+            result = subprocess.run(['fail2ban-client', 'get', jail, 'actions'], capture_output=True, text=True)
+            ready = ready and result.returncode == 0 and action in result.stdout
+        if ready:
+            break
+        time.sleep(0.5)
+    else:
+        raise RuntimeError('Fail2ban actions not ready: inspect journalctl -u fail2ban')
     for name in ('index.html', 'welcome.txt', 'checklist.txt'):
         source = ROOT / 'backend/app/static/fake' / name
         target = static / name
