@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Cloud, Check, Loader2, Sparkles, Trash2 } from 'lucide-react';
+import { Cloud, Loader2, Sparkles } from 'lucide-react';
 import PageLayout from '../components/ui/PageLayout';
 import Switch from '../components/ui/Switch';
 import { apiFetch } from '../utils/api';
@@ -30,7 +30,7 @@ export default function WarpPage() {
       {status.data?.instruction && <p className="mt-3 text-sm text-amber-700">{status.data.instruction}</p>}
       {status.isError && <p role="alert" className="mt-3 text-sm text-red-700">Не удалось загрузить состояние WARP.</p>}
     </section>
-    <section className={card}>
+    <section data-autosave className={card}>
       <div className="mb-4 flex items-center gap-3">
         <Sparkles className="h-5 w-5 text-indigo-600" />
         <div>
@@ -38,25 +38,20 @@ export default function WarpPage() {
           <p className="text-sm text-neutral-500">Выберите сервисы, которые будут использовать WARP при включённом переключателе.</p>
         </div>
       </div>
-      {presets.isLoading ? <Loader2 className="h-5 w-5 animate-spin text-neutral-400" /> : <div className="grid gap-3 sm:grid-cols-2">
+      {presets.isError && <p role="alert" className="mb-3 text-sm text-red-700">Не удалось загрузить пресеты.</p>}
+      {presets.isLoading ? <Loader2 className="h-5 w-5 animate-spin text-neutral-400" /> : <div className="flex flex-col gap-3">
         {(presets.data?.presets || []).map(preset => {
-          const applied = preset.state.total > 0 && preset.state.missing === 0;
-          const stale = preset.state.missing > 0 || preset.state.extra > 0;
-          return <div key={preset.key} className="flex flex-col rounded-xl border border-neutral-200 bg-neutral-50 p-4">
-            <div className="flex items-start justify-between gap-2">
-              <div className="text-sm font-semibold text-neutral-800">{preset.title}</div>
-              {applied && !stale && <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700"><Check className="h-3 w-3" />применён</span>}
+          const applied = preset.state.total > 0;
+          return <div key={preset.key} className="flex items-center justify-between gap-4 rounded-xl border border-neutral-200 bg-neutral-50 p-4">
+            <div className="min-w-0"><h3 className="text-sm font-semibold text-neutral-800">{preset.title}</h3>
+              <p className="mt-1.5 text-xs leading-5 text-neutral-600">{preset.description}</p>
+              {applied && preset.state.missing > 0 && <p className="mt-1 text-xs text-amber-700">Набор правил неполный. Выключите и включите пресет для обновления.</p>}
             </div>
-            <p className="mt-1.5 flex-1 text-xs leading-5 text-neutral-600">{preset.description}</p>
-            <p className="mt-2 text-xs text-neutral-500">{preset.domains.length} доменов{preset.state.total > 0 && ` · в базе ${preset.state.total}`}</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button disabled={busy} onClick={() => presetMutation.mutate({ key: preset.key, action: 'apply' })} className="ui-button ui-button-primary">{preset.state.total > 0 ? 'Обновить' : 'Применить'}</button>
-              {preset.state.total > 0 && <button disabled={busy} onClick={() => presetMutation.mutate({ key: preset.key, action: 'remove' })} className="inline-flex items-center gap-1 rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-medium text-neutral-700 disabled:opacity-50"><Trash2 className="h-3 w-3" />Убрать</button>}
-            </div>
+            <div className="shrink-0"><Switch label={preset.title} checked={applied} disabled={busy || presets.isFetching} onChange={enabled => presetMutation.mutate({key: preset.key, action: enabled ? 'apply' : 'remove'})} /></div>
           </div>;
         })}
       </div>}
-      <p className="mt-4 text-xs leading-5 text-neutral-500">Повторное применение не создаёт дублей: уже существующие правила обновляются, а правила, созданные вручную, не затрагиваются. Домены перечислены явно, поэтому пресеты работают без файлов geosite.</p>
+      <p className="mt-4 text-xs leading-5 text-neutral-500">Изменения сохраняются автоматически. При выключенном WARP выбранные пресеты сохраняются.</p>
     </section>
     <section className={card}>
       <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="font-semibold">Проверка IPv4</h2><button className="ui-button ui-button-secondary" disabled={busy || !status.data?.node_id} onClick={() => test.mutate()}>{test.isPending ? 'Проверяем…' : 'Проверить IPv4'}</button></div>
