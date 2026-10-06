@@ -64,7 +64,7 @@ md-next-backup-*/
 *.pcapng
 *.tsbuildinfo
 
-# Private runtime data and credentials
+# Служебные данные и учётные сведения
 *.db-*
 *.sqlite-*
 *.pem
