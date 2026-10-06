@@ -129,8 +129,8 @@ async def update_protocol_settings(req: ProtocolSettingsRequest, db: AsyncSessio
         reality["server_name"] = _validate_host(reality["server_name"], "Reality SNI")
     if "target" in reality:
         reality["target"] = _validate_target(reality["target"])
-    if "fingerprint" in reality and reality["fingerprint"] not in {"chrome", "firefox", "safari", "ios", "android", "edge", "360", "qq", "random", "randomized"}:
-        raise HTTPException(status_code=422, detail="Неподдерживаемый fingerprint")
+    if "fingerprint" in reality and reality["fingerprint"] != "firefox":
+        raise HTTPException(status_code=422, detail="Поддерживается только отпечаток Firefox")
     if "short_id" in reality and (len(reality["short_id"]) > 16 or len(reality["short_id"]) % 2 or not re.fullmatch(r"[0-9a-fA-F]*", reality["short_id"])):
         raise HTTPException(status_code=422, detail="Short ID должен содержать до 16 шестнадцатеричных символов чётной длины")
     if "public_key" in reality and not re.fullmatch(r"[A-Za-z0-9_-]{16,128}", reality["public_key"]):

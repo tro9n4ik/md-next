@@ -63,7 +63,7 @@ async def get_profile_settings(db: AsyncSession) -> dict[str, str]:
     values["protocol.reality.private_key"], values["protocol.reality.public_key"] = resolve_key_pair(
         values["protocol.reality.private_key"], values["protocol.reality.public_key"]
     )
-    values.setdefault("protocol.reality.fingerprint", "chrome")
+    values["protocol.reality.fingerprint"] = "firefox"
     values.setdefault("protocol.reality.short_id", "")
     values.setdefault("protocol.reality.flow", "xtls-rprx-vision")
     values.setdefault("protocol.xhttp.reality_mode", "auto")
@@ -99,7 +99,7 @@ def make_profile_data(client: Client, profile: ClientProfile, settings: dict[str
     host = settings.get("protocol.reality.server_address", os.getenv("SERVER_HOST", "127.0.0.1"))
     sni = settings.get("protocol.reality.server_name", os.getenv("XRAY_SERVER_NAME", host))
     public_key = settings.get("protocol.reality.public_key", os.getenv("XRAY_PUBLIC_KEY", ""))
-    fingerprint = settings.get("protocol.reality.fingerprint", "chrome")
+    fingerprint = "firefox"
     short_id = settings.get("protocol.reality.short_id", "")
     flow = settings.get("protocol.reality.flow", "xtls-rprx-vision")
     if profile.kind == "vless_reality_tcp":

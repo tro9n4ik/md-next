@@ -441,11 +441,11 @@ class XrayService:
     @staticmethod
     def generate_vless_link(
         uuid: str, host: str, port: int, sni: str, pbk: str, name: str,
-        *, fingerprint: str = "chrome", short_id: str = "", flow: str = "xtls-rprx-vision",
+        *, fingerprint: str = "firefox", short_id: str = "", flow: str = "xtls-rprx-vision",
     ) -> str:
         """
         Генерирует клиентскую ссылку VLESS Reality с утилитой xtls-rprx-vision и закодированным именем
-        vless://<uuid>@<host>:<port>?encryption=none&flow=xtls-rprx-vision&security=reality&sni=<sni>&fp=chrome&pbk=<pbk>&type=tcp#<quote(name)>
+        vless://<uuid>@<host>:<port>?encryption=none&flow=xtls-rprx-vision&security=reality&sni=<sni>&fp=firefox&pbk=<pbk>&type=tcp#<quote(name)>
         """
         quoted_name = urllib.parse.quote(name, safe="")
         params = {"encryption": "none", "security": "reality", "sni": sni, "fp": fingerprint, "pbk": pbk, "type": "tcp"}
