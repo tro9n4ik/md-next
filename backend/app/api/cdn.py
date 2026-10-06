@@ -32,6 +32,9 @@ async def read_draft(db: AsyncSession = Depends(get_db)):
 
 @router.post("/check")
 async def check_cdn(request: CdnDraft, db: AsyncSession = Depends(get_db)):
+    if "vless_xhttp_tls" not in await enabled_profile_kinds(db):
+        return {"ok": False, "get_status": None, "upload_status": None,
+                "message": "Сначала включите протокол XHTTP TLS во вкладке «Протоколы», затем повторите проверку CDN."}
     values = await get_profile_settings(db)
     return await probe_cdn(request.domain, values["profiles.path.vless_xhttp_tls"])
 
@@ -39,12 +42,12 @@ async def check_cdn(request: CdnDraft, db: AsyncSession = Depends(get_db)):
 @router.put("")
 async def save_draft(request: CdnDraft, db: AsyncSession = Depends(get_db)):
     if request.enabled:
+        if "vless_xhttp_tls" not in await enabled_profile_kinds(db):
+            raise HTTPException(status_code=409, detail="Сначала включите протокол XHTTP TLS во вкладке «Протоколы».")
         values = await get_profile_settings(db)
         checked = await probe_cdn(request.domain, values["profiles.path.vless_xhttp_tls"])
         if not checked["ok"]:
             raise HTTPException(status_code=409, detail=checked["message"])
-        if "vless_xhttp_tls" not in await enabled_profile_kinds(db):
-            raise HTTPException(status_code=409, detail="Сначала включите протокол XHTTP TLS во вкладке «Протоколы».")
     for key, value in {"cdn.domain": request.domain, "cdn.enabled": "true" if request.enabled else "false"}.items():
         row = await db.get(Setting, key)
         if row:
