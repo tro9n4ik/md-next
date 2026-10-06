@@ -1,0 +1,38 @@
+name: Установка и удаление на чистых ОС
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ubuntu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        release: ['22.04', '24.04']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Чистая Ubuntu ${{ matrix.release }}
+        uses: vmactions/ubuntu-vm@3b554fb5d71472e2d3829d9a11160de0d91f463b
+        with:
+          release: '${{ matrix.release }}'
+          mem: 4096
+          copyback: false
+          run: MDNEXT_DISPOSABLE_VM=1 bash scripts/test-install.sh
+  debian:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Чистая Debian 12
+        uses: vmactions/debian-vm@626b64f9a6be64bbeaf3850f8bac2532d4e77db4
+        with:
+          release: '12'
+          mem: 4096
+          copyback: false
+          run: MDNEXT_DISPOSABLE_VM=1 bash scripts/test-install.sh
