@@ -35,3 +35,13 @@ async def test_restricted_path_still_finds_explicit_python_executable(tmp_path):
     )
     assert code == 0
     assert stdout.strip() == "True"
+
+
+@pytest.mark.asyncio
+async def test_untrusted_argument_is_passed_literally_not_executed(tmp_path):
+    marker = tmp_path / 'injected'
+    payload = f"peer; $(touch {marker}) & echo unsafe"
+    code, stdout, _ = await run_cmd(sys.executable, '-c', 'import sys; print(sys.argv[1])', payload)
+    assert code == 0
+    assert stdout.strip() == payload
+    assert not marker.exists()

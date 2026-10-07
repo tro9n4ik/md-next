@@ -3,10 +3,12 @@ import hashlib
 import secrets
 import datetime
 import logging
-from typing import List, Optional
+import shlex
+from typing import List, Optional, Literal
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
+from app.services.input_validation import validate_host
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import update
@@ -25,10 +27,15 @@ router = APIRouter(prefix="/api/v1/nodes", tags=["Узлы"])
 logger = logging.getLogger(__name__)
 
 class NodeRegister(BaseModel):
-    token: str
-    host: str
-    port: int
-    protocol: str = "trojan"
+    token: str = Field(min_length=1, max_length=256)
+    host: str = Field(min_length=1, max_length=253)
+    port: int = Field(ge=1, le=65535)
+    protocol: Literal['trojan'] = "trojan"
+
+    @field_validator('host')
+    @classmethod
+    def valid_host(cls, value: str) -> str:
+        return validate_host(value)
 
 class NodeResponse(BaseModel):
     id: int
@@ -278,8 +285,8 @@ async def join_node_script(token: str, request: Request, db: AsyncSession = Depe
     with open(script_path, "r", encoding="utf-8") as f:
         content = f.read()
 
-    content = content.replace('PANEL_URL_INJECTED="__PANEL_URL__"', f'PANEL_URL_INJECTED="{panel_url}"')
-    content = content.replace('TOKEN_INJECTED="__TOKEN__"', f'TOKEN_INJECTED="{token}"')
+    content = content.replace('PANEL_URL_INJECTED="__PANEL_URL__"', f'PANEL_URL_INJECTED={shlex.quote(panel_url)}')
+    content = content.replace('TOKEN_INJECTED="__TOKEN__"', f'TOKEN_INJECTED={shlex.quote(token)}')
 
     return PlainTextResponse(content, media_type="text/plain")
 

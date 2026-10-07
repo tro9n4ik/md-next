@@ -185,6 +185,7 @@ After=network.target
 
 [Service]
 User=root
+UMask=0077
 WorkingDirectory=/opt/md-next/backend
 Environment="PATH=/opt/md-next/backend/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 EnvironmentFile=/opt/md-next/backend/.env
@@ -384,6 +385,17 @@ echo ""
 read -p "Введите основной домен для сайта-заглушки и VLESS (например, example.com): " MAIN_DOMAIN
 read -p "Введите поддомен для панели управления (например, panel.example.com): " PANEL_DOMAIN
 read -p "Введите Email администратора (для Let's Encrypt): " ADMIN_EMAIL
+label='[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?'
+domain_pattern="^($label[.])+$label$"
+if [ "${#MAIN_DOMAIN}" -gt 253 ] || [ "${#PANEL_DOMAIN}" -gt 253 ] || \
+   ! [[ "$MAIN_DOMAIN" =~ $domain_pattern && "$PANEL_DOMAIN" =~ $domain_pattern ]]; then
+  echo 'Укажите домены в ASCII/punycode без протокола, порта, пути и специальных символов.' >&2
+  exit 1
+fi
+if ! [[ "$ADMIN_EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}$ ]]; then
+  echo 'Укажите корректный email администратора.' >&2
+  exit 1
+fi
 echo ""
 
 # Генерация случайных ключей и паролей
@@ -477,12 +489,33 @@ install_warp() {
 }
 
 install_node() {
-  curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
-  apt-get install -y -qq nodejs
+  local installer result=0
+  installer=$(mktemp) || return 1
+  if ! curl -fsSL --retry 3 --connect-timeout 15 --max-time 120 https://deb.nodesource.com/setup_24.x -o "$installer"; then
+    rm -f -- "$installer"
+    return 1
+  fi
+  bash "$installer" || result=$?
+  rm -f -- "$installer"
+  [ "$result" -eq 0 ] || return "$result"
+  apt-get install -y -qq nodejs || return 1
 }
 
 install_xray() {
-  bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
+  local installer result=0
+  installer=$(mktemp) || return 1
+  if ! curl -fsSL --retry 3 --connect-timeout 15 --max-time 120 \
+    https://raw.githubusercontent.com/XTLS/Xray-install/e741a4f56d368afbb9e5be3361b40c4552d3710d/install-release.sh -o "$installer"; then
+    rm -f -- "$installer"
+    return 1
+  fi
+  if ! printf '%s  %s\n' '7f70c95f6b418da8b4f4883343d602964915e28748993870fd554383afdbe555' "$installer" | sha256sum -c -; then
+    rm -f -- "$installer"
+    return 1
+  fi
+  bash "$installer" install || result=$?
+  rm -f -- "$installer"
+  return "$result"
 }
 
 setup_repo() {

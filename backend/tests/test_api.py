@@ -263,6 +263,16 @@ async def test_node_invites_and_register_flow(auth_headers):
         assert join_res.status_code == 200
         assert "set -e" in join_res.text
 
+        # URL is emitted as a literal Bash assignment, including hostile quotes
+        # and command substitution; it must not turn into a shell command.
+        import shlex
+        unsafe_url = "https://example.com/';$(touch injected-marker);'"
+        with mock.patch.dict("os.environ", {"PANEL_PUBLIC_URL": unsafe_url}):
+            quoted_join = await ac.get(f"/api/v1/nodes/join?token={token}")
+        assert quoted_join.status_code == 200
+        assignment = next(line for line in quoted_join.text.splitlines() if line.startswith("PANEL_URL_INJECTED="))
+        assert shlex.split(assignment.split("=", 1)[1]) == [unsafe_url.rstrip("/")]
+
         # Успешная регистрация ноды возвращает secret
         with mock.patch("app.services.xray.XrayService.apply_config", return_value=(True, "ok")):
             reg_res = await ac.post(

@@ -1,32 +1,18 @@
-import ipaddress
 import os
 from pathlib import Path
+from app.services.input_validation import routing_match_type
 
 
 def validate_rule_value(value: str) -> str:
     value = value.strip()
-    if not value:
-        raise ValueError("Правило маршрутизации не может быть пустым")
+    match_type = routing_match_type(value)
     if value.startswith("geosite:"):
-        if not value.removeprefix("geosite:"):
-            raise ValueError("После geosite: укажите категорию, например geosite:google")
         _require_asset("geosite.dat")
         return "domain"
     if value.startswith("geoip:"):
-        if not value.removeprefix("geoip:"):
-            raise ValueError("После geoip: укажите категорию, например geoip:ru")
         _require_asset("geoip.dat")
         return "ip"
-    if value.startswith("domain:") or value.startswith("full:"):
-        if not value.split(":", 1)[1]:
-            raise ValueError("Укажите домен после префикса domain: или full:")
-        return "domain"
-    try:
-        ipaddress.ip_network(value, strict=False)
-        return "ip"
-    except ValueError:
-        pass
-    raise ValueError("Используйте domain:, full:, geosite:, geoip: или IP/CIDR")
+    return match_type
 
 
 def _require_asset(filename: str) -> None:

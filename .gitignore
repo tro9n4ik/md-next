@@ -75,3 +75,5 @@ coverage/
 .cache/
 .agents/
 .codex/
+# Local development state; never publish databases or service configuration.
+backend/.runtime/

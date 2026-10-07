@@ -62,9 +62,14 @@ install_xray_node() {
   local installer
   installer=$(mktemp) || return 1
   if ! curl -fsSL --retry 3 --connect-timeout 15 --max-time 120 \
-    https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh -o "$installer"; then
+    https://raw.githubusercontent.com/XTLS/Xray-install/e741a4f56d368afbb9e5be3361b40c4552d3710d/install-release.sh -o "$installer"; then
     rm -f -- "$installer"
     echo 'Не удалось скачать официальный установщик Xray.'
+    return 1
+  fi
+  if ! printf '%s  %s\n' '7f70c95f6b418da8b4f4883343d602964915e28748993870fd554383afdbe555' "$installer" | sha256sum -c -; then
+    rm -f -- "$installer"
+    echo 'Контрольная сумма установщика Xray не совпала.'
     return 1
   fi
   local result=0
@@ -93,7 +98,7 @@ prepare_node_dependencies() {
 }
 
 register_node() {
-  PUBLIC_IP=$(curl -s ifconfig.me || curl -s api.ipify.org)
+  PUBLIC_IP=$(curl -fsS --connect-timeout 10 --max-time 20 https://api.ipify.org) || return 1
   SECURE_PANEL_URL=$(echo "$PANEL_URL" | sed 's|^http://|https://|')
 
   RESPONSE=$(curl -s --fail -X POST "$SECURE_PANEL_URL/api/v1/nodes/register" \
