@@ -87,6 +87,7 @@ def test_updater_restores_files_database_and_runtime_after_failed_activation(tmp
     spec = importlib.util.spec_from_file_location('panel_updater_test', Path(__file__).resolve().parents[2] / 'scripts/update-panel.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    monkeypatch.setattr(module, 'active_awg_units', lambda: [])
     root = tmp_path / 'md-next'
     backend = root / 'backend'
     backend.mkdir(parents=True)
@@ -140,3 +141,13 @@ def test_failed_preparation_does_not_stop_service_or_change_application(tmp_path
     assert not calls
     assert not (tmp_path / 'application').exists()
     assert json.loads((state / 'status.json').read_text())['phase'] == 'error'
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='Linux updater uses flock')
+def test_rollback_selects_only_previously_running_awg_units(monkeypatch):
+    spec = importlib.util.spec_from_file_location('panel_updater_units', Path(__file__).resolve().parents[2] / 'scripts/update-panel.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    from subprocess import CompletedProcess
+    monkeypatch.setattr(module.subprocess, 'run', lambda args, **kwargs: CompletedProcess(args, 0 if args[-1] == 'awg-quick@awg0.service' else 3, 'active\n' if args[-1] == 'awg-quick@awg0.service' else 'inactive\n'))
+    assert module.active_awg_units() == ['awg-quick@awg0.service']

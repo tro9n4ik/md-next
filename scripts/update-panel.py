@@ -41,6 +41,15 @@ def identities(root):
         return db.execute('SELECT id,uuid FROM clients ORDER BY id').fetchall()
 
 
+def active_awg_units():
+    units = []
+    for unit in ('md-next-awg.service', 'awg-quick@awg0.service'):
+        result = subprocess.run(['systemctl', 'is-active', unit], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0 and result.stdout.strip() == 'active':
+            units.append(unit)
+    return units
+
+
 class Updater:
     def __init__(self, root, state, request):
         self.root, self.state, self.request = root, state, request
@@ -50,6 +59,7 @@ class Updater:
         self.old_venv = None
         self.new_venv = None
         self.log = None
+        self.awg_units = []
 
     def phase(self, phase, message):
         self.data.update(phase=phase, message=message)
@@ -94,6 +104,7 @@ class Updater:
         return repository
 
     def save(self):
+        self.awg_units = active_awg_units()
         self.backup = self.root.parent / ('md-next-update-backup-' + time.strftime('%Y%m%d-%H%M%S'))
         self.backup.mkdir(mode=0o700)
         self.phase('backup', 'Создаём копию приложения, базы и конфигураций перед обновлением.')
@@ -184,7 +195,7 @@ class Updater:
                 source = Path(temporary) / str(index)
                 if source.exists():
                     shutil.copy2(source, destination)
-        self.run(['systemctl', 'restart', 'xray', 'md-next-awg', 'md-next-backend'])
+        self.run(['systemctl', 'restart', 'xray', 'md-next-backend', *self.awg_units])
         self.wait_ready()
         self.phase('rolled_back', 'Обновление не удалось. Предыдущая версия и данные восстановлены.')
 
