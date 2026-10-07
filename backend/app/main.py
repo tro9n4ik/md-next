@@ -165,6 +165,8 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(system_router)
+from app.api.updates import router as updates_router
+app.include_router(updates_router)
 app.include_router(settings_router)
 app.include_router(operations_router)
 app.include_router(protocols_router)

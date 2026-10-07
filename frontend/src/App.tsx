@@ -11,6 +11,8 @@ const ClientsPage = lazy(() => import('./pages/ClientsPage'));
 const NodesPage = lazy(() => import('./pages/NodesPage'));
 const RoutingPage = lazy(() => import('./pages/RoutingPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const GeneralSettingsPage = lazy(() => import('./pages/GeneralSettingsPage'));
+const UpdatePage = lazy(() => import('./pages/UpdatePage'));
 const TelegramPage = lazy(() => import('./pages/TelegramPage'));
 const WarpPage = lazy(() => import('./pages/WarpPage'));
 const ProtocolsPage = lazy(() => import('./pages/ProtocolsPage'));
@@ -43,10 +45,15 @@ const router = createHashRouter([{ element: <Shell />, children: [
   { path: '/clients/:id/access', element: <ClientAccessPage /> }, { path: '/nodes', element: <NodesPage /> },
   { path: '/routing', element: <RoutingPage /> }, { path: '/warp', element: <WarpPage /> },
   { path: '/bypass', element: <BypassPage /> }, { path: '/protocols', element: <ProtocolsPage /> },
-  { path: '/dns', element: <DnsPage /> }, { path: '/settings', element: <SettingsPage /> },
-  { path: '/telegram', element: <TelegramPage /> }, { path: '/help', element: <HelpPage /> },
+  { path: '/dns', element: <DnsPage /> }, { path: '/settings', element: <SettingsPage />, children: [
+    { index: true, element: <GeneralSettingsPage /> },
+    { path: 'telegram', element: <TelegramPage embedded /> },
+    { path: 'backups', element: <BackupsPage embedded /> },
+    { path: 'update', element: <UpdatePage /> },
+  ] },
+  { path: '/telegram', element: <Navigate to="/settings/telegram" replace /> }, { path: '/help', element: <HelpPage /> },
   { path: '/diagnostics', element: <DiagnosticsPage /> }, { path: '/history', element: <HistoryPage /> },
-  { path: '/backups', element: <BackupsPage /> }, { path: '/events', element: <EventsPage /> },
+  { path: '/backups', element: <Navigate to="/settings/backups" replace /> }, { path: '/events', element: <EventsPage /> },
   { path: '*', element: <Navigate to="/" replace /> },
 ].map(route => ({ ...route, errorElement: <PageError /> })) }]);
 

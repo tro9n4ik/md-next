@@ -3,8 +3,8 @@ import PageLayout from '../components/ui/PageLayout';
 import { TelegramSettings } from '../components/TelegramSettings';
 import TemplateSettings from '../components/TemplateSettings';
 
-export default function TelegramPage() {
-  return <PageLayout title="Telegram-бот" description="Подписки, инлайн-меню, выход через ноду и уведомления" icon={Send}>
+export default function TelegramPage({ embedded = false }: { embedded?: boolean }) {
+  const content = <>
     <section className="ui-card ui-panel grid gap-5 md:grid-cols-2">
       <div><h2 className="ui-card-title mb-3">Управление из Telegram</h2>
         <p className="text-sm leading-6 text-neutral-600">Подписки с контактами, сроком и месячным трафиком. Перед созданием — итоговая карточка. В списке — состояние, расход и данные подключения.</p>
@@ -26,5 +26,6 @@ export default function TelegramPage() {
     <TelegramSettings />
     <section className="ui-card ui-panel"><h2 className="ui-card-title">Новые возможности бота</h2><p className="mt-3 text-sm text-neutral-600">Поиск клиентов и фильтры, продление на 30 дней, изменение срока и лимита, управление профилями. /diagnostics выполняет серверную проверку. Напоминания о сроках и 80–100% лимита включаются настройкой уведомлений о подписках.</p><p className="mt-3 text-sm text-neutral-600">В карточке клиента создайте код Telegram. Клиент отправляет /bind КОД и открывает /me — доступна только его подписка. Код одноразовый, действует 15 минут. Привязку можно отозвать.</p></section>
     <TemplateSettings />
-  </PageLayout>;
+  </>;
+  return embedded ? content : <PageLayout title="Telegram-бот" description="Подписки, инлайн-меню, выход через ноду и уведомления" icon={Send}>{content}</PageLayout>;
 }

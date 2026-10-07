@@ -93,6 +93,8 @@ sudo bash scripts/backup.sh --list
 
 ## Документация
 
+- [Обновление панели из настроек](docs/panel-updates.md)
+
 - [Локальная разработка через виртуальное окружение](docs/development.md)
 - [Проверка перед публичной публикацией](docs/public-security-audit.md)
 - [Лицензии сторонних компонентов](docs/third-party-notices.md)

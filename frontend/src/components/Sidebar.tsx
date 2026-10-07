@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { LayoutDashboard, Users, Server, Route, Settings, LogOut, CheckCircle2, Menu, X, Cloud, Radio, Network, Send, ShieldCheck, PanelLeftClose, PanelLeftOpen, CircleHelp, Stethoscope, Activity, Archive, ScrollText, Moon, Sun } from 'lucide-react';
+import { LayoutDashboard, Users, Server, Route, Settings, LogOut, CheckCircle2, Menu, X, Cloud, Radio, Network, ShieldCheck, PanelLeftClose, PanelLeftOpen, CircleHelp, Stethoscope, Activity, ScrollText, Moon, Sun } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 
 interface SystemInfo {
@@ -46,10 +46,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
     { icon: Route, label: 'Маршрутизация', to: '/routing' },
     { icon: Cloud, label: 'WARP', to: '/warp' },
     { icon: ShieldCheck, label: 'Обход БС', to: '/bypass' },
-    { icon: Send, label: 'Telegram-бот', to: '/telegram' },
     { icon: Stethoscope, label: 'Диагностика', to: '/diagnostics' },
     { icon: Activity, label: 'История нод', to: '/history' },
-    { icon: Archive, label: 'Резервные копии', to: '/backups' },
     { icon: ScrollText, label: 'Журнал событий', to: '/events' },
     { icon: Settings, label: 'Настройки', to: '/settings' },
     { icon: CircleHelp, label: 'Помощь', to: '/help' },
