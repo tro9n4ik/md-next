@@ -3,6 +3,7 @@ import json
 from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy import select
 from httpx import ASGITransport, AsyncClient
 from app.main import app
 from app.models.client import Client, ClientProfile
@@ -23,6 +24,29 @@ async def seed():
         db.add_all([Setting(key="cdn.enabled", value="true"), Setting(key="cdn.domain", value="cdn.example.com")])
         await db.commit()
         return client.id
+
+
+@pytest.mark.asyncio
+async def test_pause_resume_preserves_subscription_and_activity(auth_headers, monkeypatch):
+    from app.services import client_activity as activity
+    cid = await seed()
+    monkeypatch.setattr(activity, '_sources', {})
+    monkeypatch.setattr(activity, '_seen', {})
+    monkeypatch.setattr('app.api.clients._sync_protocols', AsyncMock())
+    activity.source_checked('xray')
+    activity.record_activity(cid, 'vless_xhttp_tls', 10, 0)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as http:
+        result = await http.get('/api/v1/clients', headers=auth_headers)
+        assert result.json()[0]['connected_protocols'] == ['vless_xhttp_tls']
+        for enabled in (False, True):
+            result = await http.put(f'/api/v1/clients/{cid}', headers=auth_headers, json={'is_active': enabled})
+            assert result.status_code == 200, result.text
+            clients = (await http.get('/api/v1/clients', headers=auth_headers)).json()
+            assert clients[0]['connection_status'] == ('online' if enabled else 'offline')
+            async with TestingSessionLocal() as db:
+                assert (await db.get(Client, cid)).sub_token == 'access-test'
+                profiles = (await db.execute(select(ClientProfile))).scalars().all()
+                assert len(profiles) == 1 and profiles[0].uuid == 'existing-id' and profiles[0].is_enabled
 
 
 @pytest.mark.asyncio

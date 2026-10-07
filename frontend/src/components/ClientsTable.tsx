@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Search, Trash2, X } from 'lucide-react';
+import { Plus, Search, Trash2, X, Pause, Play, KeyRound } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import { formatBytes, translateProfile } from '../utils/ru';
 import SubscriptionFields from './SubscriptionFields';
@@ -12,6 +12,7 @@ type Profile = { id: number; kind: string; is_enabled: boolean };
 type Client = ClientLimits & {
   id: number; name: string; phone?: string; email?: string; is_active: boolean;
   traffic_total: number; traffic_limit: number; traffic_up: number; traffic_down: number; profiles: Profile[];
+  connection_status: 'online' | 'offline' | 'unknown'; connected_protocols: string[];
 };
 type SortField = 'status' | 'name' | 'traffic' | 'protocol' | 'created';
 
@@ -50,6 +51,7 @@ const ClientsTable: React.FC = () => {
 
   const clientsQuery = useQuery<Client[]>({
     queryKey: ['clients', q, status, sort, order],
+    refetchInterval: 15000,
     queryFn: async () => {
       const query = new URLSearchParams({ q, status, sort, order });
       const response = await apiFetch(`/api/v1/clients?${query}`);
@@ -80,6 +82,18 @@ const ClientsTable: React.FC = () => {
     mutationFn: async (id: number) => {
       const response = await apiFetch(`/api/v1/clients/${id}`, { method: 'DELETE' });
       if (!response.ok) throw new Error(await responseError(response, 'Не удалось удалить клиента'));
+    },
+    onError: (reason: Error) => setError(reason.message),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['clients'] }),
+  });
+
+  const pauseMutation = useMutation({
+    mutationFn: async (client: Client) => {
+      const response = await apiFetch(`/api/v1/clients/${client.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: !client.is_active }),
+      });
+      if (!response.ok) throw new Error(await responseError(response, 'Не удалось изменить доступ клиента'));
     },
     onError: (reason: Error) => setError(reason.message),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['clients'] }),
@@ -119,7 +133,7 @@ const ClientsTable: React.FC = () => {
 
       <div className="flex flex-col justify-between gap-4 border-b p-4 sm:flex-row sm:items-center">
         <div className="flex gap-1 rounded-lg bg-neutral-100 p-1">
-          {([['all', 'Все'], ['active', 'Работают'], ['disabled', 'Отключены']] as const).map(([value, label]) =>
+          {([['all', 'Все'], ['active', 'Доступ разрешён'], ['disabled', 'Доступ закрыт']] as const).map(([value, label]) =>
             <button key={value} onClick={() => setFilter('status', value)} className={`rounded-md px-3 py-1.5 text-sm ${status === value ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500'}`}>{label}</button>
           )}
         </div>
@@ -129,6 +143,7 @@ const ClientsTable: React.FC = () => {
         </div>
       </div>
       {error && !createOpen && <div className="m-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+      <p className="px-5 py-3 text-xs text-neutral-500">Онлайн — трафик за последние 3 минуты. Проверка раз в минуту; тихое соединение может отображаться офлайн. «Нет данных» — статистика ещё не получена или недоступна.</p>
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">
           <thead className="bg-neutral-50 text-xs uppercase text-neutral-500"><tr>
@@ -138,12 +153,12 @@ const ClientsTable: React.FC = () => {
           </tr></thead>
           <tbody className="divide-y divide-neutral-100">
             {clientsQuery.data?.map((client) => <tr key={client.id} className="hover:bg-neutral-50/60">
-              <td className="px-5 py-4"><span className={`inline-flex rounded-full px-2 py-1 text-xs ${client.access_allowed ? 'bg-emerald-50 text-emerald-700' : 'bg-neutral-100 text-neutral-500'}`}>{clientStatus(client.blocked_reason)}</span></td>
+              <td className="px-5 py-4"><span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-1 text-xs ${client.connection_status === 'online' ? 'bg-emerald-50 text-emerald-700' : 'bg-neutral-100 text-neutral-500'}`}><span className="h-1.5 w-1.5 rounded-full bg-current" />{client.connection_status === 'online' ? 'Онлайн' : client.connection_status === 'offline' ? 'Офлайн' : 'Нет данных'}</span><div className="mt-1 text-xs text-neutral-500">{!client.is_active ? 'Приостановлен' : client.access_allowed ? 'Доступ разрешён' : clientStatus(client.blocked_reason)}</div></td>
               <td className="px-5 py-4 font-medium text-neutral-800">{client.name}<div className="mt-1 text-xs font-normal text-neutral-500">{formatSubscriptionDate(client.expires_at)}</div></td>
               <td className="px-5 py-4 text-xs text-neutral-500">{client.phone || '—'}<br />{client.email || ''}</td>
               <td className="px-5 py-4 text-xs text-neutral-600"><div>{formatTraffic(client.monthly_traffic_used)} / {client.monthly_traffic_limit > 0 ? formatTraffic(client.monthly_traffic_limit) : '∞'} за месяц</div><div className="mt-1">Обход БС: {formatTraffic(client.cdn_monthly_traffic_used)} / {client.cdn_monthly_traffic_limit > 0 ? formatTraffic(client.cdn_monthly_traffic_limit) : '∞'}{client.cdn_quota_exhausted && <span className="ml-1 text-amber-700">· лимит исчерпан</span>}</div><div className="mt-1 text-neutral-400">Всего: {formatTraffic(client.traffic_total)}</div><div className="mt-1 text-neutral-400">Обновление: {formatSubscriptionDate(client.traffic_period_end)}</div></td>
-              <td className="px-5 py-4"><div className="flex flex-wrap gap-1">{client.profiles.filter((profile) => profile.is_enabled).map((profile) => <span key={profile.id} className="rounded-md bg-indigo-50 px-2 py-1 text-[10px] text-indigo-700">{translateProfile(profile.kind)}</span>)}</div></td>
-              <td className="px-5 py-4"><div className="flex justify-end gap-2"><button onClick={() => navigate(`/clients/${client.id}/access`)} className="rounded-md bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700">Доступ</button><button title="Удалить" onClick={() => deleteMutation.mutate(client.id)} className="rounded p-1.5 text-neutral-400 hover:bg-red-50 hover:text-red-600"><Trash2 size={16} /></button></div></td>
+              <td className="px-5 py-4"><div className="mb-2 text-xs text-neutral-600">Активность: {client.connected_protocols?.length ? client.connected_protocols.map(translateProfile).join(', ') : '—'}</div><div className="flex flex-wrap gap-1">{client.profiles.filter((profile) => profile.is_enabled).map((profile) => <span key={profile.id} className="rounded-md bg-indigo-50 px-2 py-1 text-[10px] text-indigo-700">{translateProfile(profile.kind)}</span>)}</div></td>
+              <td className="px-5 py-4"><div className="flex flex-wrap justify-end gap-2"><button onClick={() => navigate(`/clients/${client.id}/access`)} className="ui-button ui-button-primary text-xs"><KeyRound size={16} /> Настроить доступ</button><button disabled={pauseMutation.isPending} onClick={() => { setError(''); if (window.confirm(client.is_active ? `Приостановить доступ «${client.name}»? Профили и ссылки сохранятся.` : `Возобновить доступ «${client.name}»? Срок и лимиты подписки сохранятся.`)) pauseMutation.mutate(client); }} className="ui-button ui-button-secondary text-xs">{client.is_active ? <Pause size={16} /> : <Play size={16} />}{client.is_active ? 'Приостановить' : 'Возобновить'}</button><button disabled={deleteMutation.isPending} title="Удалить клиента" aria-label={`Удалить клиента ${client.name}`} onClick={() => { if (window.confirm(`Удалить клиента «${client.name}» и его профили? Это действие нельзя отменить.`)) deleteMutation.mutate(client.id); }} className="ui-button ui-button-danger text-xs"><Trash2 size={16} /> Удалить</button></div></td>
             </tr>)}
             {clientsQuery.isLoading && <tr><td colSpan={6} className="p-10 text-center text-neutral-500">Загрузка клиентов…</td></tr>}
             {!clientsQuery.isLoading && clientsQuery.data?.length === 0 && <tr><td colSpan={6} className="p-10 text-center text-neutral-500">Клиенты не найдены</td></tr>}

@@ -16,6 +16,7 @@ from app.services.shell import run_cmd
 from app.services.telegram_settings import get_telegram_settings_from_db
 from app.bot.bot import bot_manager
 from app.services.client_limits import refresh_period, subscription_block_reason, cdn_quota_exhausted
+from app.services.client_activity import source_checked, record_activity
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ async def _collect_client_traffic() -> None:
     try:
         output = await _run_command("xray", "api", "statsquery", "-s", "127.0.0.1:10085", "-pattern", "user>>>", "-reset")
         payload = json.loads(output or "{}")
+        source_checked("xray")
         for stat in payload.get("stat", []):
             name = stat.get("name", "")
             parts = name.split(">>>")
@@ -61,6 +63,7 @@ async def _collect_client_traffic() -> None:
             old_rx, old_tx = AWG_LAST_COUNTERS.get(public_key, (rx, tx))
             awg_deltas[public_key] = (rx - old_rx if rx >= old_rx else rx, tx - old_tx if tx >= old_tx else tx)
         AWG_LAST_COUNTERS = current
+        source_checked("awg")
     except Exception as exc:
         logger.warning("Ошибка сбора трафика клиентов AmneziaWG: %s", exc)
 
@@ -91,6 +94,7 @@ async def _collect_client_traffic() -> None:
                     down += cdn_down
                 profile.traffic_up = (profile.traffic_up or 0) + up
                 profile.traffic_down = (profile.traffic_down or 0) + down
+            record_activity(client.id, profile.kind, up, down)
             client.monthly_traffic_up = (client.monthly_traffic_up or 0) + up
             client.monthly_traffic_down = (client.monthly_traffic_down or 0) + down
         profs = (await session.execute(select(ClientProfile))).scalars().all()

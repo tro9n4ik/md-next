@@ -25,6 +25,7 @@ from app.models.setting import Setting
 from app.services.happ_routing import build_happ_routing_link
 from app.services.client_limits import access_allowed, expiry_for_period, limit_info, refresh_period, utc
 from app.services.subscription_metadata import cdn_announcement
+from app.services.client_activity import client_activity
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/clients", tags=["Клиенты"], dependencies=[Depends(get_current_user)])
@@ -133,6 +134,7 @@ async def get_clients(
             "traffic_down": sum(p.traffic_down or 0 for p in profiles_by_client.get(c.id, [])),
             "is_active": c.is_active, "created_at": c.created_at,
             **limit_info(c, now),
+            **client_activity(c.id, [p.kind for p in profiles_by_client.get(c.id, []) if p.is_enabled], access_allowed(c, now)),
             "profiles": [{"id": p.id, "kind": p.kind, "is_enabled": p.is_enabled} for p in profiles_by_client.get(c.id, [])],
         }
         for c in clients
