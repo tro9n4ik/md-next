@@ -1,5 +1,8 @@
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import PlainTextResponse
+import asyncio
+from app.services import placeholder
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -16,6 +19,51 @@ from app.services.crypto import encrypt_secret
 from app.services.events import log_event
 
 router = APIRouter(prefix="/api/v1/settings", tags=["Настройки"], dependencies=[Depends(get_current_user)])
+
+
+@router.get('/placeholder')
+async def get_placeholder():
+    return await asyncio.to_thread(placeholder.status)
+
+
+@router.get('/placeholder/content', response_class=PlainTextResponse)
+async def get_placeholder_content():
+    try:
+        return PlainTextResponse(await asyncio.to_thread(placeholder.content), headers={'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store'})
+    except FileNotFoundError:
+        raise HTTPException(404, 'Страница ещё не создана')
+
+
+@router.put('/placeholder')
+async def upload_placeholder(request: Request, filename: str = 'index.html'):
+    data = bytearray()
+    async for chunk in request.stream():
+        if len(data) + len(chunk) > placeholder.MAX_BYTES:
+            raise HTTPException(413, 'HTML-файл превышает 1 МБ')
+        data.extend(chunk)
+    try:
+        result = await asyncio.to_thread(placeholder.replace, bytes(data), filename)
+        log_event('info', 'settings', 'Загружен свой сайт-заглушка')
+        return result
+    except ValueError as error:
+        raise HTTPException(400, str(error))
+
+
+@router.post('/placeholder/generate')
+async def generate_placeholder():
+    result = await asyncio.to_thread(placeholder.replace, placeholder.generate(), 'index.html', 'generated')
+    log_event('info', 'settings', 'Создано новое оформление сайта-заглушки')
+    return result
+
+
+@router.post('/placeholder/restore')
+async def restore_placeholder():
+    try:
+        result = await asyncio.to_thread(placeholder.restore)
+        log_event('info', 'settings', 'Восстановлен предыдущий сайт-заглушка')
+        return result
+    except ValueError as error:
+        raise HTTPException(400, str(error))
 
 class SubscriptionSettings(BaseModel):
     name: str = Field(default="MD-NEXT", min_length=1, max_length=25)

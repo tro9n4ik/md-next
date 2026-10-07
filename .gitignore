@@ -34,6 +34,7 @@ pnpm-debug.log*
 *.log
 backend/backup/
 backend/backups/
+data/placeholder/
 *.mdbackup
 scripts/github-sync.py
 

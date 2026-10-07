@@ -140,6 +140,7 @@ class Updater:
             raise RuntimeError('Previous runtime missing')
         venv.symlink_to(self.new_venv, target_is_directory=True)
         files = subprocess.check_output(['git', '-C', str(repository), 'ls-files', '-z']).decode().split('\0')
+        preserve_placeholder = (self.root / 'backend/app/static/fake/index.html').exists()
         for name in filter(None, files):
             relative = Path(name)
             if relative.is_absolute() or '..' in relative.parts or relative.name == '.env' or any(part in {'venv', 'node_modules', 'venv-releases', 'backups'} for part in relative.parts):
@@ -147,6 +148,9 @@ class Updater:
             source, destination = repository / relative, self.root / relative
             if source.is_symlink() or destination.is_symlink():
                 raise RuntimeError('Unexpected source symlink')
+            # Публичная страница — пользовательские данные, а не обновляемый шаблон.
+            if relative.parts[:4] == ('backend', 'app', 'static', 'fake') and preserve_placeholder:
+                continue
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
         self.run([str(venv / 'bin/python'), '-m', 'alembic', 'upgrade', 'head'], cwd=self.root / 'backend', env=environment(self.root), timeout=180)

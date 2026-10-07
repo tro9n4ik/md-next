@@ -38,6 +38,8 @@ case "$ACTION" in
 esac
 
 APP_DIR="/opt/md-next"
+EXISTING_INSTALL=false
+[ ! -f "$APP_DIR/backend/.env" ] || EXISTING_INSTALL=true
 REPOSITORY_URL="https://github.com/tro9n4ik/md-next.git"
 
 update_nginx_routes() {
@@ -279,10 +281,12 @@ update_installation() {
   mkdir -p "$backup_dir"
   [ ! -f "$APP_DIR/backend/.env" ] || cp -a "$APP_DIR/backend/.env" "$backup_dir/"
   [ ! -f "$APP_DIR/backend/md_next.db" ] || cp -a "$APP_DIR/backend/md_next.db" "$backup_dir/"
+  [ ! -d "$APP_DIR/backend/app/static/fake" ] || cp -a "$APP_DIR/backend/app/static/fake" "$backup_dir/fake"
 
   echo "Резервная копия настроек и базы: $backup_dir"
   clone_repo "$update_dir/repo"
   cp -a "$update_dir/repo/." "$APP_DIR/"
+  [ ! -d "$backup_dir/fake" ] || cp -a "$backup_dir/fake/." "$APP_DIR/backend/app/static/fake/"
   rm -rf "$update_dir"
   ensure_probe_env
   update_nginx_routes
@@ -518,12 +522,29 @@ install_xray() {
 }
 
 setup_repo() {
+  local placeholder_backup=""
   SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
   mkdir -p /opt/md-next
   if [ "$SCRIPT_DIR" != "/opt/md-next" ]; then
+    if [ -f /opt/md-next/backend/app/static/fake/index.html ]; then
+      placeholder_backup=$(mktemp -d)
+      cp -a /opt/md-next/backend/app/static/fake/. "$placeholder_backup/"
+    fi
     cp -r "$SCRIPT_DIR/"* /opt/md-next/ 2>/dev/null || true
+    if [ -n "$placeholder_backup" ]; then
+      cp -a "$placeholder_backup/." /opt/md-next/backend/app/static/fake/
+      rm -rf -- "$placeholder_backup"
+    fi
   fi
   cd /opt/md-next
+}
+
+setup_placeholder() {
+  # Существующая установка сохраняет заглушку, даже если метаданных ещё нет.
+  if [ "$EXISTING_INSTALL" = "true" ]; then
+    return 0
+  fi
+  (cd /opt/md-next/backend && venv/bin/python -m app.services.placeholder --initialize)
 }
 
 setup_backend() {
@@ -910,6 +931,7 @@ run_step "Установка Xray-core" install_xray
 run_step "Развертывание MD-Next из рабочей директории" setup_repo
 run_step "Настройка выхода AmneziaWG через ноды" install_awg_routing
 run_step "Настройка Backend, миграции БД и конфигурация Xray" setup_backend
+run_step "Создание сайта-заглушки" setup_placeholder
 run_step "Сборка Frontend (React/Vite)" setup_frontend
 run_step "Настройка Nginx, SSL и системных сервисов" setup_services_and_nginx
 run_step "Ожидание готовности API" wait_backend_ready
