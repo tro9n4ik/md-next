@@ -80,7 +80,7 @@ html[data-theme="dark"] .ui-empty-state { color: #acbdc8; border-color: #425966;
 html[data-theme="dark"] .ui-button-danger { background: #44272c; color: #fca5a5; border-color: #734149; }
 html[data-theme="dark"] .app-main :is(.text-neutral-900,.text-neutral-800,.text-neutral-700), html[data-theme="dark"] .page-heading h1 { color: #e2e8f0; }
 html[data-theme="dark"] .app-main :is(.text-neutral-600,.text-neutral-500,.text-neutral-400) { color: #acbdc8; }
-html[data-theme="dark"] .app-main :is(.bg-white,.bg-neutral-50,.bg-neutral-100,.ui-empty-state) { background: #22343f; }
+html[data-theme="dark"] .app-main :is(.bg-white,.bg-white\/95,.bg-neutral-50,.bg-neutral-50\/50,.bg-neutral-50\/60,.bg-neutral-50\/70,.bg-neutral-100,.ui-empty-state) { background: #22343f; }
 html[data-theme="dark"] .app-main :is(.border-neutral-100,.border-neutral-200,.border-neutral-300,.border) { border-color: #344650; }
 html[data-theme="dark"] .page-content :is(input,select,textarea):not([type=checkbox]):not([type=radio]):not([type=range]) { background: #15232c; color: #e2e8f0; border-color: #425966; }
 html[data-theme="dark"] .page-content :is(input,textarea)[readonly] { background: #22343f; }
@@ -88,11 +88,21 @@ html[data-theme="dark"] .page-content th { background: #22343f; color: #acbdc8; 
 html[data-theme="dark"] .page-content tbody tr { border-color: #344650; }
 html[data-theme="dark"] .page-content tbody tr:hover, html[data-theme="dark"] .ui-button-secondary:hover { background: #2b424f; }
 html[data-theme="dark"] .ui-button-secondary { background: #22343f; color: #e2e8f0; border-color: #425966; }
-html[data-theme="dark"] .app-main :is(.bg-emerald-50,.bg-emerald-100,.bg-emerald-500\/10) { background: #163e35; }
+html[data-theme="dark"] .app-main :is(.bg-emerald-50,.bg-emerald-50\/60,.bg-emerald-100,.bg-emerald-500\/10) { background: #163e35; }
 html[data-theme="dark"] .app-main :is(.text-emerald-600,.text-emerald-700,.text-emerald-800,.text-emerald-900) { color: #6ee7b7; }
 html[data-theme="dark"] .app-main :is(.bg-red-50,.bg-red-100) { background: #44272c; }
 html[data-theme="dark"] .app-main :is(.text-red-600,.text-red-700,.text-red-800) { color: #fca5a5; }
 html[data-theme="dark"] .app-main :is(.bg-amber-50,.bg-amber-100) { background: #433827; }
 html[data-theme="dark"] .app-main :is(.text-amber-600,.text-amber-700,.text-amber-800) { color: #fcd34d; }
 html[data-theme="dark"] .app-main :is(.bg-indigo-50,.bg-sky-50,.bg-blue-50) { background: #22394d; }
-html[data-theme="dark"] .app-main :is(.text-indigo-700,.text-sky-700,.text-blue-700) { color: #93c5fd; }
+html[data-theme="dark"] .app-main :is(.text-indigo-600,.text-indigo-700,.text-indigo-800,.text-sky-600,.text-sky-700,.text-sky-800,.text-blue-600,.text-blue-700,.text-blue-800) { color: #93c5fd; }
+html[data-theme="dark"] .app-main :is(.text-purple-600,.text-purple-700,.text-violet-600,.text-violet-700) { color: #c4b5fd; }
+html[data-theme="dark"] .app-main :is(.border-emerald-100,.border-emerald-200) { border-color: #28594b; }
+html[data-theme="dark"] .app-main :is(.border-blue-200,.border-indigo-200,.border-sky-200) { border-color: #3a5976; }
+html[data-theme="dark"] .app-main :is(.border-amber-200,.border-amber-300) { border-color: #705a32; }
+html[data-theme="dark"] .app-main :is(.border-red-200,.border-red-300) { border-color: #734149; }
+html[data-theme="dark"] .page-content :is(input,textarea)::placeholder { color: #91a8b7; opacity: 1; }
+.ui-file-input { width: 100%; border: 1px solid #d4d4d4; border-radius: .75rem; padding: .5rem; font-size: .875rem; }
+.ui-file-input::file-selector-button { margin-right: .75rem; padding: .5rem .75rem; border: 0; border-radius: .5rem; background: #e5e5e5; color: #262626; cursor: pointer; }
+html[data-theme="dark"] .ui-file-input::file-selector-button { background: #2b424f; color: #e2e8f0; }
+html[data-theme="dark"] .ui-file-input:disabled::file-selector-button { cursor: not-allowed; }
