@@ -6,7 +6,7 @@ import ipaddress
 
 
 def build_happ_routing_link(settings: dict[str, str]) -> str:
-    """Формирует ссылку Happ с DNS-настройками профиля MD-Next."""
+    """DNS и прямой доступ к локальным сетям и российским ресурсам в Happ."""
     hosts = {}
     for kind in ("remote", "domestic"):
         dns_type = settings.get(f"dns.{kind}_type", "DoH" if kind == "remote" else "DoU")
@@ -31,12 +31,15 @@ def build_happ_routing_link(settings: dict[str, str]) -> str:
         "DomesticDNSType": settings.get("dns.domestic_type", "DoU"),
         "DomesticDNSDomain": settings.get("dns.domestic_domain", ""),
         "DomesticDNSIP": settings.get("dns.domestic_ip", "8.8.8.8"),
-        "Geoipurl": "",
-        "Geositeurl": "",
+        "Geoipurl": "https://github.com/v2fly/geoip/releases/latest/download/geoip.dat",
+        "Geositeurl": "https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat",
         "LastUpdated": str(int(time.time())),
         "DnsHosts": hosts,
-        "DirectSites": [],
-        "DirectIp": [],
+        "DirectSites": ["geosite:category-ru"],
+        "DirectIp": [
+            "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+            "169.254.0.0/16", "224.0.0.0/4", "255.255.255.255", "geoip:ru",
+        ],
         "ProxySites": [],
         "ProxyIp": [],
         "BlockSites": [],

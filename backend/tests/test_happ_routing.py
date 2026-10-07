@@ -38,3 +38,19 @@ class HappRoutingProfileTest(unittest.TestCase):
         profile = json.loads(base64.b64decode(unquote(link.removeprefix(prefix))))
         self.assertEqual(profile["RemoteDNSIP"], "1.1.1.1")
         self.assertEqual(profile["RemoteDNSType"], "DoH")
+
+
+def test_happ_routes_russian_and_local_destinations_directly_without_disabling_vpn():
+    link = build_happ_routing_link({})
+    profile = json.loads(base64.b64decode(unquote(link.removeprefix("happ://routing/onadd/"))))
+    assert profile["DirectSites"] == ["geosite:category-ru"]
+    assert profile["DirectIp"] == [
+        "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16",
+        "224.0.0.0/4", "255.255.255.255", "geoip:ru",
+    ]
+    assert profile["GlobalProxy"] == "true"
+    assert profile["ProxySites"] == profile["ProxyIp"] == []
+    assert profile["BlockSites"] == profile["BlockIp"] == []
+    assert profile["Name"] == "MD-Next DNS"  # Обновляет прежний профиль вместо создания дубля.
+    assert profile["Geoipurl"].startswith("https://github.com/v2fly/geoip/")
+    assert profile["Geositeurl"].endswith("/dlc.dat")

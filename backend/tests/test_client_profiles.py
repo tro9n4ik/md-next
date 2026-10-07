@@ -1,5 +1,7 @@
 import base64
 import json
+from urllib.parse import unquote
+import json
 import shutil
 import subprocess
 import unittest.mock as mock
@@ -100,6 +102,12 @@ async def test_subscription_headers_base64_disable_and_unknown_token():
         assert response.headers["profile-title"] == "base64:" + base64.b64encode("MD-NEXT".encode()).decode()
         assert response.headers["Subscription-Userinfo"] == "upload=12; download=34; total=0"
         assert response.headers["profile-update-interval"] == "12"
+        routing = response.headers["routing"].removeprefix("happ://routing/onadd/")
+        happ = json.loads(base64.b64decode(unquote(routing)))
+        assert "geoip:ru" in happ["DirectIp"]
+        assert "192.168.0.0/16" in happ["DirectIp"]
+        assert happ["DirectSites"] == ["geosite:category-ru"]
+        assert happ["GlobalProxy"] == "true"
         invalid = await client.get("/api/v1/sub/unknown-token")
         assert invalid.status_code == 404
         async with AsyncSessionLocal() as session:
