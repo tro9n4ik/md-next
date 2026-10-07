@@ -11,7 +11,7 @@ if [ -e /opt/md-next ] || [ -e /etc/systemd/system/md-next-backend.service ]; th
 fi
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 TEST_LOG="$(mktemp)"
-trap 'if [ "$?" -ne 0 ]; then tail -60 "$TEST_LOG" | sed -E "s/(Пароль:|INITIAL_ADMIN_PASSWORD=|JWT_SECRET_KEY=).*/\1 [скрыто]/"; fi; rm -f "$TEST_LOG"' EXIT
+trap 'if [ "$?" -ne 0 ]; then echo "Ошибка проверки на строке $LINENO"; systemctl show md-next-backend xray nginx -p Id -p ActiveState -p SubState -p Result; tail -60 "$TEST_LOG" | sed -E "s/(Пароль:|INITIAL_ADMIN_PASSWORD=|JWT_SECRET_KEY=).*/\1 [скрыто]/"; fi; rm -f "$TEST_LOG"' EXIT
 export MDNEXT_TEST_SELF_SIGNED=1
 bash "$SCRIPT_DIR/install.sh" > "$TEST_LOG" 2>&1 <<'INPUT'
 1

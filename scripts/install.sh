@@ -185,7 +185,6 @@ After=network.target
 
 [Service]
 User=root
-UMask=0077
 WorkingDirectory=/opt/md-next/backend
 Environment="PATH=/opt/md-next/backend/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 EnvironmentFile=/opt/md-next/backend/.env
