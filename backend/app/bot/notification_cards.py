@@ -33,13 +33,13 @@ def card(icon, title, lines, *, hint="", action="md:status", button="Состо�
 
 def node_down(node, *, reason, ping_ms, threshold, checks, now=None):
     causes = {"port": "Нет соединения с нодой", "egress": "Нода отвечает, но выход в интернет не проходит", "latency": f"Задержка {ping_ms} мс выше порога {threshold} мс"}
-    return card("🔴", "Нода недоступна", [f"<b>{safe(node.name)}</b>", safe(causes[reason]), f"Подтверждено: {checks} проверок подряд."],
+    return card("🔴", "Нода недоступна", [f"<b>{safe(node.name)}</b>", safe(causes[reason]), f"Неудачных проверок подряд: {checks}."],
                 hint="Текущий маршрут и доступные резервные ноды — в состоянии системы.", now=now)
 
 
 def node_recovered(node, seconds, checks, now=None):
     duration = f"{seconds // 3600} ч {(seconds % 3600) // 60} мин" if seconds >= 3600 else f"{seconds // 60} мин {seconds % 60} сек"
-    return card("🟢", "Нода восстановлена", [f"<b>{safe(node.name)}</b>", f"Сбой длился {duration}.", f"Доступность подтверждена: {checks} проверок подряд."],
+    return card("🟢", "Нода восстановлена", [f"<b>{safe(node.name)}</b>", f"Сбой длился {duration}.", f"Успешных проверок подряд: {checks}."],
                 hint="Переключение выхода, если оно выполнено, придёт отдельным сообщением.", silent=True, now=now)
 
 
