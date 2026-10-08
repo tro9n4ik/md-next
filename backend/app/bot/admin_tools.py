@@ -7,6 +7,7 @@ from html import escape
 from aiogram import F
 from aiogram.filters import Command
 from aiogram.types import BufferedInputFile
+from aiogram.types import Message
 from sqlalchemy import select
 from app.db.database import AsyncSessionLocal
 from app.models.client import Client
@@ -15,6 +16,8 @@ from app.services.client_limits import limit_info,utc
 pending={}
 inputs={}
 filters={}
+diagnostic_reports={}
+diagnostic_running=set()
 
 
 def fingerprint(client):
@@ -22,7 +25,7 @@ def fingerprint(client):
 
 
 def clean():
-    for mapping in (pending,inputs,filters):
+    for mapping in (pending,inputs,filters,diagnostic_reports):
         for key,value in list(mapping.items()):
             if value['expires']<time.monotonic(): mapping.pop(key,None)
 
@@ -52,7 +55,8 @@ async def client_list(message,actor,page=0):
 async def detail(message,client_id):
     from .subscriptions import detail as existing
     from .handlers import keyboard
-    await existing(message,client_id)
+    screen=await existing(message,client_id)
+    if isinstance(screen,Message):message=screen
     async with AsyncSessionLocal() as db: client=await db.get(Client,client_id)
     if not client:return
     await message.edit_reply_markup(reply_markup=keyboard(
@@ -76,7 +80,11 @@ async def prepare(message,actor,client_id,payload,label):
         if (v['chat'],v['message'])==(message.chat.id,message.message_id): pending.pop(token,None)
     token=secrets.token_hex(8)
     pending[token]={'actor':actor,'chat':message.chat.id,'message':message.message_id,'id':client_id,'payload':payload,'state':fingerprint(client),'profile_state':profile_state,'expires':time.monotonic()+120}
-    await show_screen(message,f'<b>{escape(client.name)}</b>\n\n{escape(label)}\nПодтвердите изменение.',keyboard([('✅ Применить','ops:confirm:'+token)],[('Отмена',f'ops:detail:{client_id}')]),edit=True)
+    screen=await show_screen(message,f'<b>{escape(client.name)}</b>\n\n{escape(label)}\nПодтвердите изменение.',keyboard([('✅ Применить','ops:confirm:'+token)],[('Отмена',f'ops:detail:{client_id}')]),edit=True)
+    if isinstance(getattr(screen,'message_id',None),int):
+        pending[token]['message']=screen.message_id
+        for old,value in list(pending.items()):
+            if old!=token and (value['chat'],value['message'])==(message.chat.id,screen.message_id):pending.pop(old,None)
 
 
 async def current_profile_state(db,client_id,kinds):
@@ -104,14 +112,28 @@ async def profile_menu(message,client_id):
     await show_screen(message,f"<b>Профили: {escape(data['client']['name'])}</b>\n{status}\n\n✅ Разрешён · ⛔ Запрещён · ⚪ Выключен в панели\nНажмите профиль и подтвердите включение или отключение. CDN управляется отдельно от XHTTP TLS. После изменения обновите подписку в приложении.",keyboard(*rows),edit=True)
 
 
-async def diagnosis(message):
+async def diagnosis(message,actor=None,*,edit=False):
     from app.services.diagnostics import run_diagnostics
-    from .handlers import back_menu
-    await message.answer('Проверяю сервер. Это может занять около минуты.')
-    async with AsyncSessionLocal() as db: report=await run_diagnostics(db)
-    lines=[('✅' if c['ok'] else '⚪' if c['ok'] is None else '❌')+' '+c['name']+': '+c['detail'] for c in report['checks']]
-    await message.answer('\n'.join(lines)+'\n\n'+report['notice'],parse_mode=None,reply_markup=back_menu())
-    await message.answer_document(BufferedInputFile(json.dumps(report,ensure_ascii=False,indent=2).encode(),filename='diagnostics.json'))
+    from .handlers import keyboard,show_screen
+    actor=actor if actor is not None else message.from_user.id
+    clean();key=(actor,message.chat.id)
+    if key in diagnostic_running:return
+    diagnostic_running.add(key)
+    try:
+        screen=await show_screen(message,'<b>🩺 Диагностика</b>\n\nПроверяю сервер. Это может занять около минуты.',None,edit=edit)
+        if isinstance(screen,Message):message=screen
+        async with AsyncSessionLocal() as db:report=await run_diagnostics(db)
+        for token,value in list(diagnostic_reports.items()):
+            if (value['actor'],value['chat'])==key:diagnostic_reports.pop(token,None)
+        token=secrets.token_hex(8)
+        diagnostic_reports[token]={'actor':actor,'chat':message.chat.id,'report':report,'expires':time.monotonic()+600}
+        lines=[('✅' if c['ok'] else '⚪' if c['ok'] is None else '❌')+' <b>'+escape(c['name'][:80])+'</b>\n'+escape(c['detail'][:180]) for c in report['checks'][:12]]
+        await show_screen(message,'<b>🩺 Диагностика завершена</b>\n\n'+'\n\n'.join(lines)+'\n\n'+escape(report['notice'][:400]),keyboard(
+            [('🔄 Проверить снова','ops:diagnostics')],[('📄 Скачать отчёт','ops:diag_file:'+token)],[('🏠 Главное меню','md:home')]),edit=True)
+    except Exception:
+        await show_screen(message,'<b>🩺 Диагностика</b>\n\nПроверка не завершилась. Попробуйте снова или откройте журнал панели.',keyboard(
+            [('🔄 Повторить','ops:diagnostics')],[('🏠 Главное меню','md:home')]),edit=True)
+    finally:diagnostic_running.discard(key)
 
 
 async def callback(callback):
@@ -125,7 +147,13 @@ async def callback(callback):
     inputs.pop((actor,callback.message.chat.id),None)
     subscriptions.drafts.pop((actor,callback.message.chat.id),None)
     try:
-        if action=='diagnostics': await diagnosis(callback.message);return
+        if action=='diagnostics': await diagnosis(callback.message,actor,edit=True);return
+        if action.startswith('diag_file:'):
+            saved=diagnostic_reports.get(action.split(':',1)[1])
+            if not saved or (saved['actor'],saved['chat'])!=(actor,callback.message.chat.id):
+                raise ValueError('Отчёт устарел. Запустите диагностику снова.')
+            await callback.message.answer_document(BufferedInputFile(json.dumps(saved['report'],ensure_ascii=False,indent=2).encode(),filename='diagnostics.json'))
+            return
         if action=='templates':
             from app.services.templates import get_templates
             async with AsyncSessionLocal() as db: templates=await get_templates(db)
@@ -142,7 +170,7 @@ async def callback(callback):
             return
         if action=='search':
             inputs[(actor,callback.message.chat.id)]={'kind':'search','expires':time.monotonic()+300}
-            await callback.message.answer('Отправьте имя, телефон или почту. /cancel отменяет ввод.');return
+            await show_screen(callback.message,'Отправьте имя, телефон или почту. /cancel отменяет ввод.',keyboard([('Отмена','ops:list:0')]),edit=True);return
         if action.startswith('filter:'):
             filters[actor]={'filter':action.split(':')[1],'q':'','expires':time.monotonic()+1800}
             await client_list(callback.message,actor);return
@@ -161,7 +189,6 @@ async def callback(callback):
                 elif payload.get('operation')=='unlink': await operations.unlink(client.id,db)
                 elif 'profiles' in payload: await clients.update_client_access(client.id,clients.ClientAccessUpdate(**payload),db)
                 else: await clients.update_client(client.id,clients.ClientUpdate(**payload),db)
-            await callback.message.answer('Изменения применены. Обновите подписку в VPN-приложении.')
             if 'profiles' in payload:await profile_menu(callback.message,v['id'])
             else:await detail(callback.message,v['id'])
             return
@@ -169,11 +196,11 @@ async def callback(callback):
         if command=='detail': await detail(callback.message,client_id);return
         if command in ('quota','date'):
             inputs[(actor,callback.message.chat.id)]={'kind':command,'id':client_id,'expires':time.monotonic()+300}
-            await callback.message.answer('Отправьте лимит в ГБ (0 = без лимита).' if command=='quota' else 'Отправьте будущую дату ДД.ММ.ГГГГ, до конца дня UTC.');return
+            await show_screen(callback.message,'Отправьте лимит в ГБ (0 = без лимита).' if command=='quota' else 'Отправьте будущую дату ДД.ММ.ГГГГ, до конца дня UTC.',keyboard([('Отмена',f'ops:detail:{client_id}')]),edit=True);return
         if command=='profiles':
             await profile_menu(callback.message,client_id);return
         if command=='unavailable':
-            await callback.message.answer('Этот профиль выключен для всей панели. Сначала включите его в «Протоколах» или «Обход БС».');return
+            await show_screen(callback.message,'Этот профиль выключен для всей панели. Сначала включите его в «Протоколах» или «Обход БС».',keyboard([('← Профили',f'ops:profiles:{client_id}')]),edit=True);return
         if command=='profile':
             from app.api.clients import get_client_profiles
             async with AsyncSessionLocal() as db:data=await get_client_profiles(client_id,db)
@@ -198,7 +225,7 @@ async def callback(callback):
     except Exception as exc:
         from fastapi import HTTPException
         text=exc.detail if isinstance(exc,HTTPException) and isinstance(exc.detail,str) else str(exc) if isinstance(exc,ValueError) else 'Не удалось выполнить действие. Откройте карточку и повторите.'
-        await callback.message.answer(text,parse_mode=None)
+        await show_screen(callback.message,escape(text),keyboard([('🏠 Главное меню','md:home')]),edit=True)
 
 
 async def text_input(message):
@@ -206,7 +233,7 @@ async def text_input(message):
     if not v:return
     if v['kind']=='search':
         filters[message.from_user.id]={'q':message.text[:100],'filter':'all','expires':time.monotonic()+1800}
-        screen=await message.answer('Результаты поиска');await client_list(screen,message.from_user.id);return
+        await client_list(message,message.from_user.id);return
     try:
         if v['kind']=='quota':
             from decimal import Decimal
@@ -217,16 +244,17 @@ async def text_input(message):
             date=datetime.strptime(message.text.strip(),'%d.%m.%Y').replace(hour=23,minute=59,second=59,tzinfo=timezone.utc)
             if date<=datetime.now(timezone.utc):raise ValueError('Дата должна быть в будущем')
             payload={'expires_at':date.isoformat()};label='Окончание: '+date.strftime('%d.%m.%Y %H:%M UTC')
-        screen=await message.answer('Подтвердите изменение')
+        screen=message
         await prepare(screen,message.from_user.id,v['id'],payload,label)
     except Exception:
-        await message.answer('Некорректное значение. Откройте карточку и повторите ввод.')
+        from .handlers import show_screen,back_menu
+        await show_screen(message,'Некорректное значение. Откройте карточку и повторите ввод.',back_menu())
 
 
 async def cancel(message):
     inputs.pop((message.from_user.id,message.chat.id),None)
-    from .handlers import back_menu
-    await message.answer('Ввод отменён.',reply_markup=back_menu())
+    from .handlers import back_menu,show_screen
+    await show_screen(message,'Ввод отменён.',back_menu())
 
 
 def register(router):

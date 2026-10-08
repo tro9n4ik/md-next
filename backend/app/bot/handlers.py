@@ -42,19 +42,52 @@ def back_menu():
     return keyboard([("🏠 Главное меню", "md:home")])
 
 
+def invalidate_screen_actions(chat_id, identifier, markup):
+    callbacks={button.callback_data for row in markup.inline_keyboard for button in row} if markup else set()
+    for token,value in list(pending_actions.items()):
+        if (value.chat_id,value.message_id)==(chat_id,identifier) and 'md:confirm:'+token not in callbacks:
+            pending_actions.pop(token,None)
+    tools=globals().get('admin_tools')
+    if tools:
+        for token,value in list(tools.pending.items()):
+            if (value['chat'],value['message'])==(chat_id,identifier) and 'ops:confirm:'+token not in callbacks:
+                tools.pending.pop(token,None)
+
+
 async def show_screen(message, text, markup, *, edit=False):
+    if isinstance(message, Message):
+        try:
+            bound_bot = message.bot
+        except RuntimeError:
+            bound_bot = None
+        if bound_bot is not None:
+            from .chat_screen import live_message, remember, protected_message
+            # Callback notifications keep their own card; navigation opens the menu.
+            protected = await protected_message(bound_bot, message.chat.id, message.message_id)
+            if edit and message.text is not None and message.from_user and message.from_user.is_bot and not protected:
+                try:
+                    result = await message.edit_text(text, parse_mode='HTML', reply_markup=markup)
+                except TelegramBadRequest as exc:
+                    if 'message is not modified' not in exc.message.lower():
+                        raise
+                    result = message
+                await remember(bound_bot, message.chat.id, 'menu', message.message_id)
+                invalidate_screen_actions(message.chat.id,message.message_id,markup)
+                return result
+            result, identifier = await live_message(bound_bot, message.chat.id, text, markup, channel='menu', silent=True)
+            invalidate_screen_actions(message.chat.id,identifier,markup)
+            return result if isinstance(result, Message) else message.model_copy(update={'message_id': identifier, 'text': text})
     # У файла конфигурации нет текстового тела: открываем меню отдельным сообщением.
     if edit and isinstance(message, Message) and message.text is None:
-        await message.answer(text, parse_mode="HTML", reply_markup=markup)
-        return
+        return await message.answer(text, parse_mode="HTML", reply_markup=markup)
     if edit:
         try:
-            await message.edit_text(text, parse_mode="HTML", reply_markup=markup)
+            return await message.edit_text(text, parse_mode="HTML", reply_markup=markup)
         except TelegramBadRequest as exc:
             if "message is not modified" not in str(exc).lower():
                 raise
     else:
-        await message.answer(text, parse_mode="HTML", reply_markup=markup)
+        return await message.answer(text, parse_mode="HTML", reply_markup=markup)
 
 
 @dataclass

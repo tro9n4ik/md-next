@@ -243,7 +243,7 @@ async def test_bot_rejects_confirmation_after_profile_changed_in_panel():
     with patch('app.api.clients.update_client_access',new_callable=AsyncMock) as apply:
         await admin_tools.callback(cb)
     apply.assert_not_awaited()
-    assert 'уже изменился' in screen.answer.call_args.args[0]
+    assert 'уже изменился' in screen.edit_text.call_args.args[0]
     assert token not in admin_tools.pending
 
 

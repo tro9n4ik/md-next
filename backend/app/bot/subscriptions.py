@@ -103,7 +103,7 @@ def review_text(draft):
             "Месячный период начинается с даты создания подписки. Доступ и профили появятся после подтверждения.")
 
 
-async def render(draft, message, *, edit=True):
+async def render(draft, message, *, edit=True, error=None):
     from .handlers import keyboard, show_screen
     draft.revision += 1
     draft.expires = time.monotonic() + TTL
@@ -134,16 +134,18 @@ async def render(draft, message, *, edit=True):
         if draft.step != "name":
             rows.append([("← Назад", prefix + "back")])
     rows.append([("✖ Отмена", prefix + "cancel")])
-    await show_screen(message, text, keyboard(*rows), edit=edit)
+    if error:
+        text = escape(str(error)[:300]) + '\n\n' + text
+    screen = await show_screen(message, text, keyboard(*rows), edit=edit)
+    if isinstance(getattr(screen, 'message_id', None), int):
+        draft.message = screen.message_id
 
 
 async def start(message, actor, *, edit=False):
     clean_drafts()
-    if not edit:
-        message = await message.answer("Открываю мастер подписки…")
     draft = Draft(actor, message.chat.id, message.message_id)
     drafts[(actor, message.chat.id)] = draft
-    await render(draft, message)
+    await render(draft, message, edit=edit)
 
 
 async def new_command(message):
@@ -165,12 +167,12 @@ async def text_input(message):
     if not draft:
         return
     if draft.step not in ("name", "phone", "email", "date", "quota_custom"):
-        await message.answer("Выберите вариант кнопкой в меню подписки.")
+        await render(draft,message,edit=False,error="Выберите вариант кнопкой в меню подписки.")
         return
     try:
         value = validate_text(draft.step, message.text)
     except ValueError as exc:
-        await message.answer(str(exc))
+        await render(draft,message,edit=False,error=exc)
         return
     mapping = {"name": ("name", "phone"), "phone": ("phone", "email"), "email": ("email", "period"),
                "date": ("expires_at", "quota"), "quota_custom": ("monthly_traffic_limit", "review")}
@@ -178,9 +180,7 @@ async def text_input(message):
     draft.values[key] = value
     next_step(draft, following)
     # Новое сообщение с меню позволяет не искать карточку выше введённых полей.
-    screen = await message.answer("Продолжаем…")
-    draft.message = screen.message_id
-    await render(draft, screen)
+    await render(draft, message, edit=False)
 
 
 async def issue_access(message, client_id, *, awg=False):
@@ -264,7 +264,7 @@ async def detail(message, client_id, *, edit=True):
                 f"📅 До: <b>{date_label(limits['expires_at'])}</b>\n"
                 f"📦 За месяц: <b>{limits['monthly_traffic_used'] / 1024 ** 3:.2f} ГБ / {traffic_label(limits['monthly_traffic_limit'])}</b>\n"
                 f"🔄 Новый период: {date_label(limits['traffic_period_end'])}")
-    await show_screen(message, text, keyboard(
+    return await show_screen(message, text, keyboard(
         [("🔗 Ссылка и QR-код", f"sub:link:{client_id}")], [("🛡 Файл AmneziaWG", f"sub:awg:{client_id}")],
         [("⏸ Приостановить подписку" if client.is_active else "▶️ Включить подписку", f"ops:toggle:{client_id}")],
         [("🔐 Управлять профилями", f"ops:profiles:{client_id}"), ("✏️ Условия", f"ops:detail:{client_id}")],

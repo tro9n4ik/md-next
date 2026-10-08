@@ -80,13 +80,13 @@ async def send_reminders():
                 batches.append(batch);batch=[];length=0
             batch.append(entry);length+=len(entry[1])+2
         if batch:batches.append(batch)
-        for batch in batches:
+        for page,batch in enumerate(batches):
             one=len(batch)==1
             notice=card('📋','Подписки требуют внимания',['\n\n'.join(entry[1] for entry in batch)],
                 hint='Откройте карточку подписки, чтобы проверить срок или изменить лимит.',
                 action=f'ops:detail:{batch[0][0]}' if one else 'ops:list:0',
                 button='Открыть подписку' if one else 'Открыть подписки',silent=not any(entry[3] for entry in batch),now=now)
-            if not await send_notice(bot,settings['admin_id'],notice):break
+            if not await send_notice(bot,settings['admin_id'],notice,channel=f'reminders.{page}'):break
             for _,_,pending,_ in batch:
                 for key,suffix in pending:
                     row=await db.get(Setting,key)

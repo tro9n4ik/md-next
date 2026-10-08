@@ -44,14 +44,18 @@ async def enqueue(notice, category="failover", *, session=None, event_key="route
     return True
 
 
-async def send_notice(bot, admin_id, notice):
+async def send_notice(bot, admin_id, notice, *, channel=None):
     """A single delivery gate also handles Telegram's flood control for digests."""
     global _retry_at
     if bot is None or time.monotonic() < _retry_at:
         return False
     try:
-        await bot.send_message(admin_id, notice.text, parse_mode="HTML", reply_markup=notice.markup(),
-                               disable_notification=notice.silent)
+        if channel:
+            from app.bot.chat_screen import live_message
+            await live_message(bot, admin_id, notice.text, notice.markup(), channel=channel, silent=notice.silent)
+        else:
+            await bot.send_message(admin_id, notice.text, parse_mode="HTML", reply_markup=notice.markup(),
+                                   disable_notification=notice.silent)
         return True
     except TelegramRetryAfter as exc:
         _retry_at = time.monotonic() + exc.retry_after
@@ -87,7 +91,7 @@ async def deliver_pending():
                     await db.delete(row)
                     await db.commit()
                     continue
-                if not await send_notice(get_bot(), settings["admin_id"], notice):
+                if not await send_notice(get_bot(), settings["admin_id"], notice, channel='system'):
                     break
                 # An updated card can arrive while Telegram is sending the previous one.
                 await db.execute(delete(Setting).where(Setting.key == row.key, Setting.value == row.value))
