@@ -17,6 +17,7 @@ from app.services.cluster import apply_active_node, get_failover_settings, get_s
 from app.services.xray import DEFAULT_PROBE_URL, probe_enabled, probe_port_for_node
 from app.bot.bot import get_bot
 from app.bot.handlers import notify_admin
+from app.bot.notification_cards import node_down, node_recovered, route_changed
 from app.services.events import log_event
 
 logger = logging.getLogger(__name__)
@@ -133,7 +134,10 @@ class WatchdogService:
                         if not outage:
                             session.add(Setting(key=f'notify.node.{node.id}',value=now.isoformat()))
                             try:
-                                await notify_admin(get_bot(), f"Нода {node.name} недоступна или превысила порог задержки ({ping_ms} мс).", notification_type="node_down")
+                                cause = 'port' if not connected else 'egress' if not egress_ok else 'latency'
+                                await notify_admin(get_bot(), node_down(node, reason=cause, ping_ms=ping_ms,
+                                    threshold=settings['ping_threshold_ms'], checks=settings['failure_count'], now=now),
+                                    notification_type="node_down", session=session, event_key=f"node.{node.id}")
                             except Exception:
                                 logger.exception("Не удалось сообщить о недоступном узле")
             else:
@@ -146,14 +150,16 @@ class WatchdogService:
                 await self._update_country(node)
                 if was_unhealthy:
                     log_event("info", "node", "Узел снова доступен", {"node_id": node.id, "name": node.name, "ping_ms": ping_ms})
-                    outage=await session.get(Setting,f'notify.node.{node.id}')
-                    if outage:
-                        try:
-                            from app.services.client_limits import utc
-                            seconds=max(0,int((now-utc(datetime.datetime.fromisoformat(outage.value))).total_seconds()))
-                            await notify_admin(get_bot(),f'Нода {node.name} восстановлена. Сбой длился {seconds//60} мин {seconds%60} сек.',notification_type='node_down')
-                        except Exception:
-                            logger.exception('Не удалось сообщить о восстановлении узла')
+                outage=await session.get(Setting,f'notify.node.{node.id}')
+                if outage and self.consecutive_successes[node.id] >= settings['failback_stable_checks']:
+                    try:
+                        from app.services.client_limits import utc
+                        seconds=max(0,int((now-utc(datetime.datetime.fromisoformat(outage.value))).total_seconds()))
+                        await notify_admin(get_bot(), node_recovered(node, seconds, settings['failback_stable_checks'], now),
+                            notification_type='node_down', session=session, event_key=f"node.{node.id}")
+                    except Exception:
+                        logger.exception('Не удалось подготовить уведомление о восстановлении узла')
+                    else:
                         await session.delete(outage)
         await session.execute(delete(NodeSample).where(NodeSample.ts<now-datetime.timedelta(days=30)))
         await session.flush()
@@ -174,10 +180,10 @@ class WatchdogService:
             return False
         self.last_switch_time = time.monotonic()
         logger.warning("Автоматическое переключение кластера: причина=%s, прежний узел=%s, новый узел=%s", reason, getattr(current, "id", None), getattr(node, "id", None))
-        target = f"{node.name} ({node.host})" if node else "прямой выход с мастер-сервера"
         log_event("warning" if reason != "failback" else "info", "cluster", "Автоматический failback выполнен" if reason == "failback" else "Автоматический failover выполнен", {"from_node_id": getattr(current, "id", None), "node_id": getattr(node, "id", None), "reason": reason})
         try:
-            await notify_admin(get_bot(), f"Автоматическое переключение Xray: {target}.", notification_type="failover")
+            await notify_admin(get_bot(), route_changed(current, node, reason), notification_type="failover", session=session)
+            await session.commit()
         except Exception:
             logger.exception("Не удалось сообщить об изменении маршрута кластера")
         return True

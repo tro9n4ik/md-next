@@ -16,6 +16,7 @@ from app.models.setting import Setting
 from app.services.cluster import apply_active_node, get_failover_settings, get_selected_node, is_manual_direct_route
 from app.bot.bot import get_bot
 from app.bot.handlers import notify_admin
+from app.bot.notification_cards import route_changed
 from app.services.events import log_event
 from app.services.shell import run_cmd
 from app.services.route_probe import probe_current_exit
@@ -75,8 +76,8 @@ async def set_active_node(
 
     logger.info("Ручное переключение кластера: пользователь=%s, прежний узел=%s, выбранный узел=%s", getattr(current_user, "id", None), getattr(previous, "id", None), getattr(node, "id", None))
     log_event("info", "cluster", "Маршрут Xray переключён вручную", {"previous_node_id": getattr(previous, "id", None), "node_id": getattr(node, "id", None), "actor_id": getattr(current_user, "id", None)})
-    destination = f"{node.name} ({node.host})" if node else "прямой выход с мастер-сервера"
-    await _notify(f"Маршрут Xray переключён на {destination}.")
+    if (previous.id if previous else None) != (node.id if node else None):
+        await _notify(route_changed(previous, node, "manual"))
     return {"active_node_id": node.id if node else None, "detail": detail}
 
 

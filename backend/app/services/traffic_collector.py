@@ -13,8 +13,8 @@ from app.services.client_service import ClientService
 from app.services.awg import AWGService
 from app.services.events import log_event
 from app.services.shell import run_cmd
-from app.services.telegram_settings import get_telegram_settings_from_db
-from app.bot.bot import bot_manager
+from app.services.telegram_delivery import enqueue
+from app.bot.notification_cards import card, safe
 from app.services.client_limits import refresh_period, subscription_block_reason, cdn_quota_exhausted
 from app.services.client_activity import source_checked, record_activity
 
@@ -107,6 +107,9 @@ async def _collect_client_traffic() -> None:
             if client.is_active and client.traffic_limit and client.traffic_total >= client.traffic_limit:
                 client.is_active = False
                 quota_clients.append((client.id, client.name))
+                await enqueue(card('🔴', 'Общий лимит трафика исчерпан', [f'<b>{safe(client.name)}</b> · #{client.id}',
+                    'Доступ к подписке приостановлен.'], hint='Проверьте общий лимит и условия подписки перед возобновлением доступа.',
+                    action=f'ops:detail:{client.id}', button='Открыть подписку'), 'quota', session=session, event_key=f'quota.{client.id}')
                 logger.warning("Клиент %s (идентификатор=%s) превысил лимит трафика", client.name, client.id)
                 log_event("warning", "traffic", "Клиент отключён из-за превышения лимита трафика", {"client_id": client.id, "name": client.name})
             if bool(client.access_blocked) != bool(subscription_block_reason(client, now)):
@@ -134,15 +137,6 @@ async def _collect_client_traffic() -> None:
                 LIMITS_SYNC_PENDING = False
             else:
                 logger.error("Условия подписок не применены; повтор через минуту: Xray=%s, AmneziaWG=%s", xray_reason, awg_reason)
-
-    if quota_clients and bot_manager.bot:
-        tg_settings = await get_telegram_settings_from_db()
-        if tg_settings.get("notify_quota", True) and tg_settings.get("admin_id"):
-            for client_id, name in quota_clients:
-                try:
-                    await bot_manager.bot.send_message(tg_settings["admin_id"], f"Клиент {name} (ID {client_id}) отключён: превышен лимит трафика.")
-                except Exception as exc:
-                    logger.warning("Не удалось отправить уведомление о лимите: %s", exc)
 
 async def _collect_traffic_sample():
     global LAST_COUNTERS

@@ -143,11 +143,17 @@ async def status_text():
 
         nodes_res = await session.execute(select(Node))
         nodes = nodes_res.scalars().all()
-        nodes_list = "\n".join([f"{'✅' if n.is_active and n.is_enabled else '⚪' if not n.is_enabled else '❌'} {escape(n.name)}" for n in nodes])
+        lines=[]
+        for node in sorted(nodes, key=lambda n: (n.priority, n.id)):
+            healthy = node.is_active and node.is_enabled and node.status == "healthy"
+            label = "Доступна" if healthy else "Выключена" if not node.is_enabled else "Недоступна" if node.status in {"unhealthy", "unavailable"} else "Проверяется"
+            delay = f" · {node.ping_ms} мс" if healthy else ""
+            lines.append(f"{'🟢' if healthy else '⚪' if not node.is_enabled else '🟠'} <b>{escape(node.name)}</b>\n{label}{delay}")
+        nodes_list = "\n\n".join(lines)
 
     return ("<b>📊 Состояние MD-Next</b>\n\n"
             f"<b>Текущий выход</b>\n{active_node_text}\n\n"
-            f"<b>Ноды</b>\n{nodes_list or 'Нет узлов'}")
+            f"<b>Ноды</b>\n{nodes_list or 'Пока не добавлены'}\n\n<i>Проверка со стороны сервера. Состояние устройств клиентов здесь не учитывается.</i>")
 
 
 @router.message(Command("failover"))
@@ -235,7 +241,7 @@ async def nodes_screen(message):
     rows = [[("🌐 " + node.name[:45], f"md:node:{node.id}")] for node in nodes]
     rows.append([("🏠 Главное меню", "md:home")])
     await show_screen(message, "<b>🌐 Выбор выхода</b>\n\n"
-                      + ("Выберите ноду для трафика клиентов. Переключение применяется после подтверждения.\nВыход самого бота задаётся отдельно в панели."
+                      + ("Выберите ноду для трафика клиентов. Переключение применяется после подтверждения.\nБот автоматически использует текущую ноду выхода."
                          if nodes else "Сейчас нет доступных включённых нод."), keyboard(*rows), edit=True)
 
 
@@ -306,22 +312,9 @@ async def menu_callback(callback: CallbackQuery):
         await show_screen(message, "Кнопка устарела. Откройте меню заново.", back_menu(), edit=True)
 
 
-async def notify_admin(bot, text: str, notification_type: str = "failover"):
-    tg_settings = await get_telegram_settings_from_db()
-    admin_id = tg_settings["admin_id"]
-
-    if notification_type == "node_down" and not tg_settings["notify_node_down"]:
-        return
-    if notification_type == "failover" and not tg_settings["notify_failover"]:
-        return
-    if notification_type == "quota" and not tg_settings["notify_quota"]:
-        return
-
-    if admin_id != 0 and bot is not None:
-        try:
-            await bot.send_message(admin_id, f"⚠️ ВНИМАНИЕ\n\n{text}", parse_mode=None)
-        except Exception as e:
-            logging.error(f"Не удалось отправить уведомление Telegram: {e}")
+async def notify_admin(bot, text, notification_type: str = "failover", *, session=None, event_key="route"):
+    from app.services.telegram_delivery import enqueue
+    return await enqueue(text, notification_type, session=session, event_key=event_key)
 
 
 from . import admin_tools

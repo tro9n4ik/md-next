@@ -236,7 +236,9 @@ async def send_test_telegram_message(db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=400, detail="ID администратора Telegram не настроен")
 
     try:
-        await bot.send_message(chat_id=admin_id, text="🟢 **Тестовое сообщение от MD-Next Панели**\nУведомления успешно настроены!", parse_mode="Markdown")
+        from app.bot.notification_cards import test_notice
+        notice = test_notice()
+        await bot.send_message(chat_id=admin_id, text=notice.text, parse_mode="HTML", reply_markup=notice.markup(), disable_notification=True)
         return {"status": "ok", "message": "Тестовое сообщение отправлено"}
     except Exception:
         raise HTTPException(status_code=502, detail="Не удалось отправить сообщение. Проверьте выход бота и начните диалог с ним командой /start.")
