@@ -3,6 +3,9 @@ import datetime
 import logging
 import os
 import time
+import ssl
+from functools import lru_cache
+import certifi
 from typing import Optional, Tuple
 
 import httpx
@@ -21,6 +24,13 @@ from app.bot.notification_cards import node_down, node_recovered, route_changed
 from app.services.events import log_event
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1)
+def probe_tls_context():
+    # Repeated CA loading grows native TLS allocations in this process.
+    # Reuse trust configuration, but keep clients and sockets short-lived.
+    return ssl.create_default_context(cafile=certifi.where())
 
 
 class WatchdogService:
@@ -71,7 +81,7 @@ class WatchdogService:
         proxy = f"socks5://127.0.0.1:{probe_port_for_node(node.id)}"
         start = time.monotonic()
         try:
-            async with httpx.AsyncClient(proxy=proxy, timeout=self.probe_timeout, follow_redirects=False) as client:
+            async with httpx.AsyncClient(proxy=proxy, timeout=self.probe_timeout, follow_redirects=False, verify=probe_tls_context(), trust_env=False) as client:
                 response = await client.get(self.probe_url)
                 return response.status_code < 500, int((time.monotonic() - start) * 1000)
         except Exception as exc:
@@ -84,7 +94,7 @@ class WatchdogService:
             return
         self.country_checked[node.id] = time.monotonic() + 21600
         try:
-            async with httpx.AsyncClient(proxy=f"socks5://127.0.0.1:{probe_port_for_node(node.id)}", timeout=3, trust_env=False) as client:
+            async with httpx.AsyncClient(proxy=f"socks5://127.0.0.1:{probe_port_for_node(node.id)}", timeout=3, trust_env=False, verify=probe_tls_context()) as client:
                 response = await client.get("https://www.cloudflare.com/cdn-cgi/trace")
                 response.raise_for_status()
             values = dict(line.split("=", 1) for line in response.text.splitlines() if "=" in line)

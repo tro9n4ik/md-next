@@ -1,3 +1,6 @@
+from datetime import datetime
+from types import SimpleNamespace
+
 import pytest
 import pyotp
 from httpx import AsyncClient, ASGITransport
@@ -32,7 +35,14 @@ async def test_rate_limit_by_ip(auth_headers):
         assert res_b.status_code == 401
 
 @pytest.mark.asyncio
-async def test_2fa_setup_and_safe_change(auth_headers):
+async def test_2fa_setup_and_safe_change(auth_headers, monkeypatch):
+    # Keep generation and verification in one TOTP window, including slow CI.
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 1, 1, 12, 0, 15, tzinfo=tz)
+
+    monkeypatch.setattr(pyotp.totp, "datetime", SimpleNamespace(datetime=FrozenDatetime))
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         # Первичный 2FA setup
         setup_res = await ac.post("/api/v1/auth/2fa/setup", headers=auth_headers)
