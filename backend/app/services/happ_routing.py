@@ -25,6 +25,8 @@ def build_happ_routing_link(settings: dict[str, str], *, adblock_enabled: bool =
     profile = {
         "Name": "MD-Next DNS",
         "GlobalProxy": "true",
+        # Реклама должна проверяться до category-ru и geoip:ru (прямой выход).
+        "RouteOrder": "block-proxy-direct",
         "RemoteDNSType": settings.get("dns.remote_type", "DoH"),
         "RemoteDNSDomain": settings.get("dns.remote_domain", "https://cloudflare-dns.com/dns-query"),
         "RemoteDNSIP": settings.get("dns.remote_ip", "1.1.1.1"),

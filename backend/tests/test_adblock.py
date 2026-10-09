@@ -20,7 +20,11 @@ def decode_routing(link):
 
 def test_happ_adblock_is_opt_in_and_can_be_removed():
     assert decode_routing(build_happ_routing_link({}))["BlockSites"] == []
-    assert decode_routing(build_happ_routing_link({}, adblock_enabled=True))["BlockSites"] == ["geosite:category-ads-all"]
+    profile = decode_routing(build_happ_routing_link({}, adblock_enabled=True))
+    assert profile["BlockSites"] == ["geosite:category-ads-all"]
+    assert profile["RouteOrder"] == "block-proxy-direct"
+    assert "geosite:category-ru" in profile["DirectSites"]
+    assert "geoip:ru" in profile["DirectIp"]
     assert decode_routing(build_happ_routing_link({}, adblock_enabled=False))["BlockSites"] == []
 
 @pytest.mark.asyncio
