@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field, SecretStr
 import httpx
 
 from app.api.auth import get_current_user
+from app.services.component_status import get_components
 from app.services.panel_updates import get_status, check_update, start_update
 
 router = APIRouter(prefix='/api/v1/system/updates', tags=['Обновление панели'], dependencies=[Depends(get_current_user)])
@@ -17,6 +18,11 @@ class InstallRequest(CheckRequest):
 @router.get('')
 async def status():
     return await get_status()
+
+@router.get('/components')
+async def components():
+    return await get_components()
+
 
 @router.post('/check')
 async def check(request: CheckRequest):

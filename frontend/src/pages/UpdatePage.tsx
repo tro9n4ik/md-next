@@ -6,6 +6,8 @@ import { request } from '../utils/operations';
 type Job = { phase: string; message: string; commit?: string; backup?: string };
 type Status = { installed: { version: string; commit: string }; job: Job; can_install: boolean };
 type Candidate = { commit: string; summary: string; available: boolean; ready: boolean; published_at: string };
+type Component = { key: string; name: string; version: string | null; status: string; description: string };
+const componentStates: Record<string, string> = { running: 'Работает', stopped: 'Остановлен', failed: 'Ошибка службы', starting: 'Запускается', stopping: 'Останавливается', installed: 'Установлен', not_installed: 'Не установлен', unknown: 'Статус недоступен' };
 const busyPhases = ['queued', 'preparing', 'backup', 'installing', 'checking', 'rolling_back'];
 
 export default function UpdatePage() {
@@ -13,6 +15,7 @@ export default function UpdatePage() {
   const [candidate, setCandidate] = useState<Candidate | null>(null);
   const [notice, setNotice] = useState('');
   const status = useQuery<Status>({ queryKey: ['panel-update'], queryFn: () => request('/api/v1/system/updates'), refetchInterval: query => busyPhases.includes(query.state.data?.job.phase || '') ? 3000 : 15000, retry: 1 });
+  const components = useQuery<{ components: Component[] }>({ queryKey: ['update-components'], queryFn: () => request('/api/v1/system/updates/components'), staleTime: 60000, retry: 1, refetchOnWindowFocus: false });
   const busy = busyPhases.includes(status.data?.job.phase || '');
   const check = useMutation({ mutationFn: () => request<Candidate>('/api/v1/system/updates/check', { github_token: token || undefined }), onSuccess: data => { setCandidate(data); setNotice(''); }, onError: error => { setCandidate(null); setNotice(error.message); } });
   const install = useMutation({ mutationFn: () => request<Job>('/api/v1/system/updates/install', { commit: candidate?.commit, confirm: true, github_token: token || undefined }), onSuccess: () => { setToken(''); setCandidate(null); setNotice(''); status.refetch(); }, onError: error => setNotice(error.message) });
@@ -33,6 +36,25 @@ export default function UpdatePage() {
       {status.error && <p className="text-sm text-amber-700">{busy ? 'Ожидаем возвращения панели после перезапуска…' : status.error.message}</p>}
       {status.data?.job.backup && <div className="rounded-xl bg-neutral-50 p-3 text-sm"><p className="text-neutral-600">Резервная копия обновления</p><code className="break-all">{status.data.job.backup}</code><button aria-label="Скопировать путь копии" className="ui-button ui-button-secondary mt-2" onClick={() => navigator.clipboard.writeText(status.data!.job.backup!).then(() => setNotice('Путь копии скопирован.')).catch(() => setNotice('Скопируйте путь вручную.'))}><Copy size={15} />Скопировать путь</button></div>}
       {status.data?.job.phase === 'success' && <button className="ui-button ui-button-secondary" onClick={() => window.location.reload()}>Открыть обновлённую панель</button>}
+    </section>
+    <section className="ui-card ui-panel space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="ui-card-title">Сторонние сервисы</h2>
+        <button className="ui-button ui-button-secondary" disabled={components.isFetching} onClick={() => components.refetch()}><RefreshCw size={16} />{components.isFetching ? 'Проверяем…' : 'Обновить статусы'}</button>
+      </div>
+      <p className="text-sm text-neutral-600">Установленные версии и состояние компонентов на сервере панели. Компоненты отдельных нод здесь не проверяются. Проверка не меняет настройки и не устанавливает обновления.</p>
+      {components.isPending && <p role="status" className="text-sm text-neutral-500">Получаем версии сервисов…</p>}
+      {components.error && <p role="alert" className="text-sm text-amber-700">Не удалось получить статусы. Повторите проверку.</p>}
+      <ul className="divide-y divide-neutral-200">
+        {components.data?.components.map(component => <li key={component.key} className="flex flex-wrap items-center justify-between gap-3 py-4">
+          <div className="min-w-0"><h3 className="font-medium">{component.name}</h3><p className="mt-1 text-xs text-neutral-500">{component.description}</p></div>
+          <div className="flex items-center gap-3 text-sm">
+            <code className="text-neutral-600">{component.version || (component.status === 'not_installed' ? '—' : 'Версия неизвестна')}</code>
+            <span className={['running', 'installed'].includes(component.status) ? 'rounded-lg bg-emerald-50 px-3 py-1 text-emerald-700' : ['failed', 'unknown'].includes(component.status) ? 'rounded-lg bg-amber-50 px-3 py-1 text-amber-700' : 'rounded-lg bg-neutral-100 px-3 py-1 text-neutral-600'}>{componentStates[component.status] || 'Статус недоступен'}</span>
+          </div>
+        </li>)}
+      </ul>
+      {components.dataUpdatedAt > 0 && <p className="text-xs text-neutral-500">Последняя проверка: {new Date(components.dataUpdatedAt).toLocaleTimeString('ru-RU')}</p>}
     </section>
   </>;
 }

@@ -58,6 +58,7 @@ def update_directory(monkeypatch, tmp_path):
 async def test_update_endpoints_require_auth():
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
         assert (await client.get('/api/v1/system/updates')).status_code == 401
+        assert (await client.get('/api/v1/system/updates/components')).status_code == 401
         assert (await client.post('/api/v1/system/updates/check', json={})).status_code == 401
         assert (await client.post('/api/v1/system/updates/install', json={'commit': SHA, 'confirm': True})).status_code == 401
 
