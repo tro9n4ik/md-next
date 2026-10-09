@@ -14,6 +14,35 @@ from app.services import panel_updates as updates
 SHA = 'a' * 40
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize('relation,available', [('ahead', True), ('behind', False), ('diverged', False), ('identical', False), ('unknown', False)])
+async def test_update_requires_newer_descendant(monkeypatch, relation, available):
+    factory = httpx.AsyncClient
+    def respond(request):
+        if '/compare/' in request.url.path:
+            return httpx.Response(404 if relation == 'unknown' else 200, json={'status': relation})
+        if request.url.path.endswith('/commits/main'):
+            return httpx.Response(200, json={'sha': SHA, 'commit': {'verification': {'verified': True}}})
+        return httpx.Response(200, json={'workflow_runs': [
+            {'path': path, 'conclusion': 'success'} for path in ('.github/workflows/ci.yml', '.github/workflows/secrets.yml')
+        ]})
+    monkeypatch.setattr(updates.httpx, 'AsyncClient', lambda **kwargs: factory(transport=httpx.MockTransport(respond), **kwargs))
+    monkeypatch.setattr(updates, 'installed_info', lambda: {'version': '2.4.15', 'commit': 'b' * 40})
+    result = await updates.check_update()
+    assert result['available'] is available
+    assert result['relation'] == relation
+
+
+@pytest.mark.asyncio
+async def test_old_success_does_not_describe_current_installation(monkeypatch):
+    monkeypatch.setattr(updates, 'read_state', lambda: {'phase': 'success', 'commit': SHA, 'backup': '/saved', 'message': 'Панель обновлена.'})
+    monkeypatch.setattr(updates, 'installed_info', lambda: {'version': '2.4.15', 'commit': 'b' * 40})
+    monkeypatch.setattr('app.services.privileges.enabled', lambda: False)
+    result = await updates.get_status()
+    assert 'Предыдущее' in result['job']['message']
+    assert result['job']['backup'] == '/saved'
+
+
 @pytest.mark.skipif(os.name == 'nt', reason='Linux updater uses flock and runtime symlinks')
 def test_activation_preserves_uploaded_placeholder(tmp_path, monkeypatch):
     spec = importlib.util.spec_from_file_location('placeholder_updater_test', Path(__file__).resolve().parents[2] / 'scripts/update-panel.py')

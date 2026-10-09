@@ -3,9 +3,9 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Copy, Download, RefreshCw, Network, ShieldCheck, Globe, Cable, Cloud, Shield, KeyRound, Braces, Code, CheckCircle2, CirclePause, CircleAlert, CircleHelp } from 'lucide-react';
 import { request } from '../utils/operations';
 
-type Job = { phase: string; message: string; commit?: string; backup?: string };
+type Job = { phase: string; message: string; commit?: string; backup?: string; finished_at?: number };
 type Status = { installed: { version: string; commit: string }; job: Job; can_install: boolean };
-type Candidate = { commit: string; summary: string; available: boolean; ready: boolean; signature_verified: boolean; published_at: string };
+type Candidate = { commit: string; summary: string; available: boolean; ready: boolean; signature_verified: boolean; published_at: string; relation: string };
 type Component = { key: string; name: string; version: string | null; status: string; description: string };
 const componentStates: Record<string, string> = { running: 'Работает', stopped: 'Остановлен', failed: 'Ошибка службы', starting: 'Запускается', stopping: 'Останавливается', installed: 'Установлен', not_installed: 'Не установлен', unknown: 'Статус недоступен' };
 const componentIcons = { xray: Network, adguard: ShieldCheck, nginx: Globe, awg: Cable, warp: Cloud, fail2ban: Shield, certbot: KeyRound, node: Braces, python: Code };
@@ -14,27 +14,29 @@ const busyPhases = ['queued', 'preparing', 'backup', 'installing', 'checking', '
 export default function UpdatePage() {
   const [candidate, setCandidate] = useState<Candidate | null>(null);
   const [notice, setNotice] = useState('');
+  const [startedHere, setStartedHere] = useState(false);
   const status = useQuery<Status>({ queryKey: ['panel-update'], queryFn: () => request('/api/v1/system/updates'), refetchInterval: query => busyPhases.includes(query.state.data?.job.phase || '') ? 3000 : 15000, retry: 1 });
   const components = useQuery<{ components: Component[] }>({ queryKey: ['update-components'], queryFn: () => request('/api/v1/system/updates/components'), staleTime: 60000, retry: 1, refetchOnWindowFocus: false });
   const busy = busyPhases.includes(status.data?.job.phase || '');
   const check = useMutation({ mutationFn: () => request<Candidate>('/api/v1/system/updates/check', {}), onSuccess: data => { setCandidate(data); setNotice(''); }, onError: error => { setCandidate(null); setNotice(error.message); } });
-  const install = useMutation({ mutationFn: () => request<Job>('/api/v1/system/updates/install', { commit: candidate?.commit, confirm: true }), onSuccess: () => { setCandidate(null); setNotice(''); status.refetch(); }, onError: error => setNotice(error.message) });
+  const install = useMutation({ mutationFn: () => request<Job>('/api/v1/system/updates/install', { commit: candidate?.commit, confirm: true }), onSuccess: () => { setStartedHere(true); setCandidate(null); setNotice(''); status.refetch(); }, onError: error => setNotice(error.message) });
   return <>
     <section className="ui-card ui-panel space-y-4">
       <h2 className="ui-card-title">Обновление панели</h2>
       <p className="text-sm text-neutral-600">Установлена версия {status.data?.installed.version || '…'}{status.data?.installed.commit && <> · <code>{status.data.installed.commit.slice(0, 7)}</code></>}. Обновление загружается из официального репозитория MD-Next после прохождения автоматических проверок.</p>
       <button className="ui-button ui-button-secondary" disabled={busy || check.isPending || install.isPending} onClick={() => check.mutate()}><RefreshCw size={16} />{check.isPending ? 'Проверяем…' : 'Проверить обновления'}</button>
-      {candidate && <div className="rounded-xl bg-neutral-50 p-4 space-y-2"><p className="font-medium">{candidate.available ? 'Доступна новая сборка' : 'Установлена актуальная сборка'} · {candidate.commit.slice(0, 7)}</p><p className="text-sm text-neutral-600">{candidate.summary}</p>{!candidate.ready && <p className="text-sm text-amber-700">{candidate.signature_verified ? 'Сборка ещё не прошла все проверки. Обновление станет доступно после их завершения.' : 'Подпись этой сборки не подтверждена GitHub. Установка заблокирована.'}</p>}</div>}
+      {candidate && <div className="rounded-xl bg-neutral-50 p-4 space-y-2"><p className="font-medium">{candidate.available ? 'Доступна новая сборка' : candidate.relation === 'identical' ? 'Установлена актуальная сборка' : candidate.relation === 'behind' ? 'Установленная сборка новее main' : candidate.relation === 'diverged' ? 'Установленная сборка находится в другой ветке' : 'Не удалось определить порядок сборок'} · {candidate.commit.slice(0, 7)}</p><p className="text-sm text-neutral-600">{candidate.summary}</p>{candidate.available && !candidate.ready && <p className="text-sm text-amber-700">{candidate.signature_verified ? 'Сборка ещё не прошла все проверки. Обновление станет доступно после их завершения.' : 'Подпись этой сборки не подтверждена GitHub. Установка заблокирована.'}</p>}</div>}
     </section>
     <section className="ui-card ui-panel space-y-4">
       <h2 className="ui-card-title">Установка с резервной копией</h2>
       <p className="text-sm text-neutral-600">Сначала будут подготовлены зависимости и интерфейс, затем сохранены файлы панели, база, .env и конфигурации VPN. Если миграция или запуск новой панели завершатся ошибкой, предыдущее состояние восстановится автоматически. Копия остаётся на сервере; сохраните важные данные также на другом устройстве.</p>
       <button className="ui-button ui-button-primary" disabled={busy || install.isPending || !status.data?.can_install || !candidate?.available || !candidate.ready} onClick={() => { if (window.confirm('Обновить панель? Будет создана резервная копия. Панель кратковременно перезапустится; при ошибке будет выполнен откат.')) install.mutate(); }}><Download size={16} />{busy || install.isPending ? 'Обновление выполняется…' : 'Обновить панель'}</button>
       {status.data && !status.data.can_install && <p className="text-sm text-neutral-500">Установка обновлений доступна на серверной панели.</p>}
-      <div role="status" aria-live="polite" className="text-sm text-neutral-600">{notice || status.data?.job.message}</div>
+      <div role="status" aria-live="polite" className="text-sm text-neutral-600">{notice || (busy || startedHere ? status.data?.job.message : '')}</div>
       {status.error && <p className="text-sm text-amber-700">{busy ? 'Ожидаем возвращения панели после перезапуска…' : status.error.message}</p>}
-      {status.data?.job.backup && <div className="rounded-xl bg-neutral-50 p-3 text-sm"><p className="text-neutral-600">Резервная копия обновления</p><code className="break-all">{status.data.job.backup}</code><button aria-label="Скопировать путь копии" className="ui-button ui-button-secondary mt-2" onClick={() => navigator.clipboard.writeText(status.data!.job.backup!).then(() => setNotice('Путь копии скопирован.')).catch(() => setNotice('Скопируйте путь вручную.'))}><Copy size={15} />Скопировать путь</button></div>}
-      {status.data?.job.phase === 'success' && <button className="ui-button ui-button-secondary" onClick={() => window.location.reload()}>Открыть обновлённую панель</button>}
+      {status.data && !busy && !startedHere && status.data.job.phase !== 'idle' && <details className="text-sm text-neutral-500"><summary className="cursor-pointer">Предыдущее обновление{status.data.job.finished_at ? ' · ' + new Date(status.data.job.finished_at * 1000).toLocaleString('ru-RU') : ''}</summary><p className="mt-2">{status.data.job.message}</p>{status.data.job.backup && <code className="break-all">{status.data.job.backup}</code>}</details>}
+      {(busy || startedHere) && status.data?.job.backup && <div className="rounded-xl bg-neutral-50 p-3 text-sm"><p className="text-neutral-600">Резервная копия обновления</p><code className="break-all">{status.data.job.backup}</code><button aria-label="Скопировать путь копии" className="ui-button ui-button-secondary mt-2" onClick={() => navigator.clipboard.writeText(status.data!.job.backup!).then(() => setNotice('Путь копии скопирован.')).catch(() => setNotice('Скопируйте путь вручную.'))}><Copy size={15} />Скопировать путь</button></div>}
+      {startedHere && status.data?.job.phase === 'success' && <button className="ui-button ui-button-secondary" onClick={() => window.location.reload()}>Открыть обновлённую панель</button>}
     </section>
     <section className="ui-card ui-panel space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
