@@ -60,3 +60,22 @@ async def test_secure_registration_persists_only_public_key(auth_headers):
         assert node.public_key == KEY
         assert node.protocol == "vless"
         assert node.secret == IDENTITY
+
+@pytest.mark.asyncio
+async def test_warp_probe_uses_reality_for_secure_node(monkeypatch):
+    import json
+    from pathlib import Path
+    from types import SimpleNamespace
+    from app.services import warp_node
+    monkeypatch.setattr(warp_node, "find_command", lambda _: "/usr/local/bin/xray")
+    async def capture(*args, **kwargs):
+        config = json.loads(Path(args[-1]).read_text())
+        tunnel = next(row for row in config["outbounds"] if row["tag"] == "node-1")
+        assert tunnel["protocol"] == "vless"
+        assert tunnel["streamSettings"]["security"] == "reality"
+        assert config["outbounds"][0]["streamSettings"]["sockopt"]["dialerProxy"] == "node-1"
+        raise RuntimeError("synthetic stop before process creation")
+    monkeypatch.setattr(warp_node.asyncio, "create_subprocess_exec", capture)
+    node = SimpleNamespace(id=1, host="192.0.2.1", port=443, protocol="vless", secret=IDENTITY, public_key=KEY, is_enabled=True)
+    with pytest.raises(RuntimeError, match="synthetic stop"):
+        await warp_node.test_node_proxy(node, 40000, None)
