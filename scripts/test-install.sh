@@ -22,9 +22,15 @@ INPUT
 systemctl is-active --quiet md-next-backend
 systemctl is-active --quiet xray
 systemctl is-active --quiet nginx
+test "$(systemctl show md-next-backend -p User --value)" = "md-next"
+test -L /opt/md-next/backend/md_next.db
+test "$(stat -c '%U:%a' /var/lib/md-next/data/md_next.db)" = "root:660"
+test -f /etc/sudoers.d/md-next
+if runuser -u md-next -- test -w /opt/md-next/backend/app/main.py; then exit 1; fi
 awg show awg0 > /dev/null
 nginx -t
 test "$(curl -ksS --resolve panel.md-next.test:443:127.0.0.1 https://panel.md-next.test/ -o /dev/null -w '%{http_code}')" = "200"
+test "$(curl -ksS --resolve md-next.test:443:127.0.0.1 https://md-next.test/ -o /dev/null -w '%{http_code}')" = "200"
 cd /opt/md-next/backend
 venv/bin/python - <<'PY'
 import json
@@ -40,14 +46,13 @@ from app.services.backups import create_backup
 assert create_backup('SmokeTestBackupPassword123!')
 PY
 test -f /etc/sysctl.d/90-md-next-awg.conf
-ip rule show | grep -q '^10086:'
+ip rule show | grep '^10086:' >/dev/null
 iptables -S MDNEXT_AWG_OUT > /dev/null
 test -f /var/lib/md-next/awg-routing-owned
 test -n "$(find backups -name '*.mdbackup' -print -quit)"
 ENV_HASH="$(sha256sum .env)"
 # A foreign policy must survive both forms of removal.
-ip link add md-test-foreign type dummy
-ip rule add priority 12345 iif md-test-foreign lookup 12345
+ip rule add priority 12345 fwmark 0x4d444e lookup 12345
 ip route add blackhole default table 12345
 printf 'ОТМЕНА\n' | bash "$SCRIPT_DIR/uninstall.sh" >> "$TEST_LOG" 2>&1
 systemctl is-active --quiet md-next-backend
@@ -58,17 +63,19 @@ if ip link show awg0 >/dev/null 2>&1; then exit 1; fi
 test -f md_next.db
 test "$(sha256sum .env)" = "$ENV_HASH"
 test -n "$(find backups -name '*.mdbackup' -print -quit)"
-if ip rule show | grep -q '^10086:'; then exit 1; fi
+if ip rule show | grep '^10086:' >/dev/null; then exit 1; fi
 if iptables -S MDNEXT_AWG_OUT 2>/dev/null; then exit 1; fi
 test ! -e /etc/sysctl.d/90-md-next-awg.conf
 test ! -e /etc/systemd/system/xray.service.d/30-md-next-awg-routing.conf
-ip rule show | grep -q '^12345:'
+ip rule show | grep '^12345:' >/dev/null
 printf 'УДАЛИТЬ\ny\n' | bash "$SCRIPT_DIR/uninstall.sh" >> "$TEST_LOG" 2>&1
 test ! -e /opt/md-next
 test ! -e /var/lib/md-next
 test ! -e /usr/local/etc/xray/config.json
 test ! -e /etc/amnezia/amneziawg/awg0.conf
 test ! -e /etc/letsencrypt/renewal-hooks/deploy/md-next-xray-certificate.sh
-ip rule show | grep -q '^12345:'
-ip route show table 12345 | grep -q blackhole
+ip rule show | grep '^12345:' >/dev/null
+ip route show table 12345 | grep blackhole >/dev/null
+ip rule del priority 12345 fwmark 0x4d444e lookup 12345
+ip route del blackhole default table 12345
 echo "Установка, вход, копия, отмена, сохранение данных и полное удаление проверены."

@@ -15,10 +15,14 @@ import tarfile
 import tempfile
 import time
 import urllib.request
+import pwd
+import stat
 
 ROOT = Path('/opt/md-next')
 STATE = Path('/var/lib/md-next/updates')
-CONFIGS = [Path('/usr/local/etc/xray/config.json'), Path('/etc/amnezia/amneziawg/awg0.conf')]
+DATA_DATABASE = Path('/var/lib/md-next/data/md_next.db')
+CONFIGS = [Path('/usr/local/etc/xray/config.json'), Path('/etc/amnezia/amneziawg/awg0.conf'),
+           Path('/etc/systemd/system/md-next-backend.service'), Path('/etc/systemd/system/xray.service.d/30-md-next-awg-routing.conf')]
 
 
 def environment(root):
@@ -31,12 +35,33 @@ def environment(root):
 
 
 def snapshot_database(source, target):
+    if source.is_symlink():
+        if source.resolve() != DATA_DATABASE:
+            raise RuntimeError('Unexpected database location')
+        user = pwd.getpwnam('md-next')
+        with tempfile.TemporaryDirectory(prefix='md-next-db-snapshot-') as directory:
+            os.chown(directory, user.pw_uid, user.pw_gid)
+            saved = Path(directory)/'snapshot.db'
+            code = 'import sqlite3,sys; a=sqlite3.connect(sys.argv[1]); b=sqlite3.connect(sys.argv[2]); a.backup(b); b.close(); a.close()'
+            subprocess.run(['runuser', '-u', 'md-next', '--', '/usr/bin/python3', '-c', code, str(source), str(saved)], check=True, timeout=60)
+            descriptor = os.open(saved, os.O_RDONLY | os.O_NOFOLLOW)
+            with os.fdopen(descriptor, 'rb') as snapshot:
+                if not stat.S_ISREG(os.fstat(snapshot.fileno()).st_mode): raise RuntimeError('Invalid snapshot')
+                with target.open('wb') as output: shutil.copyfileobj(snapshot, output)
+            target.chmod(0o600)
+        return
     with sqlite3.connect(source) as live, sqlite3.connect(target) as saved:
         live.backup(saved)
     target.chmod(0o600)
 
 
 def identities(root):
+    source = root / 'backend/md_next.db'
+    if source.is_symlink():
+        if source.resolve() != DATA_DATABASE: raise RuntimeError('Unexpected database location')
+        code = "import json,sqlite3,sys; db=sqlite3.connect(sys.argv[1]); print(json.dumps(db.execute('SELECT id,uuid FROM clients ORDER BY id').fetchall()))"
+        data = subprocess.check_output(['runuser', '-u', 'md-next', '--', '/usr/bin/python3', '-c', code, str(source)], text=True, timeout=30)
+        return [tuple(row) for row in json.loads(data)]
     with sqlite3.connect(root / 'backend/md_next.db') as db:
         return db.execute('SELECT id,uuid FROM clients ORDER BY id').fetchall()
 
@@ -75,11 +100,40 @@ class Updater:
     def run(self, args, cwd=None, env=None, timeout=300):
         return subprocess.run(args, cwd=cwd, env=env, stdout=self.log, stderr=subprocess.STDOUT, check=True, timeout=timeout)
 
+    def verify_revision(self, token):
+        headers = {"Accept": "application/vnd.github+json", "User-Agent": "MD-Next-updater"}
+        if token:
+            headers["Authorization"] = "Bearer " + token
+        request = urllib.request.Request(
+            "https://api.github.com/repos/tro9n4ik/md-next/commits/main",
+            headers=headers,
+        )
+        with urllib.request.urlopen(request, timeout=20) as response:
+            revision = json.load(response)
+        if revision.get("sha") != self.request["commit"] or revision.get("commit", {}).get("verification", {}).get("verified") is not True:
+            raise RuntimeError("Подпись текущей вершины main не подтверждена для выбранной версии")
+        required = ('.github/workflows/ci.yml', '.github/workflows/secrets.yml')
+        request = urllib.request.Request(
+            'https://api.github.com/repos/tro9n4ik/md-next/actions/runs?head_sha='+self.request['commit']+'&per_page=100',
+            headers=headers,
+        )
+        with urllib.request.urlopen(request, timeout=20) as response:
+            runs = json.load(response).get('workflow_runs', [])
+        latest = {}
+        for run in runs:
+            if run.get('path') in required: latest.setdefault(run['path'], run)
+        if not all(latest.get(path, {}).get('head_sha') == self.request['commit']
+                   and latest[path].get('status') == 'completed'
+                   and latest[path].get('conclusion') == 'success' for path in required):
+            raise RuntimeError('Проверки подписанной версии main ещё не прошли')
+
     def prepare(self, directory):
         self.phase('preparing', 'Скачиваем проверенную сборку и готовим зависимости. Панель продолжает работать.')
         repository = directory / 'repository'
         git_env = dict(os.environ, GIT_TERMINAL_PROMPT='0')
         token = self.request.pop('token', '')
+        # Verify before fetching or executing anything from the new repository.
+        self.verify_revision(token)
         if token:
             askpass = directory / 'askpass.py'
             askpass.write_text('#!/usr/bin/python3\nimport os,sys\nprint("x-access-token" if "username" in sys.argv[1].lower() else os.environ["MDNEXT_UPDATE_TOKEN"])\n')
@@ -110,6 +164,9 @@ class Updater:
         self.phase('backup', 'Создаём копию приложения, базы и конфигураций перед обновлением.')
         def include(info):
             parts = Path(info.name).parts
+            # Writable website/state directories must never become root restore inputs.
+            if info.issym() or info.islnk() or 'data' in parts or parts[:4] == ('backend', 'app', 'static', 'fake') or ('static' in parts and 'fake' in parts):
+                return None
             if any(part in {'.git', 'node_modules', 'venv', 'venv-releases', '__pycache__', 'backups', '.pytest_cache'} for part in parts) or Path(info.name).name in {'md_next.db', 'md_next.db-wal', 'md_next.db-shm'}:
                 return None
             return info
@@ -153,11 +210,16 @@ class Updater:
                 continue
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
-        self.run([str(venv / 'bin/python'), '-m', 'alembic', 'upgrade', 'head'], cwd=self.root / 'backend', env=environment(self.root), timeout=180)
+        migration = [str(venv / 'bin/python'), '-m', 'alembic', 'upgrade', 'head']
+        if (self.root / 'backend/md_next.db').is_symlink(): migration = ['runuser', '-u', 'md-next', '--', *migration]
+        self.run(migration, cwd=self.root / 'backend', env=environment(self.root), timeout=180)
         shutil.copytree(repository / 'frontend/dist/assets', self.root / 'frontend/dist/assets', dirs_exist_ok=True)
         index = self.root / 'frontend/dist/index.html'
         shutil.copy2(repository / 'frontend/dist/index.html', index.with_suffix('.next'))
         index.with_suffix('.next').replace(index)
+        separator = self.root / 'scripts/install-privilege-separation.py'
+        if separator.is_file():
+            self.run(['/usr/bin/python3', str(separator), '--configure-only'], timeout=120)
         self.run(['systemctl', 'start', 'md-next-backend'])
         self.phase('checking', 'Проверяем запуск панели и сохранность клиентов.')
         self.wait_ready()
@@ -189,9 +251,26 @@ class Updater:
             if venv.is_symlink():
                 venv.unlink()
             venv.symlink_to(self.old_venv, target_is_directory=True)
+        database = self.root / 'backend/md_next.db'
+        destination = database.resolve() if database.is_symlink() else database
+        if database.is_symlink() and destination != DATA_DATABASE:
+            raise RuntimeError('Unexpected database location')
         for suffix in ('-wal', '-shm'):
-            (self.root / ('backend/md_next.db' + suffix)).unlink(missing_ok=True)
-        shutil.copy2(self.backup / 'md_next.db', self.root / 'backend/md_next.db')
+            Path(str(destination)+suffix).unlink(missing_ok=True)
+        # A failed first migration must return the old root backend to its
+        # original database path, rather than keep the new privilege layout.
+        restored_privileges = any(
+            line.partition('=')[0].strip() == 'MDNEXT_PRIVILEGED_HELPER'
+            and line.partition('=')[2].strip().strip('"').strip("'") == '1'
+            for line in (self.root / 'backend/.env').read_text().splitlines()
+        )
+        if database.is_symlink() and not restored_privileges:
+            database.unlink()
+            destination = database
+        descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(descriptor, 'wb') as output, (self.backup / 'md_next.db').open('rb') as source:
+            shutil.copyfileobj(source, output)
+        if database.is_symlink(): destination.chmod(0o660)
         with tempfile.TemporaryDirectory(prefix='md-next-rollback-') as temporary:
             with tarfile.open(self.backup / 'vpn-configurations.tar.gz') as archive:
                 archive.extractall(temporary, filter='data')
@@ -199,6 +278,10 @@ class Updater:
                 source = Path(temporary) / str(index)
                 if source.exists():
                     shutil.copy2(source, destination)
+        separator = self.root / 'scripts/install-privilege-separation.py'
+        if separator.is_file() and restored_privileges:
+            self.run(['/usr/bin/python3', str(separator), '--configure-only'], timeout=120)
+        self.run(['systemctl', 'daemon-reload'])
         self.run(['systemctl', 'restart', 'xray', 'md-next-backend', *self.awg_units])
         self.wait_ready()
         self.phase('rolled_back', 'Обновление не удалось. Предыдущая версия и данные восстановлены.')

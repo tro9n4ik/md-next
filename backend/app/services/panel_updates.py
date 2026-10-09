@@ -46,6 +46,11 @@ def installed_info():
 
 async def get_status():
     state = read_state()
+    from app.services.privileges import enabled, call
+    if enabled():
+        code, output, error = await call('update-status')
+        if code: raise RuntimeError(error)
+        state = json.loads(output)
     if state.get('phase') in BUSY:
         try:
             code, active, _ = await run_cmd('systemctl', 'is-active', 'md-next-panel-update.service', timeout=5)
@@ -53,7 +58,10 @@ async def get_status():
                 state = {**state, 'phase': 'error', 'message': 'Процесс обновления прерван. Проверьте состояние панели и сохранённую копию перед повторным запуском.'}
         except RuntimeError:
             pass
-    return {'installed': installed_info(), 'job': state, 'can_install': sys.platform.startswith('linux') and APP_ROOT == Path('/opt/md-next') and (APP_ROOT / 'scripts/update-panel.py').is_file()}
+    installed = installed_info()
+    if state.get('phase') == 'success' and state.get('commit') != installed['commit']:
+        state = {**state, 'message': 'Предыдущее обновление завершено. Сейчас установлена другая сборка.'}
+    return {'installed': installed, 'job': state, 'can_install': sys.platform.startswith('linux') and APP_ROOT == Path('/opt/md-next') and (APP_ROOT / 'scripts/update-panel.py').is_file()}
 
 
 async def check_update(token=''):
@@ -70,6 +78,17 @@ async def check_update(token=''):
         commit = data.get('sha', '')
         if not re.fullmatch(r'[0-9a-f]{40}', commit):
             raise ValueError('GitHub вернул некорректный идентификатор версии.')
+        verified = data.get('commit', {}).get('verification', {}).get('verified') is True
+        current = installed_info()['commit']
+        relation = 'unknown'
+        if len(current) >= 7 and commit.startswith(current):
+            relation = 'identical'
+        elif re.fullmatch(r'[0-9a-f]{7,40}', current):
+            comparison = await client.get(f'https://api.github.com/repos/{REPOSITORY}/compare/{current}...{commit}', headers=headers)
+            if comparison.status_code == 200:
+                relation = comparison.json().get('status', 'unknown')
+            elif comparison.status_code != 404:
+                comparison.raise_for_status()
         runs = await client.get(f'https://api.github.com/repos/{REPOSITORY}/actions/runs', params={'head_sha': commit, 'event': 'push', 'per_page': 30}, headers=headers)
         runs.raise_for_status()
         checks = [run for run in runs.json().get('workflow_runs', []) if run.get('path') in ('.github/workflows/ci.yml', '.github/workflows/secrets.yml')]
@@ -77,10 +96,9 @@ async def check_update(token=''):
         latest = {}
         for run in checks:
             latest.setdefault(run['path'], run)
-        ready = all(latest.get(path, {}).get('conclusion') == 'success' for path in ('.github/workflows/ci.yml', '.github/workflows/secrets.yml'))
+        ready = verified and all(latest.get(path, {}).get('conclusion') == 'success' for path in ('.github/workflows/ci.yml', '.github/workflows/secrets.yml'))
     installed = installed_info()
-    current = installed['commit']
-    return {'commit': commit, 'summary': data.get('commit', {}).get('message', '').split('\n')[0][:300], 'published_at': data.get('commit', {}).get('committer', {}).get('date'), 'available': not (len(current) >= 7 and commit.startswith(current)), 'ready': ready, 'installed': installed}
+    return {'commit': commit, 'summary': data.get('commit', {}).get('message', '').split('\n')[0][:300], 'published_at': data.get('commit', {}).get('committer', {}).get('date'), 'available': relation == 'ahead', 'relation': relation, 'ready': ready, 'signature_verified': verified, 'installed': installed}
 
 
 async def start_update(commit, token=''):
@@ -95,6 +113,12 @@ async def start_update(commit, token=''):
             raise ValueError('Версия изменилась или ещё не прошла проверки. Проверьте обновления повторно.')
         if not candidate['available']:
             raise ValueError('Эта версия уже установлена.')
+        from app.services.privileges import enabled, call
+        if enabled():
+            code, output, error = await call('update-start', commit=commit,
+                token=token or os.getenv('MDNEXT_GITHUB_TOKEN', ''))
+            if code: raise RuntimeError(error)
+            return json.loads(output)
         STATE_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
         request_file = STATE_DIR / ('request-' + uuid.uuid4().hex + '.json')
         descriptor = os.open(request_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)

@@ -178,6 +178,10 @@ async def _port_listening(port: int, host: str = "127.0.0.1") -> bool:
 
 
 async def _certificate_days() -> int | None:
+    from app.services.privileges import enabled, call
+    if enabled():
+        code, output, _ = await call('certificate-days')
+        return int(output) if code == 0 else None
     host = os.getenv("SERVER_HOST", "")
     path = os.getenv("TLS_CERT_PATH") or (f"/etc/letsencrypt/live/{host}/fullchain.pem" if host else "")
     if not path:

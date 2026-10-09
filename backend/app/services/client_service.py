@@ -144,7 +144,7 @@ class ClientService:
             "node_fallback_tag": node_fallback_tag,
             "unavailable_selected_node": use_stored_node and active_node is None and bool(selected_setting and (selected_setting.value or "").isdecimal()),
             "routing_rules": xray_routing_rules,
-            "nodes": [{"id": node.id, "host": node.host, "port": node.port, "protocol": node.protocol, "secret": node.secret} for node in node_rows if node.secret],
+            "nodes": [{"id": node.id, "host": node.host, "port": node.port, "protocol": node.protocol, "secret": node.secret, "public_key": node.public_key} for node in node_rows if node.secret],
         }
         success, message = await XrayService.apply_config(clients=tcp_clients, active_node=active_node, profile_options=options)
         log_event("info" if success else "error", "xray", "Конфигурация Xray успешно применена" if success else "Ошибка применения конфигурации Xray", {} if success else {"reason": message[:400]})

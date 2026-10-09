@@ -7,6 +7,7 @@ import socket
 import tempfile
 
 from app.services.shell import find_command
+from app.services.node_transport import node_outbound as build_node_outbound
 
 
 def warp_outbound(port: int, node_tag: str | None = None) -> dict:
@@ -24,9 +25,11 @@ async def test_node_proxy(node, port: int, probe) -> dict:
     if not binary:
         raise RuntimeError("Xray не установлен: невозможно проверить WARP ноды")
     tag = f"node-{node.id}"
-    node_outbound = {"tag": tag, "protocol": node.protocol or "trojan", "settings": {
-        "servers": [{"address": node.host, "port": node.port, "password": node.secret}]},
-        "streamSettings": {"network": "grpc", "grpcSettings": {"serviceName": "MD-Next-Node"}}}
+    node_outbound = build_node_outbound({
+        "id": node.id, "host": node.host, "port": node.port,
+        "protocol": node.protocol, "secret": node.secret,
+        "public_key": getattr(node, "public_key", None),
+    })
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         local_port = listener.getsockname()[1]

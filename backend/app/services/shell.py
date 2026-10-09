@@ -51,6 +51,12 @@ async def run_cmd(
     if not args:
         raise ValueError("Не задана команда для запуска")
 
+    from app.services.privileges import enabled, call
+    if enabled() and (args[0] in {'systemctl', 'awg', 'awg-quick', 'systemd-run'} or
+                      args[0] == 'xray' and len(args) > 2 and args[1:3] == ('run', '-test') or
+                      args[0] == 'python3' and len(args) > 1 and args[1].endswith('/awg-routing.py')):
+        return await call('command', args=list(args), timeout=timeout + 5)
+
     command_env = _command_env(env)
     binary = find_command(args[0], command_env)
     display_name = _COMMAND_NAMES.get(args[0], args[0])

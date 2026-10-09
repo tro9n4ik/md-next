@@ -14,6 +14,35 @@ from app.services import panel_updates as updates
 SHA = 'a' * 40
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize('relation,available', [('ahead', True), ('behind', False), ('diverged', False), ('identical', False), ('unknown', False)])
+async def test_update_requires_newer_descendant(monkeypatch, relation, available):
+    factory = httpx.AsyncClient
+    def respond(request):
+        if '/compare/' in request.url.path:
+            return httpx.Response(404 if relation == 'unknown' else 200, json={'status': relation})
+        if request.url.path.endswith('/commits/main'):
+            return httpx.Response(200, json={'sha': SHA, 'commit': {'verification': {'verified': True}}})
+        return httpx.Response(200, json={'workflow_runs': [
+            {'path': path, 'conclusion': 'success'} for path in ('.github/workflows/ci.yml', '.github/workflows/secrets.yml')
+        ]})
+    monkeypatch.setattr(updates.httpx, 'AsyncClient', lambda **kwargs: factory(transport=httpx.MockTransport(respond), **kwargs))
+    monkeypatch.setattr(updates, 'installed_info', lambda: {'version': '2.4.15', 'commit': 'b' * 40})
+    result = await updates.check_update()
+    assert result['available'] is available
+    assert result['relation'] == relation
+
+
+@pytest.mark.asyncio
+async def test_old_success_does_not_describe_current_installation(monkeypatch):
+    monkeypatch.setattr(updates, 'read_state', lambda: {'phase': 'success', 'commit': SHA, 'backup': '/saved', 'message': 'Панель обновлена.'})
+    monkeypatch.setattr(updates, 'installed_info', lambda: {'version': '2.4.15', 'commit': 'b' * 40})
+    monkeypatch.setattr('app.services.privileges.enabled', lambda: False)
+    result = await updates.get_status()
+    assert 'Предыдущее' in result['job']['message']
+    assert result['job']['backup'] == '/saved'
+
+
 @pytest.mark.skipif(os.name == 'nt', reason='Linux updater uses flock and runtime symlinks')
 def test_activation_preserves_uploaded_placeholder(tmp_path, monkeypatch):
     spec = importlib.util.spec_from_file_location('placeholder_updater_test', Path(__file__).resolve().parents[2] / 'scripts/update-panel.py')
@@ -121,7 +150,8 @@ async def test_dispatch_keeps_credentials_out_of_command_and_status(monkeypatch)
         assert request.stat().st_mode & 0o777 == 0o600
 
 @pytest.mark.skipif(os.name == 'nt', reason='Linux updater uses flock and symlinks')
-def test_updater_restores_files_database_and_runtime_after_failed_activation(tmp_path, monkeypatch):
+@pytest.mark.parametrize('first_migration', [False, True])
+def test_updater_restores_files_database_and_runtime_after_failed_activation(tmp_path, monkeypatch, first_migration):
     spec = importlib.util.spec_from_file_location('panel_updater_test', Path(__file__).resolve().parents[2] / 'scripts/update-panel.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -140,17 +170,26 @@ def test_updater_restores_files_database_and_runtime_after_failed_activation(tmp
     config = tmp_path / 'xray.json'
     config.write_text('previous configuration')
     monkeypatch.setattr(module, 'CONFIGS', [config])
+    data_database = tmp_path / 'data.db'
+    monkeypatch.setattr(module, 'DATA_DATABASE', data_database)
     state = tmp_path / 'state'
     state.mkdir()
     updater = module.Updater(root, state, {'commit': SHA, 'python': '/usr/bin/python3'})
     monkeypatch.setattr(updater, 'prepare', lambda directory: directory)
-    monkeypatch.setattr(updater, 'run', lambda *args, **kwargs: None)
+    commands = []
+    monkeypatch.setattr(updater, 'run', lambda args, **kwargs: commands.append(args))
     monkeypatch.setattr(updater, 'wait_ready', lambda: None)
     def fail_activation(repository):
         updater.activated = True
         updater.old_venv = old_runtime
         (backend / 'application.py').write_text('broken version')
         config.write_text('broken configuration')
+        if first_migration:
+            (backend / 'md_next.db').rename(data_database)
+            (backend / 'md_next.db').symlink_to(data_database)
+            (backend / '.env').write_text('MDNEXT_PRIVILEGED_HELPER=1\n')
+            (root / 'scripts').mkdir()
+            (root / 'scripts/install-privilege-separation.py').write_text('new installer')
         with sqlite3.connect(backend / 'md_next.db') as db:
             db.execute("UPDATE clients SET uuid='changed-client'")
         raise RuntimeError('Migration/startup failed')
@@ -159,6 +198,8 @@ def test_updater_restores_files_database_and_runtime_after_failed_activation(tmp
     assert (backend / 'application.py').read_text() == 'previous version'
     assert config.read_text() == 'previous configuration'
     assert module.identities(root) == [(1, 'original-client')]
+    assert not (backend / 'md_next.db').is_symlink()
+    assert not any('install-privilege-separation.py' in ' '.join(command) for command in commands)
     assert (backend / 'venv').resolve() == old_runtime
     assert json.loads((state / 'status.json').read_text())['phase'] == 'rolled_back'
 
@@ -189,3 +230,60 @@ def test_rollback_selects_only_previously_running_awg_units(monkeypatch):
     from subprocess import CompletedProcess
     monkeypatch.setattr(module.subprocess, 'run', lambda args, **kwargs: CompletedProcess(args, 0 if args[-1] == 'awg-quick@awg0.service' else 3, 'active\n' if args[-1] == 'awg-quick@awg0.service' else 'inactive\n'))
     assert module.active_awg_units() == ['awg-quick@awg0.service']
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("verified", [True, False, None])
+async def test_signature_is_required_even_when_ci_passes(monkeypatch, verified):
+    factory = httpx.AsyncClient
+    def respond(request):
+        if request.url.path.endswith('/commits/main'):
+            return httpx.Response(200, json={'sha': SHA, 'commit': {'verification': {'verified': verified}}})
+        return httpx.Response(200, json={'workflow_runs': [
+            {'path': path, 'conclusion': 'success'} for path in ('.github/workflows/ci.yml', '.github/workflows/secrets.yml')
+        ]})
+    monkeypatch.setattr(updates.httpx, 'AsyncClient', lambda **kwargs: factory(transport=httpx.MockTransport(respond), **kwargs))
+    result = await updates.check_update()
+    assert result['signature_verified'] is (verified is True)
+    assert result['ready'] is (verified is True)
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='Linux updater uses flock')
+def test_updater_checks_signature_before_executing_downloaded_code(tmp_path, monkeypatch):
+    from contextlib import nullcontext
+    spec = importlib.util.spec_from_file_location('signature_updater_test', Path(__file__).resolve().parents[2] / 'scripts/update-panel.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    updater = module.Updater(tmp_path / 'root', tmp_path, {'commit': SHA})
+    monkeypatch.setattr(updater, 'phase', lambda *args: None)
+    from unittest.mock import Mock
+    execute = Mock()
+    monkeypatch.setattr(updater, 'run', execute)
+    from io import StringIO
+    monkeypatch.setattr(module.urllib.request, 'urlopen', lambda *args, **kwargs: nullcontext(StringIO(json.dumps({'sha': SHA, 'commit': {'verification': {'verified': False}}}))))
+    with pytest.raises(RuntimeError, match='Подпись'):
+        updater.prepare(tmp_path)
+    execute.assert_not_called()
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='Linux updater uses flock')
+@pytest.mark.parametrize('case', ['other_branch', 'pending_ci', 'newer_failed_attempt', 'valid'])
+def test_root_updater_requires_signed_main_and_latest_successful_checks(tmp_path, monkeypatch, case):
+    from contextlib import nullcontext
+    from io import StringIO
+    spec = importlib.util.spec_from_file_location('root_revision_policy', Path(__file__).resolve().parents[2] / 'scripts/update-panel.py')
+    module = importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    def response(request, **kwargs):
+        if request.full_url.endswith('/commits/main'):
+            payload = {'sha': 'b'*40 if case == 'other_branch' else SHA, 'commit': {'verification': {'verified': True}}}
+        else:
+            runs = [{'path': path, 'head_sha': SHA, 'status': 'completed', 'conclusion': 'success'} for path in ('.github/workflows/ci.yml', '.github/workflows/secrets.yml')]
+            if case == 'pending_ci': runs[0]['status'] = 'in_progress';runs[0]['conclusion'] = None
+            if case == 'newer_failed_attempt': runs.insert(0, {**runs[0], 'conclusion': 'failure'})
+            payload = {'workflow_runs': runs}
+        return nullcontext(StringIO(json.dumps(payload)))
+    monkeypatch.setattr(module.urllib.request, 'urlopen', response)
+    updater = module.Updater(tmp_path, tmp_path, {'commit': SHA})
+    if case == 'valid': updater.verify_revision('')
+    else:
+        with pytest.raises(RuntimeError): updater.verify_revision('')

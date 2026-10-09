@@ -21,6 +21,7 @@ jobs:
           cache-dependency-path: backend/requirements*.txt
       - run: python -m pip install -r requirements-dev.txt
         working-directory: backend
+      - run: python scripts/check-release-consistency.py
       - run: python -m pytest -q
         working-directory: backend
       - run: python -m pip_audit -r requirements.txt
