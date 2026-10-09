@@ -121,7 +121,8 @@ async def test_dispatch_keeps_credentials_out_of_command_and_status(monkeypatch)
         assert request.stat().st_mode & 0o777 == 0o600
 
 @pytest.mark.skipif(os.name == 'nt', reason='Linux updater uses flock and symlinks')
-def test_updater_restores_files_database_and_runtime_after_failed_activation(tmp_path, monkeypatch):
+@pytest.mark.parametrize('first_migration', [False, True])
+def test_updater_restores_files_database_and_runtime_after_failed_activation(tmp_path, monkeypatch, first_migration):
     spec = importlib.util.spec_from_file_location('panel_updater_test', Path(__file__).resolve().parents[2] / 'scripts/update-panel.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -140,17 +141,26 @@ def test_updater_restores_files_database_and_runtime_after_failed_activation(tmp
     config = tmp_path / 'xray.json'
     config.write_text('previous configuration')
     monkeypatch.setattr(module, 'CONFIGS', [config])
+    data_database = tmp_path / 'data.db'
+    monkeypatch.setattr(module, 'DATA_DATABASE', data_database)
     state = tmp_path / 'state'
     state.mkdir()
     updater = module.Updater(root, state, {'commit': SHA, 'python': '/usr/bin/python3'})
     monkeypatch.setattr(updater, 'prepare', lambda directory: directory)
-    monkeypatch.setattr(updater, 'run', lambda *args, **kwargs: None)
+    commands = []
+    monkeypatch.setattr(updater, 'run', lambda args, **kwargs: commands.append(args))
     monkeypatch.setattr(updater, 'wait_ready', lambda: None)
     def fail_activation(repository):
         updater.activated = True
         updater.old_venv = old_runtime
         (backend / 'application.py').write_text('broken version')
         config.write_text('broken configuration')
+        if first_migration:
+            (backend / 'md_next.db').rename(data_database)
+            (backend / 'md_next.db').symlink_to(data_database)
+            (backend / '.env').write_text('MDNEXT_PRIVILEGED_HELPER=1\n')
+            (root / 'scripts').mkdir()
+            (root / 'scripts/install-privilege-separation.py').write_text('new installer')
         with sqlite3.connect(backend / 'md_next.db') as db:
             db.execute("UPDATE clients SET uuid='changed-client'")
         raise RuntimeError('Migration/startup failed')
@@ -159,6 +169,8 @@ def test_updater_restores_files_database_and_runtime_after_failed_activation(tmp
     assert (backend / 'application.py').read_text() == 'previous version'
     assert config.read_text() == 'previous configuration'
     assert module.identities(root) == [(1, 'original-client')]
+    assert not (backend / 'md_next.db').is_symlink()
+    assert not any('install-privilege-separation.py' in ' '.join(command) for command in commands)
     assert (backend / 'venv').resolve() == old_runtime
     assert json.loads((state / 'status.json').read_text())['phase'] == 'rolled_back'
 

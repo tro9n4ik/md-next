@@ -20,6 +20,7 @@ import stat
 
 ROOT = Path('/opt/md-next')
 STATE = Path('/var/lib/md-next/updates')
+DATA_DATABASE = Path('/var/lib/md-next/data/md_next.db')
 CONFIGS = [Path('/usr/local/etc/xray/config.json'), Path('/etc/amnezia/amneziawg/awg0.conf'),
            Path('/etc/systemd/system/md-next-backend.service'), Path('/etc/systemd/system/xray.service.d/30-md-next-awg-routing.conf')]
 
@@ -35,7 +36,7 @@ def environment(root):
 
 def snapshot_database(source, target):
     if source.is_symlink():
-        if source.resolve() != Path('/var/lib/md-next/data/md_next.db'):
+        if source.resolve() != DATA_DATABASE:
             raise RuntimeError('Unexpected database location')
         user = pwd.getpwnam('md-next')
         with tempfile.TemporaryDirectory(prefix='md-next-db-snapshot-') as directory:
@@ -57,7 +58,7 @@ def snapshot_database(source, target):
 def identities(root):
     source = root / 'backend/md_next.db'
     if source.is_symlink():
-        if source.resolve() != Path('/var/lib/md-next/data/md_next.db'): raise RuntimeError('Unexpected database location')
+        if source.resolve() != DATA_DATABASE: raise RuntimeError('Unexpected database location')
         code = "import json,sqlite3,sys; db=sqlite3.connect(sys.argv[1]); print(json.dumps(db.execute('SELECT id,uuid FROM clients ORDER BY id').fetchall()))"
         data = subprocess.check_output(['runuser', '-u', 'md-next', '--', '/usr/bin/python3', '-c', code, str(source)], text=True, timeout=30)
         return [tuple(row) for row in json.loads(data)]
@@ -238,11 +239,21 @@ class Updater:
             venv.symlink_to(self.old_venv, target_is_directory=True)
         database = self.root / 'backend/md_next.db'
         destination = database.resolve() if database.is_symlink() else database
-        if database.is_symlink() and destination != Path('/var/lib/md-next/data/md_next.db'):
+        if database.is_symlink() and destination != DATA_DATABASE:
             raise RuntimeError('Unexpected database location')
         for suffix in ('-wal', '-shm'):
             Path(str(destination)+suffix).unlink(missing_ok=True)
-        descriptor = os.open(destination, os.O_WRONLY | os.O_TRUNC | os.O_NOFOLLOW)
+        # A failed first migration must return the old root backend to its
+        # original database path, rather than keep the new privilege layout.
+        restored_privileges = any(
+            line.partition('=')[0].strip() == 'MDNEXT_PRIVILEGED_HELPER'
+            and line.partition('=')[2].strip().strip('"').strip("'") == '1'
+            for line in (self.root / 'backend/.env').read_text().splitlines()
+        )
+        if database.is_symlink() and not restored_privileges:
+            database.unlink()
+            destination = database
+        descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
         with os.fdopen(descriptor, 'wb') as output, (self.backup / 'md_next.db').open('rb') as source:
             shutil.copyfileobj(source, output)
         if database.is_symlink(): destination.chmod(0o660)
@@ -254,7 +265,7 @@ class Updater:
                 if source.exists():
                     shutil.copy2(source, destination)
         separator = self.root / 'scripts/install-privilege-separation.py'
-        if separator.is_file():
+        if separator.is_file() and restored_privileges:
             self.run(['/usr/bin/python3', str(separator), '--configure-only'], timeout=120)
         self.run(['systemctl', 'daemon-reload'])
         self.run(['systemctl', 'restart', 'xray', 'md-next-backend', *self.awg_units])
