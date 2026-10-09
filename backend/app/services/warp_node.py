@@ -29,6 +29,7 @@ async def test_node_proxy(node, port: int, probe) -> dict:
         "id": node.id, "host": node.host, "port": node.port,
         "protocol": node.protocol, "secret": node.secret,
         "public_key": getattr(node, "public_key", None),
+                    "short_id": getattr(node, "short_id", None),
     })
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))

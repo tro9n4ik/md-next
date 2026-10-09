@@ -26,6 +26,7 @@ test "$(systemctl show md-next-backend -p User --value)" = "md-next"
 test -L /opt/md-next/backend/md_next.db
 test "$(stat -c '%U:%a' /var/lib/md-next/data/md_next.db)" = "root:660"
 test -f /etc/sudoers.d/md-next
+python3 /opt/md-next/scripts/install-privilege-separation.py --verify-copies
 if runuser -u md-next -- test -w /opt/md-next/backend/app/main.py; then exit 1; fi
 awg show awg0 > /dev/null
 nginx -t

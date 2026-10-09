@@ -33,13 +33,14 @@ class NodeRegister(BaseModel):
     port: int = Field(ge=1, le=65535)
     protocol: Literal['trojan', 'vless'] = "trojan"
     public_key: str | None = Field(default=None, pattern=r'^[A-Za-z0-9_-]{43}$')
+    short_id: str = Field(default='', pattern=r'^(?:[0-9a-f]{2}){0,8}$')
     identity: UUID | None = None
 
     @model_validator(mode='after')
     def secure_transport_fields(self):
         if self.protocol == 'vless' and (not self.public_key or not self.identity):
             raise ValueError('Для VLESS Reality необходимы публичный ключ и UUID')
-        if self.protocol == 'trojan' and (self.public_key or self.identity):
+        if self.protocol == 'trojan' and (self.public_key or self.identity or self.short_id):
             raise ValueError('Параметры Reality допустимы только для VLESS')
         return self
 
@@ -338,6 +339,7 @@ async def register_node(node_data: NodeRegister, db: AsyncSession = Depends(get_
         target_node.protocol = node_data.protocol
         target_node.secret = node_secret
         target_node.public_key = node_data.public_key
+        target_node.short_id = node_data.short_id
         target_node.last_seen = now
         invite.node_id = target_node.id
     else:
@@ -350,6 +352,7 @@ async def register_node(node_data: NodeRegister, db: AsyncSession = Depends(get_
             protocol=node_data.protocol,
             secret=node_secret,
             public_key=node_data.public_key,
+            short_id=node_data.short_id,
             is_active=True,
             last_seen=now,
             priority=(last_priority or 0) + (1 if last_priority is not None else 0)

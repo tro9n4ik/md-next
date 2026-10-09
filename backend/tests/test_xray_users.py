@@ -33,28 +33,40 @@ def test_unsafe_or_structural_change_requires_full_config(mutation):
 
 
 @pytest.mark.asyncio
-async def test_cli_zero_without_confirmation_is_failure(monkeypatch):
+async def test_revocation_requires_restart_without_api_calls(monkeypatch):
     old = config(); new = copy.deepcopy(old)
     new["inbounds"][1]["settings"]["clients"] = []
-    command = AsyncMock(return_value=(0, "Removed 0 user(s) in total.", ""))
+    command = AsyncMock()
+    monkeypatch.setattr("app.services.xray_users.run_cmd", command)
+    assert await apply_user_changes(old, new) is False
+    command.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cli_zero_without_confirmation_is_failure(monkeypatch):
+    old = config(); new = copy.deepcopy(old)
+    new["inbounds"][1]["settings"]["clients"].append({"id": "new", "email": "c2-vless_reality_tcp@md-next"})
+    command = AsyncMock(return_value=(0, "Added 0 user(s) in total.", ""))
     monkeypatch.setattr("app.services.xray_users.run_cmd", command)
     with pytest.raises(RuntimeError): await apply_user_changes(old, new)
 
 
 @pytest.mark.asyncio
-async def test_failed_add_restores_removed_user(monkeypatch):
+async def test_failed_add_rolls_back_confirmed_additions(monkeypatch):
     old = config(); new = copy.deepcopy(old)
-    new["inbounds"][1]["settings"]["clients"][0]["id"] = "replacement"
+    new["inbounds"][1]["settings"]["clients"] += [
+        {"id": "new", "email": "c2-vless_reality_tcp@md-next"},
+        {"id": "failure", "email": "c3-vless_reality_tcp@md-next"}]
     calls = []
     async def command(*args, **kwargs):
         calls.append(args)
         if args[2] == "rmu": return 0, "Removed 1 user(s) in total.", ""
-        with open(args[-1], encoding="utf8") as stream:
-            payload = json.load(stream)
+        with open(args[-1], encoding="utf8") as stream: payload = json.load(stream)
         assert "streamSettings" not in payload["inbounds"][0]
         assert payload["inbounds"][0]["port"] == 443
         user = payload["inbounds"][0]["settings"]["clients"][0]
-        return 0, f"Added {0 if user['id'] == 'replacement' else 1} user(s) in total.", ""
+        return 0, f"Added {0 if user['id'] == 'failure' else 1} user(s) in total.", ""
     monkeypatch.setattr("app.services.xray_users.run_cmd", command)
     with pytest.raises(RuntimeError): await apply_user_changes(old, new)
     assert len(calls) == 3
+    assert calls[-1][2] == "rmu"
