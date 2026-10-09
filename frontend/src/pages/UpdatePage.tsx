@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Copy, Download, RefreshCw } from 'lucide-react';
+import { Copy, Download, RefreshCw, Network, ShieldCheck, Globe, Cable, Cloud, Shield, KeyRound, Braces, Code, CheckCircle2, CirclePause, CircleAlert, CircleHelp } from 'lucide-react';
 import { request } from '../utils/operations';
 
 type Job = { phase: string; message: string; commit?: string; backup?: string };
@@ -8,6 +8,7 @@ type Status = { installed: { version: string; commit: string }; job: Job; can_in
 type Candidate = { commit: string; summary: string; available: boolean; ready: boolean; published_at: string };
 type Component = { key: string; name: string; version: string | null; status: string; description: string };
 const componentStates: Record<string, string> = { running: 'Работает', stopped: 'Остановлен', failed: 'Ошибка службы', starting: 'Запускается', stopping: 'Останавливается', installed: 'Установлен', not_installed: 'Не установлен', unknown: 'Статус недоступен' };
+const componentIcons = { xray: Network, adguard: ShieldCheck, nginx: Globe, awg: Cable, warp: Cloud, fail2ban: Shield, certbot: KeyRound, node: Braces, python: Code };
 const busyPhases = ['queued', 'preparing', 'backup', 'installing', 'checking', 'rolling_back'];
 
 export default function UpdatePage() {
@@ -45,15 +46,23 @@ export default function UpdatePage() {
       <p className="text-sm text-neutral-600">Установленные версии и состояние компонентов на сервере панели. Компоненты отдельных нод здесь не проверяются. Проверка не меняет настройки и не устанавливает обновления.</p>
       {components.isPending && <p role="status" className="text-sm text-neutral-500">Получаем версии сервисов…</p>}
       {components.error && <p role="alert" className="text-sm text-amber-700">Не удалось получить статусы. Повторите проверку.</p>}
-      <ul className="divide-y divide-neutral-200">
-        {components.data?.components.map(component => <li key={component.key} className="flex flex-wrap items-center justify-between gap-3 py-4">
-          <div className="min-w-0"><h3 className="font-medium">{component.name}</h3><p className="mt-1 text-xs text-neutral-500">{component.description}</p></div>
-          <div className="flex items-center gap-3 text-sm">
-            <code className="text-neutral-600">{component.version || (component.status === 'not_installed' ? '—' : 'Версия неизвестна')}</code>
-            <span className={['running', 'installed'].includes(component.status) ? 'rounded-lg bg-emerald-50 px-3 py-1 text-emerald-700' : ['failed', 'unknown'].includes(component.status) ? 'rounded-lg bg-amber-50 px-3 py-1 text-amber-700' : 'rounded-lg bg-neutral-100 px-3 py-1 text-neutral-600'}>{componentStates[component.status] || 'Статус недоступен'}</span>
-          </div>
-        </li>)}
-      </ul>
+      <div className="overflow-x-auto">
+        <ul className="min-w-[360px]">
+          {components.data?.components.map(component => {
+            const Icon = componentIcons[component.key as keyof typeof componentIcons] || Code;
+            const healthy = ['running', 'installed'].includes(component.status);
+            const warning = ['failed', 'unknown'].includes(component.status);
+            const StatusIcon = healthy ? CheckCircle2 : warning ? CircleAlert : component.status === 'not_installed' ? CircleHelp : CirclePause;
+            const label = componentStates[component.status] || 'Статус недоступен';
+            return <li key={component.key} className="flex items-center gap-3 border-b border-neutral-200 py-3 last:border-b-0" title={component.description}>
+              <Icon size={20} aria-hidden="true" className="shrink-0 text-neutral-500" />
+              <span className="min-w-0 flex-1 truncate text-sm font-medium">{component.name}</span>
+              <code className="shrink-0 text-xs text-neutral-600">{component.version || (component.status === 'not_installed' ? '—' : 'Версия неизвестна')}</code>
+              <span role="img" aria-label={label} title={label} className={healthy ? 'shrink-0 text-emerald-700' : warning ? 'shrink-0 text-amber-700' : 'shrink-0 text-neutral-500'}><StatusIcon size={19} aria-hidden="true" /></span>
+            </li>;
+          })}
+        </ul>
+      </div>
       {components.dataUpdatedAt > 0 && <p className="text-xs text-neutral-500">Последняя проверка: {new Date(components.dataUpdatedAt).toLocaleTimeString('ru-RU')}</p>}
     </section>
   </>;
