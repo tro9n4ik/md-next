@@ -5,7 +5,7 @@ from urllib.parse import quote, urlparse
 import ipaddress
 
 
-def build_happ_routing_link(settings: dict[str, str]) -> str:
+def build_happ_routing_link(settings: dict[str, str], *, adblock_enabled: bool = False) -> str:
     """DNS и прямой доступ к локальным сетям и российским ресурсам в Happ."""
     hosts = {}
     for kind in ("remote", "domestic"):
@@ -42,7 +42,7 @@ def build_happ_routing_link(settings: dict[str, str]) -> str:
         ],
         "ProxySites": [],
         "ProxyIp": [],
-        "BlockSites": [],
+        "BlockSites": ["geosite:category-ads-all"] if adblock_enabled else [],
         "BlockIp": [],
         "DomainStrategy": settings.get("dns.domain_strategy", "IPIfNonMatch"),
         "FakeDNS": str(settings.get("dns.fake_dns", "false")).lower(),

@@ -23,6 +23,8 @@ from app.services.cdn import make_cdn_link, cdn_access_allowed
 from app.services.events import log_event
 from app.models.setting import Setting
 from app.services.happ_routing import build_happ_routing_link
+from app.services.adblock import enabled_for_client, ADS_DOMAIN
+from app.services.routing_rules import validate_rule_value
 from app.services.client_limits import access_allowed, expiry_for_period, limit_info, refresh_period, utc
 from app.services.subscription_metadata import cdn_announcement
 from app.services.client_activity import client_activity
@@ -78,7 +80,8 @@ class TrafficUpdate(BaseModel):
 
 
 class ClientAccessUpdate(BaseModel):
-    profiles: dict[str, bool]
+    profiles: dict[str, bool] = Field(default_factory=dict)
+    adblock_enabled: bool | None = None
 
 
 async def _sync_protocols(db: AsyncSession) -> None:
@@ -205,6 +208,7 @@ async def get_client_profiles(client_id: int, db: AsyncSession = Depends(get_db)
         ] + ([{"id": tls.id, "kind": "cdn", "label": "Обход БС", "is_enabled": cdn_access_allowed(client, tls, settings),
                 "data": make_cdn_link(client, tls, settings, preview=True), "key_available": True}] if tls and cdn_available else []),
         "access": access,
+        "adblock_enabled": await enabled_for_client(db, client_id),
         "subscription_url": f"{os.getenv('PANEL_PUBLIC_URL', '').rstrip('/')}/sub/{client.sub_token}",
     }
 
@@ -216,12 +220,23 @@ async def update_client_access(client_id: int, request: ClientAccessUpdate, db: 
         raise HTTPException(status_code=404, detail="Клиент не найден")
     if set(request.profiles) - {*PROFILE_KINDS, "cdn"}:
         raise HTTPException(status_code=422, detail="Неизвестный профиль доступа")
+    if request.adblock_enabled:
+        try:
+            validate_rule_value(ADS_DOMAIN)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
     kinds = await enabled_profile_kinds(db)
     settings = await get_profile_settings(db)
     for kind, enabled in request.profiles.items():
         if enabled and ((kind != "cdn" and kind not in kinds) or (kind == "cdn" and ("vless_xhttp_tls" not in kinds or settings.get("cdn.enabled") != "true"))):
             raise HTTPException(status_code=409, detail="Сначала включите выбранный профиль в настройках панели")
     try:
+        if request.adblock_enabled is not None:
+            key = f"client.adblock.{client_id}"
+            row = await db.get(Setting, key)
+            value = "true" if request.adblock_enabled else "false"
+            if row: row.value = value
+            else: db.add(Setting(key=key, value=value))
         await create_profiles(db, client)
         profiles = (await db.execute(select(ClientProfile).where(ClientProfile.client_id == client_id))).scalars().all()
         for profile in profiles:
@@ -239,7 +254,7 @@ async def update_client_access(client_id: int, request: ClientAccessUpdate, db: 
         await db.rollback()
         await ClientService.restore_committed_configs(db)
         raise HTTPException(status_code=502, detail="Не удалось применить доступ клиента; прежние настройки восстановлены") from exc
-    log_event("info", "client", "Изменён доступ клиента к профилям подписки", {"client_id": client_id, "profiles": request.profiles})
+    log_event("info", "client", "Изменён доступ клиента к профилям подписки", {"client_id": client_id, "profiles": request.profiles, "adblock_enabled": request.adblock_enabled})
     return await get_client_profiles(client_id, db)
 
 
@@ -351,7 +366,7 @@ async def get_subscription(token: str, request: Request, format: Literal["raw", 
                 links.append(cdn_link)
     content = base64.b64encode("\n".join(links).encode("utf-8")).decode("ascii")
     dns_rows = (await db.execute(select(Setting).where(Setting.key.like("dns.%")))).scalars().all()
-    happ_dns = build_happ_routing_link({row.key: row.value for row in dns_rows})
+    happ_dns = build_happ_routing_link({row.key: row.value for row in dns_rows}, adblock_enabled=await enabled_for_client(db, client.id))
     totals = await db.execute(select(ClientProfile.traffic_up, ClientProfile.traffic_down).where(ClientProfile.client_id == client.id))
     usage = list(totals.all())
     upload = sum(up or 0 for up, _ in usage)
@@ -438,7 +453,7 @@ async def delete_client(client_id: int, db: AsyncSession = Depends(get_db)):
     if client is None:
         raise HTTPException(status_code=404, detail="Клиент не найден")
     deleted_name = client.name
-    await db.execute(delete(Setting).where(Setting.key == f"client.cdn.{client_id}"))
+    await db.execute(delete(Setting).where(Setting.key.in_([f"client.cdn.{client_id}", f"client.adblock.{client_id}"])))
     from app.models.operations import TelegramLink
     await db.execute(delete(TelegramLink).where(TelegramLink.client_id == client_id))
     await db.delete(client)

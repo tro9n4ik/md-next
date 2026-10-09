@@ -517,6 +517,13 @@ install_xray() {
     return 1
   fi
   bash "$installer" install || result=$?
+  if [ "$result" -eq 0 ] && [ ! -s /usr/local/share/xray/geosite.dat ]; then
+    bash "$installer" install-geodata || result=$?
+  fi
+  # Xray ищет geodata рядом с бинарником, если путь не задан в окружении.
+  if [ "$result" -eq 0 ] && [ ! -e /usr/local/bin/geosite.dat ]; then
+    ln -sfn /usr/local/share/xray/geosite.dat /usr/local/bin/geosite.dat || result=$?
+  fi
   rm -f -- "$installer"
   return "$result"
 }

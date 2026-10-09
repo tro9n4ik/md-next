@@ -14,16 +14,17 @@ import { formatBytes } from '../utils/ru';
 
 type AccessProfile = { id: number; kind: string; label: string; is_enabled: boolean; data: string; key_available: boolean };
 type AccessOption = { kind: string; label: string; is_enabled: boolean; available: boolean };
-type AccessData = { client: ClientLimits & { id: number; name: string; is_active: boolean }; profiles: AccessProfile[]; access: AccessOption[]; subscription_url: string };
+type AccessData = { client: ClientLimits & { id: number; name: string; is_active: boolean }; profiles: AccessProfile[]; access: AccessOption[]; adblock_enabled: boolean; subscription_url: string };
 
 const ProfileAccessEditor: React.FC<{ data: AccessData; refresh: () => Promise<void> }> = ({ data, refresh }) => {
   const [selected, setSelected] = React.useState<Record<string, boolean>>(Object.fromEntries(data.access.map(item => [item.kind, item.is_enabled])));
+  const [adblock, setAdblock] = React.useState(data.adblock_enabled ?? false);
   const [notice, setNotice] = React.useState('');
   const mutation = useMutation({
     mutationFn: async () => {
       const profiles = Object.fromEntries(data.access.filter(item => item.available).map(item => [item.kind, selected[item.kind]]));
       const response = await apiFetch(`/api/v1/clients/${data.client.id}/access`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profiles }),
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profiles, adblock_enabled: adblock }),
       });
       if (!response.ok) throw new Error(await readError(response, 'Не удалось сохранить доступ'));
     },
@@ -38,6 +39,11 @@ const ProfileAccessEditor: React.FC<{ data: AccessData; refresh: () => Promise<v
         <div><p className="text-sm font-semibold text-neutral-800">{item.label}</p><p className="mt-1 text-xs text-neutral-500">{item.available ? selected[item.kind] ? 'Доступ разрешён' : 'Доступ закрыт' : 'Выключен в настройках панели'}</p></div>
         <Switch label={`Разрешить ${item.label}`} checked={selected[item.kind] ?? false} disabled={!item.available || mutation.isPending} onChange={value => { setSelected({ ...selected, [item.kind]: value }); setNotice(''); }} />
       </div>)}
+    </div>
+    <div className="mt-5 flex items-center justify-between gap-4 rounded-xl border border-neutral-200 p-4">
+      <div><p className="text-sm font-semibold text-neutral-800">Блокировка рекламы (AdBlock)</p>
+        <p className="mt-1 text-xs text-neutral-500">Блокирует рекламные домены только для этого клиента. Для Happ обновите подписку. Не удаляет рекламу с того же домена, что и контент.</p></div>
+      <Switch label="Блокировка рекламы для клиента" checked={adblock} disabled={mutation.isPending} onChange={value => { setAdblock(value); setNotice(''); }} />
     </div>
     <div className="ui-actionbar"><p role="status" className="text-xs text-neutral-500">{notice || 'Ссылка подписки и срок действия сохраняются. CDN можно разрешить отдельно от обычного XHTTP TLS.'}</p>
       <button className="ui-button ui-button-primary shrink-0" disabled={mutation.isPending} onClick={() => { setNotice(''); mutation.mutate(); }}>{mutation.isPending ? 'Сохранение…' : 'Сохранить доступ'}</button>
@@ -135,7 +141,7 @@ const ClientAccessPage: React.FC = () => {
     {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
     <SubscriptionEditor key={`${data.client.id}-${data.client.monthly_traffic_limit}-${data.client.cdn_monthly_traffic_limit}-${data.client.expires_at}`} client={data.client} refresh={refresh} />
     <ClientQuickActions client={data.client} refresh={refresh} />
-    <ProfileAccessEditor key={`${data.client.id}-${JSON.stringify(data.access)}`} data={data} refresh={refresh} />
+    <ProfileAccessEditor key={`${data.client.id}-${JSON.stringify(data.access)}-${data.adblock_enabled}`} data={data} refresh={refresh} />
 
     {data.profiles.map((profile) => {
       const size = new TextEncoder().encode(profile.data).length;

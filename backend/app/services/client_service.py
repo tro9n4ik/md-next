@@ -13,6 +13,7 @@ from app.services.awg import AWGService
 from app.services.profiles import create_profiles, enabled_profile_kinds, get_profile_settings, make_profile_data
 from app.services.xray import XrayService
 from app.services.routing_rules import to_xray_rule
+from app.services.adblock import build_adblock_rules
 from app.services.events import log_event
 from app.services.nginx import apply_reality_sni
 from app.services.client_limits import access_allowed, cdn_quota_exhausted
@@ -107,7 +108,8 @@ class ClientService:
                 raise ValueError("Выберите активную ноду для WARP на странице «Узлы»")
             if warp_usage != "off" and warp_node_id and (warp_node_id not in nodes_by_id or not nodes_by_id[warp_node_id].secret):
                 raise ValueError("Выбранная нода WARP отключена или отсутствует; переключите выход WARP")
-            xray_routing_rules = [to_xray_rule(rule, nodes_by_id) for rule in routing_rules]
+            xray_routing_rules = await build_adblock_rules(db, profiles, kinds)
+            xray_routing_rules += [to_xray_rule(rule, nodes_by_id) for rule in routing_rules]
         except ValueError as exc:
             log_event("error", "xray", "Не удалось подготовить правила маршрутизации", {"reason": str(exc)[:400]})
             return False, str(exc)
