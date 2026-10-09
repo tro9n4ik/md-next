@@ -57,6 +57,22 @@ def protect_code():
             os.chown(child, 0, 0);child.chmod(child.stat().st_mode & 0o777 & ~0o022)
 
 
+def helper_sources():
+    return {'privileged-helper.py': ROOT/'scripts/privileged-helper.py', 'update-panel.py': ROOT/'scripts/update-panel.py',
+              'awg-routing.py': ROOT/'scripts/awg-routing.py', 'warp_registration.py': ROOT/'backend/app/services/warp_registration.py',
+              'nginx.py': ROOT/'backend/app/services/nginx.py', 'app/services/shell.py': ROOT/'backend/app/services/shell.py',
+              'app/services/privileges.py': ROOT/'backend/app/services/privileges.py'}
+
+def verify_copies():
+    for name, source in helper_sources().items():
+        target = LIB/name
+        if target.is_symlink() or target.read_bytes() != source.read_bytes():
+            raise RuntimeError('Helper copy differs from release: '+name)
+        metadata = target.stat()
+        if metadata.st_uid != 0 or metadata.st_mode & 0o022:
+            raise RuntimeError('Unsafe helper ownership or permissions: '+name)
+
+
 def main():
     if os.geteuid() != 0: raise RuntimeError('Root required')
     for binary in ('sudo', 'visudo'):
@@ -77,14 +93,12 @@ def main():
     for relative in ('app', 'app/services'):
         (LIB/relative).mkdir(mode=0o755, exist_ok=True)
         os.chown(LIB/relative, 0, 0);(LIB/relative).chmod(0o755)
-    copies = {'privileged-helper.py': ROOT/'scripts/privileged-helper.py', 'update-panel.py': ROOT/'scripts/update-panel.py',
-              'awg-routing.py': ROOT/'scripts/awg-routing.py', 'warp_registration.py': ROOT/'backend/app/services/warp_registration.py',
-              'nginx.py': ROOT/'backend/app/services/nginx.py', 'app/services/shell.py': ROOT/'backend/app/services/shell.py',
-              'app/services/privileges.py': ROOT/'backend/app/services/privileges.py'}
+    copies = helper_sources()
     for name, source in copies.items():
         target = LIB/name
         if target.is_symlink(): raise RuntimeError('Unsafe helper destination')
         shutil.copy2(source, target);os.chown(target, 0, 0);target.chmod(0o755 if name == 'privileged-helper.py' else 0o644)
+    verify_copies()
     sudoers = Path('/etc/sudoers.d/md-next')
     sudoers.write_text('md-next ALL=(root) NOPASSWD: /usr/local/lib/md-next/privileged-helper.py ""\n')
     sudoers.chmod(0o440);command('visudo', '-cf', str(sudoers))
@@ -152,4 +166,9 @@ def main():
         raise
 
 
-if __name__ == '__main__': main()
+if __name__ == '__main__':
+    if '--verify-copies' in sys.argv:
+        verify_copies()
+        print('Helper copies match release')
+    else:
+        main()

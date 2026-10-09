@@ -117,6 +117,7 @@ class XrayService:
                     "id": active_node.id, "host": active_node.host, "port": active_node.port,
                     "protocol": active_node.protocol, "secret": node_secret,
                     "public_key": getattr(active_node, "public_key", None),
+                    "short_id": getattr(active_node, "short_id", None),
                 }))
                 node_tags.append(f"node-{active_node.id}")
             else:

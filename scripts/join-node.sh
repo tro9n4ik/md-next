@@ -108,7 +108,8 @@ prepare_reality_node() {
     return 1
   fi
   NODE_IDENTITY=$(python3 -c 'import uuid; print(uuid.uuid4())') || return 1
-  export NODE_PRIVATE_KEY NODE_PUBLIC_KEY NODE_IDENTITY
+  NODE_SHORT_ID=$(python3 -c 'import secrets; print(secrets.token_hex(8))') || return 1
+  export NODE_PRIVATE_KEY NODE_PUBLIC_KEY NODE_IDENTITY NODE_SHORT_ID
 }
 
 register_node() {
@@ -123,6 +124,7 @@ register_node() {
              \"port\": $NODE_PORT,
              \"protocol\": \"vless\",
              \"public_key\": \"$NODE_PUBLIC_KEY\",
+             \"short_id\": \"$NODE_SHORT_ID\",
              \"identity\": \"$NODE_IDENTITY\"
            }") || {
       echo "ОШИБКА: Не удалось зарегистрировать ноду на панели $SECURE_PANEL_URL."
@@ -160,7 +162,7 @@ config = {
         "settings": {"clients": [{"id": os.environ["NODE_SECRET"], "flow": "xtls-rprx-vision"}], "decryption": "none"},
         "streamSettings": {"network": "tcp", "security": "reality",
                            "realitySettings": {"target": "www.cloudflare.com:443", "serverNames": ["www.cloudflare.com"],
-                                               "privateKey": os.environ["NODE_PRIVATE_KEY"], "shortIds": [""]}},
+                                               "privateKey": os.environ["NODE_PRIVATE_KEY"], "shortIds": [os.environ["NODE_SHORT_ID"]]}},
     }],
     "outbounds": [{"protocol": "freedom", "streamSettings": {"sockopt": {"domainStrategy": "UseIPv4"}}, "settings": {
         "finalRules": [{"action": "allow", "network": "tcp", "ip": ["127.0.0.1/32"], "port": "40000"}]

@@ -43,7 +43,9 @@ def user_changes(previous, desired):
 
 async def apply_user_changes(previous, desired):
     changes = user_changes(previous, desired)
-    if changes is None:
+    # rmu rejects new authentication but leaves existing streams alive.
+    # Any removal/replacement must use the full restart path to revoke access.
+    if changes is None or any(removed for _, removed, _ in changes):
         return False
     endpoint = next((i for i in previous["inbounds"] if i.get("tag") == "api-in"), None)
     if not endpoint or endpoint.get("listen") != "127.0.0.1":

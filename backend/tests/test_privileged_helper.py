@@ -53,3 +53,37 @@ def test_installer_removes_archive_write_permissions_without_touching_public_dat
     installer.protect_code()
     assert code.stat().st_mode & 0o022 == 0
     assert (public/'index.html').stat().st_mode & 0o777 == 0o644
+
+
+def test_helper_copies_detect_stale_content_and_unsafe_permissions(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    spec = importlib.util.spec_from_file_location('copy_checker', Path(__file__).parents[2]/'scripts/install-privilege-separation.py')
+    installer = importlib.util.module_from_spec(spec);spec.loader.exec_module(installer)
+    source = tmp_path/'source.py';source.write_text('release code')
+    lib = tmp_path/'lib';lib.mkdir();target = lib/'helper.py';target.write_text('release code');target.chmod(0o644)
+    monkeypatch.setattr(installer, 'LIB', lib)
+    monkeypatch.setattr(installer, 'helper_sources', lambda: {'helper.py': source})
+    original_stat = Path.stat
+    def root_stat(path, *args, **kwargs):
+        stat = original_stat(path, *args, **kwargs)
+        if path == target: return SimpleNamespace(st_uid=0, st_mode=stat.st_mode)
+        return stat
+    monkeypatch.setattr(Path, 'stat', root_stat)
+    installer.verify_copies()
+    target.write_text('old code')
+    with pytest.raises(RuntimeError, match='differs'): installer.verify_copies()
+    target.write_text('release code');target.chmod(0o666)
+    with pytest.raises(RuntimeError, match='permissions'): installer.verify_copies()
+
+
+def test_helper_isolated_python_ignores_pythonpath(tmp_path):
+    import os
+    import subprocess
+    script = Path(__file__).parents[2]/'scripts/privileged-helper.py'
+    assert script.read_text().splitlines()[0] == '#!/usr/bin/python3 -I'
+    (tmp_path/'json.py').write_text("raise RuntimeError('untrusted import')")
+    env = {**os.environ, 'PYTHONPATH': str(tmp_path)}
+    result = subprocess.run(['/usr/bin/python3', '-I', str(script)], input='{}', text=True, capture_output=True, env=env, cwd=tmp_path)
+    assert result.returncode == 1
+    assert 'untrusted import' not in result.stderr
+    assert json.loads(result.stdout)[0] == 1

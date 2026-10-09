@@ -49,7 +49,7 @@ async def test_secure_registration_persists_only_public_key(auth_headers):
         with patch("app.services.xray.XrayService.apply_config", return_value=(True, "ok")):
             response = await client.post("/api/v1/nodes/register", json={
                 "token": invite["token"], "host": "192.0.2.50", "port": 443,
-                "protocol": "vless", "public_key": KEY, "identity": IDENTITY,
+                "protocol": "vless", "public_key": KEY, "identity": IDENTITY, "short_id": "0123456789abcdef",
             })
         assert response.status_code == 201
         assert response.json()["secret"] == IDENTITY
@@ -58,8 +58,18 @@ async def test_secure_registration_persists_only_public_key(auth_headers):
     async with AsyncSessionLocal() as db:
         node = (await db.execute(select(Node).where(Node.host == "192.0.2.50"))).scalar_one()
         assert node.public_key == KEY
+        assert node.short_id == "0123456789abcdef"
         assert node.protocol == "vless"
         assert node.secret == IDENTITY
+
+
+def test_node_short_id_is_forwarded_and_validated():
+    row = {"id": 1, "host": "192.0.2.1", "port": 443, "protocol": "vless", "secret": IDENTITY, "public_key": KEY}
+    assert node_outbound(row)["streamSettings"]["realitySettings"]["shortId"] == ""
+    assert node_outbound({**row, "short_id": "0123456789abcdef"})["streamSettings"]["realitySettings"]["shortId"] == "0123456789abcdef"
+    for bad in ('1', 'zz', 'a' * 18):
+        with pytest.raises(ValueError): node_outbound({**row, "short_id": bad})
+        with pytest.raises(ValidationError): NodeRegister(token="test", host="192.0.2.1", port=443, protocol="vless", identity=IDENTITY, public_key=KEY, short_id=bad)
 
 @pytest.mark.asyncio
 async def test_warp_probe_uses_reality_for_secure_node(monkeypatch):

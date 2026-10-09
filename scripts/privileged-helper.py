@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/python3 -I
 """Root-owned, finite privileged operations. No shell or caller-selected executable."""
 import asyncio
 import importlib.util
