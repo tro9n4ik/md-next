@@ -20,14 +20,41 @@ def command(*args):
     subprocess.run(args, check=True, stdout=subprocess.DEVNULL)
 
 
-def owned_data(path, uid, gid):
+def owned_data(path, uid, gid, *, public=False):
     if path.is_symlink(): raise RuntimeError('Unexpected data directory symlink')
     path.mkdir(parents=True, exist_ok=True)
     for directory, folders, files in os.walk(path, followlinks=False):
         for item in [Path(directory), *[Path(directory)/name for name in folders+files]]:
             if item.is_symlink(): raise RuntimeError('Unexpected data symlink')
             os.chown(item, uid, gid)
-            os.chmod(item, 0o750 if item.is_dir() else 0o640)
+            os.chmod(item, (0o755 if public else 0o750) if item.is_dir() else (0o644 if public else 0o640))
+
+
+def protect_code():
+    """Archive permissions must never make application code writable by the API."""
+    writable = {ROOT/'backend/app/static/fake', ROOT/'backend/backups', ROOT/'data/placeholder'}
+    runtimes = {ROOT/'backend/venv', ROOT/'venv-releases', ROOT/'frontend/node_modules'}
+    for directory, folders, files in os.walk(ROOT, followlinks=False):
+        parent = Path(directory)
+        os.chown(parent, 0, 0);parent.chmod(parent.stat().st_mode & 0o777 & ~0o022)
+        for name in list(folders):
+            child = parent/name
+            if child in writable or child in runtimes:
+                folders.remove(name)
+                if child in runtimes:
+                    if child.is_symlink():
+                        if child != ROOT/'backend/venv' or not child.resolve().is_relative_to(ROOT/'venv-releases'):
+                            raise RuntimeError('Unexpected runtime symlink')
+                    else:
+                        os.chown(child, 0, 0);child.chmod(child.stat().st_mode & 0o777 & ~0o022)
+            elif child.is_symlink(): raise RuntimeError('Unexpected code directory symlink')
+        for name in files:
+            child = parent/name
+            if child.is_symlink():
+                if child == ROOT/'backend/md_next.db' and child.resolve() == STATE/'data/md_next.db': continue
+                if child == ROOT/'backend/venv' and child.resolve().is_relative_to(ROOT/'venv-releases'): continue
+                raise RuntimeError('Unexpected code file symlink')
+            os.chown(child, 0, 0);child.chmod(child.stat().st_mode & 0o777 & ~0o022)
 
 
 def main():
@@ -41,11 +68,15 @@ def main():
     uid, gid = user.pw_uid, user.pw_gid
     backup = Path('/root')/('md-next-privileges-'+time.strftime('%Y%m%d-%H%M%S'))
     backup.mkdir(mode=0o700)
+    env_metadata = (ROOT/'backend/.env').stat()
     for name, path in [('backend.service', UNIT), ('environment', ROOT/'backend/.env')]:
         shutil.copy2(path, backup/name);(backup/name).chmod(0o600)
+    protect_code()
     LIB.mkdir(mode=0o755, parents=True, exist_ok=True)
+    os.chown(LIB, 0, 0);LIB.chmod(0o755)
     for relative in ('app', 'app/services'):
         (LIB/relative).mkdir(mode=0o755, exist_ok=True)
+        os.chown(LIB/relative, 0, 0);(LIB/relative).chmod(0o755)
     copies = {'privileged-helper.py': ROOT/'scripts/privileged-helper.py', 'update-panel.py': ROOT/'scripts/update-panel.py',
               'awg-routing.py': ROOT/'scripts/awg-routing.py', 'warp_registration.py': ROOT/'backend/app/services/warp_registration.py',
               'nginx.py': ROOT/'backend/app/services/nginx.py', 'app/services/shell.py': ROOT/'backend/app/services/shell.py',
@@ -74,7 +105,7 @@ def main():
         finally:
             os.close(descriptor)
     fake, placeholder = ROOT/'backend/app/static/fake', ROOT/'data/placeholder'
-    owned_data(fake, uid, gid);owned_data(placeholder, uid, gid)
+    owned_data(fake, uid, gid, public=True);owned_data(placeholder, uid, gid)
     old_backups = ROOT/'backend/backups'
     owned_data(old_backups, uid, gid)
     command('systemctl', 'stop', 'md-next-backend')
@@ -115,6 +146,8 @@ def main():
         if database.is_symlink() and (backup/'original.db').exists():
             database.unlink();shutil.copy2(backup/'original.db', database)
         shutil.copy2(backup/'environment', ROOT/'backend/.env');shutil.copy2(backup/'backend.service', UNIT)
+        os.chown(ROOT/'backend/.env', env_metadata.st_uid, env_metadata.st_gid)
+        (ROOT/'backend/.env').chmod(env_metadata.st_mode & 0o777)
         command('systemctl', 'daemon-reload');command('systemctl', 'start', 'md-next-backend')
         raise
 

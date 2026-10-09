@@ -30,6 +30,7 @@ if runuser -u md-next -- test -w /opt/md-next/backend/app/main.py; then exit 1; 
 awg show awg0 > /dev/null
 nginx -t
 test "$(curl -ksS --resolve panel.md-next.test:443:127.0.0.1 https://panel.md-next.test/ -o /dev/null -w '%{http_code}')" = "200"
+test "$(curl -ksS --resolve md-next.test:443:127.0.0.1 https://md-next.test/ -o /dev/null -w '%{http_code}')" = "200"
 cd /opt/md-next/backend
 venv/bin/python - <<'PY'
 import json

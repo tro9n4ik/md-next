@@ -40,3 +40,16 @@ def test_xray_file_and_device_settings_are_limited(tmp_path, monkeypatch):
     with pytest.raises(ValueError): helper.validate_xray(json.dumps(config))
     config['inbounds'] = [];config['routing'] = {'rules': [{'domain': ['ext:/etc/shadow:tag']}]}
     with pytest.raises(ValueError): helper.validate_xray(json.dumps(config))
+
+
+def test_installer_removes_archive_write_permissions_without_touching_public_data(tmp_path, monkeypatch):
+    installer_spec = importlib.util.spec_from_file_location('privilege_installer', Path(__file__).parents[2]/'scripts/install-privilege-separation.py')
+    installer = importlib.util.module_from_spec(installer_spec);installer_spec.loader.exec_module(installer)
+    monkeypatch.setattr(installer, 'ROOT', tmp_path)
+    monkeypatch.setattr(installer.os, 'chown', lambda *args: None)
+    code = tmp_path/'backend/app/main.py';code.parent.mkdir(parents=True);code.write_text('app code');code.chmod(0o666)
+    public = tmp_path/'backend/app/static/fake';public.mkdir(parents=True);public.chmod(0o755)
+    (public/'index.html').write_text('public data');(public/'index.html').chmod(0o644)
+    installer.protect_code()
+    assert code.stat().st_mode & 0o022 == 0
+    assert (public/'index.html').stat().st_mode & 0o777 == 0o644

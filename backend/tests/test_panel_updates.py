@@ -235,3 +235,26 @@ def test_updater_checks_signature_before_executing_downloaded_code(tmp_path, mon
     with pytest.raises(RuntimeError, match='Подпись'):
         updater.prepare(tmp_path)
     execute.assert_not_called()
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='Linux updater uses flock')
+@pytest.mark.parametrize('case', ['other_branch', 'pending_ci', 'newer_failed_attempt', 'valid'])
+def test_root_updater_requires_signed_main_and_latest_successful_checks(tmp_path, monkeypatch, case):
+    from contextlib import nullcontext
+    from io import StringIO
+    spec = importlib.util.spec_from_file_location('root_revision_policy', Path(__file__).resolve().parents[2] / 'scripts/update-panel.py')
+    module = importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    def response(request, **kwargs):
+        if request.full_url.endswith('/commits/main'):
+            payload = {'sha': 'b'*40 if case == 'other_branch' else SHA, 'commit': {'verification': {'verified': True}}}
+        else:
+            runs = [{'path': path, 'head_sha': SHA, 'status': 'completed', 'conclusion': 'success'} for path in ('.github/workflows/ci.yml', '.github/workflows/secrets.yml')]
+            if case == 'pending_ci': runs[0]['status'] = 'in_progress';runs[0]['conclusion'] = None
+            if case == 'newer_failed_attempt': runs.insert(0, {**runs[0], 'conclusion': 'failure'})
+            payload = {'workflow_runs': runs}
+        return nullcontext(StringIO(json.dumps(payload)))
+    monkeypatch.setattr(module.urllib.request, 'urlopen', response)
+    updater = module.Updater(tmp_path, tmp_path, {'commit': SHA})
+    if case == 'valid': updater.verify_revision('')
+    else:
+        with pytest.raises(RuntimeError): updater.verify_revision('')

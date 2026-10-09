@@ -105,13 +105,27 @@ class Updater:
         if token:
             headers["Authorization"] = "Bearer " + token
         request = urllib.request.Request(
-            "https://api.github.com/repos/tro9n4ik/md-next/commits/" + self.request["commit"],
+            "https://api.github.com/repos/tro9n4ik/md-next/commits/main",
             headers=headers,
         )
         with urllib.request.urlopen(request, timeout=20) as response:
             revision = json.load(response)
         if revision.get("sha") != self.request["commit"] or revision.get("commit", {}).get("verification", {}).get("verified") is not True:
-            raise RuntimeError("Подпись загружаемой версии не подтверждена GitHub")
+            raise RuntimeError("Подпись текущей вершины main не подтверждена для выбранной версии")
+        required = ('.github/workflows/ci.yml', '.github/workflows/secrets.yml')
+        request = urllib.request.Request(
+            'https://api.github.com/repos/tro9n4ik/md-next/actions/runs?head_sha='+self.request['commit']+'&per_page=100',
+            headers=headers,
+        )
+        with urllib.request.urlopen(request, timeout=20) as response:
+            runs = json.load(response).get('workflow_runs', [])
+        latest = {}
+        for run in runs:
+            if run.get('path') in required: latest.setdefault(run['path'], run)
+        if not all(latest.get(path, {}).get('head_sha') == self.request['commit']
+                   and latest[path].get('status') == 'completed'
+                   and latest[path].get('conclusion') == 'success' for path in required):
+            raise RuntimeError('Проверки подписанной версии main ещё не прошли')
 
     def prepare(self, directory):
         self.phase('preparing', 'Скачиваем проверенную сборку и готовим зависимости. Панель продолжает работать.')
