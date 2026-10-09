@@ -70,6 +70,7 @@ async def check_update(token=''):
         commit = data.get('sha', '')
         if not re.fullmatch(r'[0-9a-f]{40}', commit):
             raise ValueError('GitHub вернул некорректный идентификатор версии.')
+        verified = data.get('commit', {}).get('verification', {}).get('verified') is True
         runs = await client.get(f'https://api.github.com/repos/{REPOSITORY}/actions/runs', params={'head_sha': commit, 'event': 'push', 'per_page': 30}, headers=headers)
         runs.raise_for_status()
         checks = [run for run in runs.json().get('workflow_runs', []) if run.get('path') in ('.github/workflows/ci.yml', '.github/workflows/secrets.yml')]
@@ -77,10 +78,10 @@ async def check_update(token=''):
         latest = {}
         for run in checks:
             latest.setdefault(run['path'], run)
-        ready = all(latest.get(path, {}).get('conclusion') == 'success' for path in ('.github/workflows/ci.yml', '.github/workflows/secrets.yml'))
+        ready = verified and all(latest.get(path, {}).get('conclusion') == 'success' for path in ('.github/workflows/ci.yml', '.github/workflows/secrets.yml'))
     installed = installed_info()
     current = installed['commit']
-    return {'commit': commit, 'summary': data.get('commit', {}).get('message', '').split('\n')[0][:300], 'published_at': data.get('commit', {}).get('committer', {}).get('date'), 'available': not (len(current) >= 7 and commit.startswith(current)), 'ready': ready, 'installed': installed}
+    return {'commit': commit, 'summary': data.get('commit', {}).get('message', '').split('\n')[0][:300], 'published_at': data.get('commit', {}).get('committer', {}).get('date'), 'available': not (len(current) >= 7 and commit.startswith(current)), 'ready': ready, 'signature_verified': verified, 'installed': installed}
 
 
 async def start_update(commit, token=''):

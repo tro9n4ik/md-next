@@ -1,3 +1,4 @@
+from app.services.node_transport import node_outbound
 import json
 import os
 import time
@@ -106,35 +107,17 @@ class XrayService:
         for node in options.get("nodes", []):
             if active_node and int(node.get("id", -1)) == int(active_node.id):
                 continue
-            outbounds.append({
-                "tag": f"node-{node['id']}", "protocol": node.get("protocol") or "trojan",
-                "settings": {"servers": [{"address": node["host"], "port": int(node["port"]), "password": node["secret"]}]},
-                "streamSettings": {"network": "grpc", "grpcSettings": {"serviceName": "MD-Next-Node"}},
-            })
+            outbounds.append(node_outbound(node))
             node_tags.append(f"node-{node['id']}")
 
         if active_node and getattr(active_node, 'is_enabled', True):
             node_secret = getattr(active_node, 'secret', None)
             if node_secret:
-                outbounds.append({
-                    "tag": f"node-{active_node.id}",
-                    "protocol": active_node.protocol or "trojan",
-                    "settings": {
-                        "servers": [
-                            {
-                                "address": active_node.host,
-                                "port": active_node.port,
-                                "password": node_secret
-                            }
-                        ]
-                    },
-                    "streamSettings": {
-                        "network": "grpc",
-                        "grpcSettings": {
-                            "serviceName": "MD-Next-Node"
-                        }
-                    }
-                })
+                outbounds.append(node_outbound({
+                    "id": active_node.id, "host": active_node.host, "port": active_node.port,
+                    "protocol": active_node.protocol, "secret": node_secret,
+                    "public_key": getattr(active_node, "public_key", None),
+                }))
                 node_tags.append(f"node-{active_node.id}")
             else:
                 logger.warning(f"Нода {getattr(active_node, 'id', 'unknown')} активна, но секрет ноды отсутствует. Outbound каскада не добавлен.")

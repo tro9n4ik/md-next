@@ -85,16 +85,30 @@ prepare_node_dependencies() {
     apt-get -o DPkg::Lock::Timeout=120 -o Acquire::Retries=3 \
       -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update || return 1
     apt-get -o DPkg::Lock::Timeout=120 -o Acquire::Retries=3 \
-      install -y --no-install-recommends ca-certificates curl unzip || return 1
+      install -y --no-install-recommends ca-certificates curl unzip python3 || return 1
   elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y ca-certificates curl unzip || return 1
+    dnf install -y ca-certificates curl unzip python3 || return 1
   elif command -v yum >/dev/null 2>&1; then
-    yum install -y ca-certificates curl unzip || return 1
+    yum install -y ca-certificates curl unzip python3 || return 1
   else
     echo 'Неизвестный пакетный менеджер. Установите ca-certificates, curl и unzip вручную.'
     return 1
   fi
   command -v unzip >/dev/null 2>&1 || return 1
+}
+
+prepare_reality_node() {
+  # Private key stays on this node and is never sent to the panel.
+  key_output=$(xray x25519) || return 1
+  NODE_PRIVATE_KEY=$(printf '%s' "$key_output" | python3 -c 'import sys,re; s=sys.stdin.read(); m=re.search(r"Private\s*Key:\s*([A-Za-z0-9_-]{43})",s,re.I); print(m.group(1) if m else "")') || return 1
+  NODE_PUBLIC_KEY=$(printf '%s' "$key_output" | python3 -c 'import sys,re; s=sys.stdin.read(); m=re.search(r"(?:Public\s*Key|Password(?:\s*\(PublicKey\))?):\s*([A-Za-z0-9_-]{43})",s,re.I); print(m.group(1) if m else "")') || return 1
+  unset key_output
+  if [ -z "$NODE_PRIVATE_KEY" ] || [ -z "$NODE_PUBLIC_KEY" ]; then
+    echo 'Не удалось создать ключи Reality.'
+    return 1
+  fi
+  NODE_IDENTITY=$(python3 -c 'import uuid; print(uuid.uuid4())') || return 1
+  export NODE_PRIVATE_KEY NODE_PUBLIC_KEY NODE_IDENTITY
 }
 
 register_node() {
@@ -107,7 +121,9 @@ register_node() {
              \"token\": \"$TOKEN\",
              \"host\": \"$PUBLIC_IP\",
              \"port\": $NODE_PORT,
-             \"protocol\": \"trojan\"
+             \"protocol\": \"vless\",
+             \"public_key\": \"$NODE_PUBLIC_KEY\",
+             \"identity\": \"$NODE_IDENTITY\"
            }") || {
       echo "ОШИБКА: Не удалось зарегистрировать ноду на панели $SECURE_PANEL_URL."
       echo "Проверьте корректность SSL-сертификата мастер-панели и доступность HTTPS."
@@ -133,38 +149,41 @@ register_node() {
 }
 
 configure_xray_node() {
-  cat <<EOF > /usr/local/etc/xray/config.json
-{
-  "inbounds": [
-    {
-      "port": $NODE_PORT,
-      "protocol": "trojan",
-      "settings": {
-        "clients": [
-          {
-            "password": "$NODE_SECRET"
-          }
-        ]
-      },
-      "streamSettings": {
-        "network": "grpc",
-        "grpcSettings": {
-          "serviceName": "MD-Next-Node"
-        },
-        "security": "none"
-      }
-    }
-  ],
-  "outbounds": [
-    {
-      "protocol": "freedom",
-      "settings": {
+  local temporary service_user service_group
+  temporary=$(mktemp /usr/local/etc/xray/md-next-config.XXXXXX) || return 1
+  export NODE_PORT NODE_SECRET
+  if ! python3 - "$temporary" <<'PY'
+import json, os, sys
+config = {
+    "inbounds": [{
+        "port": int(os.environ["NODE_PORT"]), "protocol": "vless",
+        "settings": {"clients": [{"id": os.environ["NODE_SECRET"], "flow": "xtls-rprx-vision"}], "decryption": "none"},
+        "streamSettings": {"network": "tcp", "security": "reality",
+                           "realitySettings": {"target": "www.cloudflare.com:443", "serverNames": ["www.cloudflare.com"],
+                                               "privateKey": os.environ["NODE_PRIVATE_KEY"], "shortIds": [""]}},
+    }],
+    "outbounds": [{"protocol": "freedom", "settings": {
         "finalRules": [{"action": "allow", "network": "tcp", "ip": ["127.0.0.1/32"], "port": "40000"}]
-      }
-    }
-  ]
+    }}],
 }
-EOF
+with open(sys.argv[1], "w", encoding="utf-8") as target:
+    json.dump(config, target)
+PY
+  then
+    rm -f -- "$temporary"
+    return 1
+  fi
+  if ! xray run -test -format json -config "$temporary"; then rm -f -- "$temporary"; return 1; fi
+  service_user=$(systemctl show xray -p User --value)
+  service_group=$(id -gn "${service_user:-root}") || return 1
+  chown root:"$service_group" "$temporary" || return 1
+  chmod 640 "$temporary" || return 1
+  if [ -f /usr/local/etc/xray/config.json ]; then
+    install -d -m 700 /var/backups/md-next
+    cp -a /usr/local/etc/xray/config.json "/var/backups/md-next/xray-node-$(date -u +%Y%m%dT%H%M%SZ).json" || return 1
+  fi
+  mv -f -- "$temporary" /usr/local/etc/xray/config.json || return 1
+  unset NODE_PRIVATE_KEY
 }
 
 verify_and_start_xray() {
@@ -234,8 +253,9 @@ WARP
 
 run_step "Подготовка системных зависимостей" prepare_node_dependencies
 run_step "Установка Xray-core на узле" install_xray_node
+run_step "Создание ключей защищённого канала" prepare_reality_node
 run_step "Регистрация узла в мастер-панели" register_node
-run_step "Создание конфигурации Trojan/gRPC" configure_xray_node
+run_step "Создание конфигурации VLESS Reality" configure_xray_node
 run_step "Проверка конфигурации и запуск Xray" verify_and_start_xray
 
 # Ошибка необязательного WARP не отменяет подключение рабочей ноды.

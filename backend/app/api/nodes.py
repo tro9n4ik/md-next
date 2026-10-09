@@ -1,13 +1,14 @@
 import os
 import hashlib
 import secrets
+from uuid import UUID
 import datetime
 import logging
 import shlex
 from typing import List, Optional, Literal
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from app.services.input_validation import validate_host
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -30,7 +31,17 @@ class NodeRegister(BaseModel):
     token: str = Field(min_length=1, max_length=256)
     host: str = Field(min_length=1, max_length=253)
     port: int = Field(ge=1, le=65535)
-    protocol: Literal['trojan'] = "trojan"
+    protocol: Literal['trojan', 'vless'] = "trojan"
+    public_key: str | None = Field(default=None, pattern=r'^[A-Za-z0-9_-]{43}$')
+    identity: UUID | None = None
+
+    @model_validator(mode='after')
+    def secure_transport_fields(self):
+        if self.protocol == 'vless' and (not self.public_key or not self.identity):
+            raise ValueError('Для VLESS Reality необходимы публичный ключ и UUID')
+        if self.protocol == 'trojan' and (self.public_key or self.identity):
+            raise ValueError('Параметры Reality допустимы только для VLESS')
+        return self
 
     @field_validator('host')
     @classmethod
@@ -316,7 +327,7 @@ async def register_node(node_data: NodeRegister, db: AsyncSession = Depends(get_
     invite_res = await db.execute(select(NodeInvite).where(NodeInvite.token_hash == input_hash))
     invite = invite_res.scalar_one()
 
-    node_secret = secrets.token_hex(16)
+    node_secret = str(node_data.identity) if node_data.protocol == "vless" else secrets.token_hex(16)
 
     node_res = await db.execute(select(Node).where(Node.host == node_data.host))
     target_node = node_res.scalar_one_or_none()
@@ -326,6 +337,7 @@ async def register_node(node_data: NodeRegister, db: AsyncSession = Depends(get_
         target_node.port = node_data.port
         target_node.protocol = node_data.protocol
         target_node.secret = node_secret
+        target_node.public_key = node_data.public_key
         target_node.last_seen = now
         invite.node_id = target_node.id
     else:
@@ -337,6 +349,7 @@ async def register_node(node_data: NodeRegister, db: AsyncSession = Depends(get_
             port=node_data.port,
             protocol=node_data.protocol,
             secret=node_secret,
+            public_key=node_data.public_key,
             is_active=True,
             last_seen=now,
             priority=(last_priority or 0) + (1 if last_priority is not None else 0)

@@ -189,3 +189,37 @@ def test_rollback_selects_only_previously_running_awg_units(monkeypatch):
     from subprocess import CompletedProcess
     monkeypatch.setattr(module.subprocess, 'run', lambda args, **kwargs: CompletedProcess(args, 0 if args[-1] == 'awg-quick@awg0.service' else 3, 'active\n' if args[-1] == 'awg-quick@awg0.service' else 'inactive\n'))
     assert module.active_awg_units() == ['awg-quick@awg0.service']
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("verified", [True, False, None])
+async def test_signature_is_required_even_when_ci_passes(monkeypatch, verified):
+    factory = httpx.AsyncClient
+    def respond(request):
+        if request.url.path.endswith('/commits/main'):
+            return httpx.Response(200, json={'sha': SHA, 'commit': {'verification': {'verified': verified}}})
+        return httpx.Response(200, json={'workflow_runs': [
+            {'path': path, 'conclusion': 'success'} for path in ('.github/workflows/ci.yml', '.github/workflows/secrets.yml')
+        ]})
+    monkeypatch.setattr(updates.httpx, 'AsyncClient', lambda **kwargs: factory(transport=httpx.MockTransport(respond), **kwargs))
+    result = await updates.check_update()
+    assert result['signature_verified'] is (verified is True)
+    assert result['ready'] is (verified is True)
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='Linux updater uses flock')
+def test_updater_checks_signature_before_executing_downloaded_code(tmp_path, monkeypatch):
+    from contextlib import nullcontext
+    spec = importlib.util.spec_from_file_location('signature_updater_test', Path(__file__).resolve().parents[2] / 'scripts/update-panel.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    updater = module.Updater(tmp_path / 'root', tmp_path, {'commit': SHA})
+    monkeypatch.setattr(updater, 'phase', lambda *args: None)
+    from unittest.mock import Mock
+    execute = Mock()
+    monkeypatch.setattr(updater, 'run', execute)
+    from io import StringIO
+    monkeypatch.setattr(module.urllib.request, 'urlopen', lambda *args, **kwargs: nullcontext(StringIO(json.dumps({'sha': SHA, 'commit': {'verification': {'verified': False}}}))))
+    with pytest.raises(RuntimeError, match='Подпись'):
+        updater.prepare(tmp_path)
+    execute.assert_not_called()

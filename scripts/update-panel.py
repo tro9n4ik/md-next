@@ -75,11 +75,26 @@ class Updater:
     def run(self, args, cwd=None, env=None, timeout=300):
         return subprocess.run(args, cwd=cwd, env=env, stdout=self.log, stderr=subprocess.STDOUT, check=True, timeout=timeout)
 
+    def verify_revision(self, token):
+        headers = {"Accept": "application/vnd.github+json", "User-Agent": "MD-Next-updater"}
+        if token:
+            headers["Authorization"] = "Bearer " + token
+        request = urllib.request.Request(
+            "https://api.github.com/repos/tro9n4ik/md-next/commits/" + self.request["commit"],
+            headers=headers,
+        )
+        with urllib.request.urlopen(request, timeout=20) as response:
+            revision = json.load(response)
+        if revision.get("sha") != self.request["commit"] or revision.get("commit", {}).get("verification", {}).get("verified") is not True:
+            raise RuntimeError("Подпись загружаемой версии не подтверждена GitHub")
+
     def prepare(self, directory):
         self.phase('preparing', 'Скачиваем проверенную сборку и готовим зависимости. Панель продолжает работать.')
         repository = directory / 'repository'
         git_env = dict(os.environ, GIT_TERMINAL_PROMPT='0')
         token = self.request.pop('token', '')
+        # Verify before fetching or executing anything from the new repository.
+        self.verify_revision(token)
         if token:
             askpass = directory / 'askpass.py'
             askpass.write_text('#!/usr/bin/python3\nimport os,sys\nprint("x-access-token" if "username" in sys.argv[1].lower() else os.environ["MDNEXT_UPDATE_TOKEN"])\n')

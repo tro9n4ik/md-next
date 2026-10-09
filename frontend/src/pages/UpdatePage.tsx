@@ -5,7 +5,7 @@ import { request } from '../utils/operations';
 
 type Job = { phase: string; message: string; commit?: string; backup?: string };
 type Status = { installed: { version: string; commit: string }; job: Job; can_install: boolean };
-type Candidate = { commit: string; summary: string; available: boolean; ready: boolean; published_at: string };
+type Candidate = { commit: string; summary: string; available: boolean; ready: boolean; signature_verified: boolean; published_at: string };
 type Component = { key: string; name: string; version: string | null; status: string; description: string };
 const componentStates: Record<string, string> = { running: 'Работает', stopped: 'Остановлен', failed: 'Ошибка службы', starting: 'Запускается', stopping: 'Останавливается', installed: 'Установлен', not_installed: 'Не установлен', unknown: 'Статус недоступен' };
 const componentIcons = { xray: Network, adguard: ShieldCheck, nginx: Globe, awg: Cable, warp: Cloud, fail2ban: Shield, certbot: KeyRound, node: Braces, python: Code };
@@ -26,7 +26,7 @@ export default function UpdatePage() {
       <p className="text-sm text-neutral-600">Установлена версия {status.data?.installed.version || '…'}{status.data?.installed.commit && <> · <code>{status.data.installed.commit.slice(0, 7)}</code></>}. Обновление загружается из официального репозитория MD-Next после прохождения автоматических проверок.</p>
       <details className="text-sm text-neutral-600"><summary className="cursor-pointer">Доступ к приватному репозиторию</summary><label className="mt-3 block">Токен GitHub с правом чтения<input type="password" autoComplete="off" value={token} onChange={event => { setToken(event.target.value); setCandidate(null); }} disabled={busy} className="mt-2 w-full rounded-xl border p-3" /></label><p className="mt-2 text-xs">Оставьте пустым для публичного репозитория или если доступ уже настроен на сервере. Введённый токен не сохраняется в браузере.</p></details>
       <button className="ui-button ui-button-secondary" disabled={busy || check.isPending || install.isPending} onClick={() => check.mutate()}><RefreshCw size={16} />{check.isPending ? 'Проверяем…' : 'Проверить обновления'}</button>
-      {candidate && <div className="rounded-xl bg-neutral-50 p-4 space-y-2"><p className="font-medium">{candidate.available ? 'Доступна новая сборка' : 'Установлена актуальная сборка'} · {candidate.commit.slice(0, 7)}</p><p className="text-sm text-neutral-600">{candidate.summary}</p>{!candidate.ready && <p className="text-sm text-amber-700">Сборка ещё не прошла все проверки. Обновление станет доступно после их завершения.</p>}</div>}
+      {candidate && <div className="rounded-xl bg-neutral-50 p-4 space-y-2"><p className="font-medium">{candidate.available ? 'Доступна новая сборка' : 'Установлена актуальная сборка'} · {candidate.commit.slice(0, 7)}</p><p className="text-sm text-neutral-600">{candidate.summary}</p>{!candidate.ready && <p className="text-sm text-amber-700">{candidate.signature_verified ? 'Сборка ещё не прошла все проверки. Обновление станет доступно после их завершения.' : 'Подпись этой сборки не подтверждена GitHub. Установка заблокирована.'}</p>}</div>}
     </section>
     <section className="ui-card ui-panel space-y-4">
       <h2 className="ui-card-title">Установка с резервной копией</h2>
