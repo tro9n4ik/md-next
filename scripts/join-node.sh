@@ -162,7 +162,7 @@ config = {
                            "realitySettings": {"target": "www.cloudflare.com:443", "serverNames": ["www.cloudflare.com"],
                                                "privateKey": os.environ["NODE_PRIVATE_KEY"], "shortIds": [""]}},
     }],
-    "outbounds": [{"protocol": "freedom", "settings": {
+    "outbounds": [{"protocol": "freedom", "streamSettings": {"sockopt": {"domainStrategy": "UseIPv4"}}, "settings": {
         "finalRules": [{"action": "allow", "network": "tcp", "ip": ["127.0.0.1/32"], "port": "40000"}]
     }}],
 }

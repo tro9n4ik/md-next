@@ -46,6 +46,11 @@ def installed_info():
 
 async def get_status():
     state = read_state()
+    from app.services.privileges import enabled, call
+    if enabled():
+        code, output, error = await call('update-status')
+        if code: raise RuntimeError(error)
+        state = json.loads(output)
     if state.get('phase') in BUSY:
         try:
             code, active, _ = await run_cmd('systemctl', 'is-active', 'md-next-panel-update.service', timeout=5)
@@ -96,6 +101,12 @@ async def start_update(commit, token=''):
             raise ValueError('Версия изменилась или ещё не прошла проверки. Проверьте обновления повторно.')
         if not candidate['available']:
             raise ValueError('Эта версия уже установлена.')
+        from app.services.privileges import enabled, call
+        if enabled():
+            code, output, error = await call('update-start', commit=commit,
+                token=token or os.getenv('MDNEXT_GITHUB_TOKEN', ''))
+            if code: raise RuntimeError(error)
+            return json.loads(output)
         STATE_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
         request_file = STATE_DIR / ('request-' + uuid.uuid4().hex + '.json')
         descriptor = os.open(request_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)

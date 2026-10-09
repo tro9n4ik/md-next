@@ -1,5 +1,5 @@
 #!/bin/bash
-# Автоматический скрипт установки панели MD-Next v2.2.0
+# Автоматический скрипт установки панели MD-Next
 
 set -e
 
@@ -305,6 +305,7 @@ update_installation() {
   write_backend_service
   systemctl daemon-reload
   systemctl restart md-next-backend
+  python3 "$APP_DIR/scripts/install-privilege-separation.py"
   wait_backend_ready
   systemctl reload nginx
   echo "MD-Next успешно обновлён. Резервная копия: $backup_dir"
@@ -350,6 +351,7 @@ remove_installation() {
   rm -f /etc/sysctl.d/90-md-next-awg.conf
   rm -f /etc/systemd/system/md-next-awg.service /etc/systemd/system/xray.service.d/md-next-awg.conf /etc/systemd/system/xray.service.d/30-md-next-awg-routing.conf
   rm -f /etc/systemd/system/md-next-backend.service
+  rm -f /etc/sudoers.d/md-next
   rm -f /etc/letsencrypt/renewal-hooks/deploy/md-next-xray-certificate.sh
   rm -f /etc/nginx/sites-enabled/md-next.conf /etc/nginx/sites-available/md-next.conf
   rm -f /etc/nginx/stream-enabled/md-next-stream.conf /etc/nginx/stream-available/md-next-stream.conf
@@ -366,6 +368,7 @@ remove_installation() {
     fi
     rm -rf "$APP_DIR"
     rm -rf /var/lib/md-next
+    rm -rf /usr/local/lib/md-next
     echo "Приложение и его данные удалены."
   else
     echo "Конфигурация удалена; данные приложения сохранены в $APP_DIR."
@@ -427,7 +430,7 @@ run_step() {
 
 install_deps() {
   apt-get update -qq
-  apt-get install -y -qq python3 python3-pip python3-venv git curl build-essential nginx certbot python3-certbot-nginx lsb-release gnupg libnginx-mod-stream
+  apt-get install -y -qq python3 python3-pip python3-venv git curl build-essential nginx certbot python3-certbot-nginx lsb-release gnupg libnginx-mod-stream sudo
   normalize_domains
 }
 
@@ -941,6 +944,8 @@ run_step "Настройка Backend, миграции БД и конфигур�
 run_step "Создание сайта-заглушки" setup_placeholder
 run_step "Сборка Frontend (React/Vite)" setup_frontend
 run_step "Настройка Nginx, SSL и системных сервисов" setup_services_and_nginx
+run_step "Первичная синхронизация VPN" wait_backend_ready
+run_step "Изоляция панели от root" python3 /opt/md-next/scripts/install-privilege-separation.py
 run_step "Ожидание готовности API" wait_backend_ready
 
 echo ""

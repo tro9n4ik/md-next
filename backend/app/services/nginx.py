@@ -44,6 +44,11 @@ async def _write_and_reload(config_path: str, original: str, updated: str) -> No
 
 async def apply_reality_sni(server_name: str) -> None:
     """Направляет SNI Reality в Xray, сохраняя доступ к панели и существующие псевдонимы."""
+    from app.services.privileges import enabled, call
+    if enabled():
+        code, _, error = await call('nginx', kind='sni', value=server_name.strip().lower())
+        if code: raise RuntimeError(error)
+        return
     config_path = os.getenv("NGINX_STREAM_CONFIG", "/etc/nginx/stream-available/md-next-stream.conf")
     if not os.path.isfile(config_path):
         return
@@ -67,6 +72,13 @@ async def apply_reality_sni(server_name: str) -> None:
 
 
 async def apply_xhttp_tls_path(path: str) -> None:
+    if not re.fullmatch(r'/[A-Za-z0-9/_-]{0,200}', path):
+        raise ValueError('Некорректный путь XHTTP')
+    from app.services.privileges import enabled, call
+    if enabled():
+        code, _, error = await call('nginx', kind='path', value=path)
+        if code: raise RuntimeError(error)
+        return
     async with _nginx_lock:
         await _apply_xhttp_tls_path(path)
 

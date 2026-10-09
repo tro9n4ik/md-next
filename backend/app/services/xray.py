@@ -256,7 +256,7 @@ class XrayService:
                 inbound["sniffing"] = {
                     "enabled": True, "destOverride": ["http", "tls", "quic"], "routeOnly": True,
                 }
-        config["api"] = {"tag": "api", "services": ["StatsService"]}
+        config["api"] = {"tag": "api", "services": ["StatsService", "HandlerService"]}
         config["policy"] = {"levels": {"0": {"statsUserUplink": True, "statsUserDownlink": True}}}
         config["inbounds"].append({
             "listen": "127.0.0.1", "port": 10085, "protocol": "dokodemo-door",
@@ -338,12 +338,14 @@ class XrayService:
 
             existed_before = os.path.exists(config_path)
             replaced = False
+            previous_config = None
 
             try:
                 if existed_before:
                     try:
                         with open(config_path, encoding="utf-8") as current:
-                            unchanged = json.load(current) == json.loads(config_str)
+                            previous_config = json.load(current)
+                            unchanged = previous_config == json.loads(config_str)
                     except (OSError, ValueError):
                         unchanged = False
                     if unchanged:
@@ -382,6 +384,17 @@ class XrayService:
                 # Атомарная замена
                 os.replace(tmp_path, config_path)
                 replaced = True
+
+                if previous_config is not None:
+                    from app.services.xray_users import apply_user_changes
+                    if await apply_user_changes(previous_config, json.loads(config_str)):
+                        from app.services.privileges import enabled, call
+                        if enabled():
+                            code, _, error = await call('persist-xray')
+                            if code: raise RuntimeError(error)
+                        if os.path.exists(backup_path):
+                            os.remove(backup_path)
+                        return True, "Пользователи Xray обновлены без перезапуска"
 
                 restart_code, restart_out, restart_err = await run_cmd("systemctl", "restart", "xray", timeout=20)
                 if restart_code:

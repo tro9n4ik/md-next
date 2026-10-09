@@ -15,10 +15,13 @@ import tarfile
 import tempfile
 import time
 import urllib.request
+import pwd
+import stat
 
 ROOT = Path('/opt/md-next')
 STATE = Path('/var/lib/md-next/updates')
-CONFIGS = [Path('/usr/local/etc/xray/config.json'), Path('/etc/amnezia/amneziawg/awg0.conf')]
+CONFIGS = [Path('/usr/local/etc/xray/config.json'), Path('/etc/amnezia/amneziawg/awg0.conf'),
+           Path('/etc/systemd/system/md-next-backend.service'), Path('/etc/systemd/system/xray.service.d/30-md-next-awg-routing.conf')]
 
 
 def environment(root):
@@ -31,12 +34,33 @@ def environment(root):
 
 
 def snapshot_database(source, target):
+    if source.is_symlink():
+        if source.resolve() != Path('/var/lib/md-next/data/md_next.db'):
+            raise RuntimeError('Unexpected database location')
+        user = pwd.getpwnam('md-next')
+        with tempfile.TemporaryDirectory(prefix='md-next-db-snapshot-') as directory:
+            os.chown(directory, user.pw_uid, user.pw_gid)
+            saved = Path(directory)/'snapshot.db'
+            code = 'import sqlite3,sys; a=sqlite3.connect(sys.argv[1]); b=sqlite3.connect(sys.argv[2]); a.backup(b); b.close(); a.close()'
+            subprocess.run(['runuser', '-u', 'md-next', '--', '/usr/bin/python3', '-c', code, str(source), str(saved)], check=True, timeout=60)
+            descriptor = os.open(saved, os.O_RDONLY | os.O_NOFOLLOW)
+            with os.fdopen(descriptor, 'rb') as snapshot:
+                if not stat.S_ISREG(os.fstat(snapshot.fileno()).st_mode): raise RuntimeError('Invalid snapshot')
+                with target.open('wb') as output: shutil.copyfileobj(snapshot, output)
+            target.chmod(0o600)
+        return
     with sqlite3.connect(source) as live, sqlite3.connect(target) as saved:
         live.backup(saved)
     target.chmod(0o600)
 
 
 def identities(root):
+    source = root / 'backend/md_next.db'
+    if source.is_symlink():
+        if source.resolve() != Path('/var/lib/md-next/data/md_next.db'): raise RuntimeError('Unexpected database location')
+        code = "import json,sqlite3,sys; db=sqlite3.connect(sys.argv[1]); print(json.dumps(db.execute('SELECT id,uuid FROM clients ORDER BY id').fetchall()))"
+        data = subprocess.check_output(['runuser', '-u', 'md-next', '--', '/usr/bin/python3', '-c', code, str(source)], text=True, timeout=30)
+        return [tuple(row) for row in json.loads(data)]
     with sqlite3.connect(root / 'backend/md_next.db') as db:
         return db.execute('SELECT id,uuid FROM clients ORDER BY id').fetchall()
 
@@ -125,6 +149,9 @@ class Updater:
         self.phase('backup', 'Создаём копию приложения, базы и конфигураций перед обновлением.')
         def include(info):
             parts = Path(info.name).parts
+            # Writable website/state directories must never become root restore inputs.
+            if info.issym() or info.islnk() or 'data' in parts or parts[:4] == ('backend', 'app', 'static', 'fake') or ('static' in parts and 'fake' in parts):
+                return None
             if any(part in {'.git', 'node_modules', 'venv', 'venv-releases', '__pycache__', 'backups', '.pytest_cache'} for part in parts) or Path(info.name).name in {'md_next.db', 'md_next.db-wal', 'md_next.db-shm'}:
                 return None
             return info
@@ -168,11 +195,16 @@ class Updater:
                 continue
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
-        self.run([str(venv / 'bin/python'), '-m', 'alembic', 'upgrade', 'head'], cwd=self.root / 'backend', env=environment(self.root), timeout=180)
+        migration = [str(venv / 'bin/python'), '-m', 'alembic', 'upgrade', 'head']
+        if (self.root / 'backend/md_next.db').is_symlink(): migration = ['runuser', '-u', 'md-next', '--', *migration]
+        self.run(migration, cwd=self.root / 'backend', env=environment(self.root), timeout=180)
         shutil.copytree(repository / 'frontend/dist/assets', self.root / 'frontend/dist/assets', dirs_exist_ok=True)
         index = self.root / 'frontend/dist/index.html'
         shutil.copy2(repository / 'frontend/dist/index.html', index.with_suffix('.next'))
         index.with_suffix('.next').replace(index)
+        separator = self.root / 'scripts/install-privilege-separation.py'
+        if separator.is_file():
+            self.run(['/usr/bin/python3', str(separator), '--configure-only'], timeout=120)
         self.run(['systemctl', 'start', 'md-next-backend'])
         self.phase('checking', 'Проверяем запуск панели и сохранность клиентов.')
         self.wait_ready()
@@ -204,9 +236,16 @@ class Updater:
             if venv.is_symlink():
                 venv.unlink()
             venv.symlink_to(self.old_venv, target_is_directory=True)
+        database = self.root / 'backend/md_next.db'
+        destination = database.resolve() if database.is_symlink() else database
+        if database.is_symlink() and destination != Path('/var/lib/md-next/data/md_next.db'):
+            raise RuntimeError('Unexpected database location')
         for suffix in ('-wal', '-shm'):
-            (self.root / ('backend/md_next.db' + suffix)).unlink(missing_ok=True)
-        shutil.copy2(self.backup / 'md_next.db', self.root / 'backend/md_next.db')
+            Path(str(destination)+suffix).unlink(missing_ok=True)
+        descriptor = os.open(destination, os.O_WRONLY | os.O_TRUNC | os.O_NOFOLLOW)
+        with os.fdopen(descriptor, 'wb') as output, (self.backup / 'md_next.db').open('rb') as source:
+            shutil.copyfileobj(source, output)
+        if database.is_symlink(): destination.chmod(0o660)
         with tempfile.TemporaryDirectory(prefix='md-next-rollback-') as temporary:
             with tarfile.open(self.backup / 'vpn-configurations.tar.gz') as archive:
                 archive.extractall(temporary, filter='data')
@@ -214,6 +253,10 @@ class Updater:
                 source = Path(temporary) / str(index)
                 if source.exists():
                     shutil.copy2(source, destination)
+        separator = self.root / 'scripts/install-privilege-separation.py'
+        if separator.is_file():
+            self.run(['/usr/bin/python3', str(separator), '--configure-only'], timeout=120)
+        self.run(['systemctl', 'daemon-reload'])
         self.run(['systemctl', 'restart', 'xray', 'md-next-backend', *self.awg_units])
         self.wait_ready()
         self.phase('rolled_back', 'Обновление не удалось. Предыдущая версия и данные восстановлены.')

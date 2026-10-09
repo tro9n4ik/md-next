@@ -38,8 +38,6 @@ async def get_telegram_settings_from_db() -> Dict[str, Any]:
     except ValueError:
         admin_id = 0
 
-    proxy_url = settings_db.get("telegram_proxy_url", os.getenv("TELEGRAM_PROXY_URL", ""))
-
     notify_node_down_str = settings_db.get("telegram_notify_node_down", "true").lower()
     notify_node_down = notify_node_down_str in ("true", "1", "yes")
 
@@ -61,7 +59,6 @@ async def get_telegram_settings_from_db() -> Dict[str, Any]:
 
 async def resolve_telegram_proxy(db, settings: Dict[str, Any], *, active_node=None) -> str:
     """Выбранная нода использует свой SOCKS-вход Xray без изменения маршрутов клиентов."""
-    from app.models.node import Node
     from app.services.xray import probe_enabled, probe_port_for_node
     if not probe_enabled():
         raise ValueError("Для работы через ноду включите NODE_PROBE_ENABLED на сервере панели")
