@@ -335,6 +335,23 @@ def wants_subscription_page(request: Request) -> bool:
     return agent.startswith('mozilla/') and any(browser in agent for browser in ('chrome/', 'firefox/', 'safari/', 'edg/'))
 
 
+@subscription_router.api_route("/{token}/dns-query", methods=["GET", "POST"])
+async def subscription_dns(token: str, request: Request, db: AsyncSession = Depends(get_db)):
+    from app.services.adguard_dns import read_query, resolve_query
+    service = await db.get(Setting, "adguard.enabled")
+    if not service or service.value != "true":
+        raise HTTPException(503, detail="DNS-фильтр не подключён")
+    client = (await db.execute(select(Client).where(Client.sub_token == token))).scalar_one_or_none()
+    if client is None:
+        raise HTTPException(404, detail="Подписка не найдена")
+    if not access_allowed(client):
+        raise HTTPException(403, detail="Подписка недоступна")
+    wire = await read_query(request)
+    result = await resolve_query(client.id, await enabled_for_client(db, client.id), wire)
+    return Response(result, media_type="application/dns-message",
+                    headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
+
 @subscription_router.get("/{token}", response_class=Response)
 async def get_subscription(token: str, request: Request, format: Literal["raw", "page"] | None = None, db: AsyncSession = Depends(get_db)):
     now = time.time()
@@ -366,7 +383,23 @@ async def get_subscription(token: str, request: Request, format: Literal["raw", 
                 links.append(cdn_link)
     content = base64.b64encode("\n".join(links).encode("utf-8")).decode("ascii")
     dns_rows = (await db.execute(select(Setting).where(Setting.key.like("dns.%")))).scalars().all()
-    happ_dns = build_happ_routing_link({row.key: row.value for row in dns_rows}, adblock_enabled=await enabled_for_client(db, client.id))
+    happ_settings = {row.key: row.value for row in dns_rows}
+    filtered = await enabled_for_client(db, client.id)
+    adguard = await db.get(Setting, "adguard.enabled")
+    public_dns_base = os.getenv("PANEL_PUBLIC_URL", "").rstrip("/")
+    bootstrap = await db.get(Setting, "adguard.bootstrap_ip")
+    if filtered and adguard and adguard.value == "true" and public_dns_base.startswith("https://") and bootstrap:
+        import ipaddress
+        try:
+            address = str(ipaddress.ip_address(bootstrap.value))
+        except ValueError:
+            address = ""
+        if address:
+            for kind in ("remote", "domestic"):
+                happ_settings[f"dns.{kind}_type"] = "DoH"
+                happ_settings[f"dns.{kind}_domain"] = f"{public_dns_base}/api/v1/sub/{client.sub_token}/dns-query"
+                happ_settings[f"dns.{kind}_ip"] = address
+    happ_dns = build_happ_routing_link(happ_settings, adblock_enabled=filtered)
     totals = await db.execute(select(ClientProfile.traffic_up, ClientProfile.traffic_down).where(ClientProfile.client_id == client.id))
     usage = list(totals.all())
     upload = sum(up or 0 for up, _ in usage)
