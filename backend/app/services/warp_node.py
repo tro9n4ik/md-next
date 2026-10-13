@@ -18,7 +18,7 @@ def warp_outbound(port: int, node_tag: str | None = None) -> dict:
     return outbound
 
 
-async def test_node_proxy(node, port: int, probe) -> dict:
+async def test_node_proxy(node, port: int, probe, *, control: bool = False) -> dict:
     if not node or not node.is_enabled or not node.secret:
         raise ValueError("Нода WARP отсутствует, отключена или не имеет секрета")
     binary = find_command("xray")
@@ -40,7 +40,7 @@ async def test_node_proxy(node, port: int, probe) -> dict:
         path.write_text(json.dumps({"log": {"loglevel": "none"}, "inbounds": [{
             "listen": "127.0.0.1", "port": local_port, "protocol": "socks",
             "settings": {"auth": "noauth", "udp": False}}],
-            "outbounds": [warp_outbound(port, tag), node_outbound]}), encoding="utf-8")
+            "outbounds": [node_outbound] if control else [warp_outbound(port, tag), node_outbound]}), encoding="utf-8")
         path.chmod(0o600)
         process = await asyncio.create_subprocess_exec(binary, "run", "-config", str(path),
             stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
@@ -57,7 +57,7 @@ async def test_node_proxy(node, port: int, probe) -> dict:
                     await asyncio.sleep(0.1)
             else:
                 raise RuntimeError("Проверочный прокси Xray не запустился")
-            return await probe(local_port, timeout=8.0)
+            return await probe(local_port, timeout=90.0 if control else 8.0)
         finally:
             if process.returncode is None:
                 process.terminate()

@@ -40,6 +40,52 @@ class WarpPresetRequest(BaseModel):
     key: str = Field(min_length=1, max_length=64)
 
 
+class WarpIPv4Request(BaseModel):
+    ipv4_only: bool = Field(strict=True)
+
+
+@router.put("/ipv4")
+async def set_warp_ipv4(request: WarpIPv4Request, db: AsyncSession = Depends(get_db)):
+    from app.models.node import Node
+    from app.services.warp import _setup_lock
+    async with _setup_lock:
+        nodes = (await db.execute(select(Node).where(Node.is_enabled.is_(True)))).scalars().all()
+        if not nodes:
+            raise HTTPException(status_code=409, detail="Нет подключённых нод")
+        try:
+            for node in nodes:
+                await WarpService.control_node(node, "status", request.ipv4_only)
+        except Exception as exc:
+            raise HTTPException(status_code=409, detail="Обновите служебный обработчик WARP на всех включённых нодах. Настройка не изменена.") from exc
+        await WarpService._save_setting(db, "warp.ipv4_only", str(request.ipv4_only).lower())
+        await db.flush()
+        ok, reason = await ClientService.sync_xray_clients(db)
+        if not ok:
+            await db.rollback()
+            await ClientService.sync_xray_clients(db)
+            raise HTTPException(status_code=502, detail=reason)
+        await db.commit()
+        log_event("info", "warp", "Изменён режим IPv4 WARP", {"ipv4_only": request.ipv4_only})
+        return {"ipv4_only": request.ipv4_only}
+
+
+@router.post("/rotate-ip")
+async def rotate_warp_ip(db: AsyncSession = Depends(get_db)):
+    from app.models.node import Node
+    from app.services.warp import _setup_lock
+    async with _setup_lock:
+        target = await WarpService.target(db)
+        node = await db.get(Node, target["node_id"]) if target["node_id"] else None
+        if not node:
+            raise HTTPException(status_code=409, detail="Активная нода не выбрана")
+        try:
+            result = await WarpService.control_node(node, "rotate", target["port"] == 40000)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail="Не удалось переподключить WARP. Проверьте его состояние и служебный обработчик на ноде.") from exc
+        log_event("info", "warp", "WARP переподключён", {"node_id": node.id, "changed": result["changed"]})
+        return result
+
+
 class WarpTargetRequest(BaseModel):
     node_id: int | None = Field(default=None, ge=1)
     port: int = Field(default=40000, ge=1, le=65535)

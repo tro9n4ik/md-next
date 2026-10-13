@@ -15,13 +15,15 @@ export default function WarpPage() {
   const client = useQueryClient();
   const [notice, setNotice] = useState('');
   const [testResult, setTestResult] = useState<{ip: string; country: string; warp: string} | null>(null);
-  const status = useQuery<{enabled: boolean; node_id: number | null; name: string; instruction?: string}>({queryKey: ['warp-status'], queryFn: () => request('status')});
+  const status = useQuery<{enabled: boolean; ipv4_only: boolean; controls_ready: boolean; node_id: number | null; name: string; instruction?: string}>({queryKey: ['warp-status'], queryFn: () => request('status')});
   const presets = useQuery<{presets: WarpPreset[]}>({queryKey: ['warp-presets'], queryFn: () => request('presets')});
   const refresh = () => { client.invalidateQueries({queryKey: ['warp-status']}); client.invalidateQueries({queryKey: ['warp-presets']}); client.invalidateQueries({queryKey: ['routingRules']}); };
   const toggle = useMutation({mutationFn: (enabled: boolean) => request('usage', 'PUT', {usage: enabled ? 'rules' : 'off'}), onSuccess: () => {setNotice('Настройки сохранены'); setTestResult(null); refresh();}, onError: (error: Error) => setNotice(error.message)});
   const presetMutation = useMutation({mutationFn: ({key, action}: {key: string; action: string}) => request('presets/' + action, 'POST', {key}), onSuccess: () => {setNotice('Пресет сохранён'); refresh();}, onError: (error: Error) => setNotice(error.message)});
   const test = useMutation({mutationFn: () => {setTestResult(null); return request('test', 'POST');}, onSuccess: data => {setTestResult(data); setNotice('');}, onError: (error: Error) => setNotice(error.message)});
-  const busy = toggle.isPending || presetMutation.isPending || test.isPending;
+  const ipv4 = useMutation({mutationFn: (ipv4_only: boolean) => request('ipv4', 'PUT', {ipv4_only}), onSuccess: () => {setNotice('Режим адресов сохранён для всех нод'); setTestResult(null); refresh();}, onError: (error: Error) => setNotice(error.message)});
+  const rotate = useMutation({mutationFn: () => request('rotate-ip', 'POST'), onSuccess: data => {setNotice(data.changed ? `IP изменён: ${data.old_ip} → ${data.new_ip}` : `WARP переподключён, Cloudflare оставил прежний IP: ${data.new_ip}`); setTestResult(null); refresh();}, onError: (error: Error) => setNotice(error.message)});
+  const busy = toggle.isPending || presetMutation.isPending || test.isPending || ipv4.isPending || rotate.isPending;
   const card = 'ui-card ui-panel';
   return <PageLayout title="WARP" description="Выход через активную ноду для выбранных сервисов" icon={Cloud}>
     <section data-autosave className={card}>
@@ -29,6 +31,9 @@ export default function WarpPage() {
       <p className="mt-3 text-sm text-neutral-500">Используется активная нода из раздела «Узлы». На ней должен работать WARP. Отключение сохраняет пресеты.</p>
       {status.data?.instruction && <p className="mt-3 text-sm text-amber-700">{status.data.instruction}</p>}
       {status.isError && <p role="alert" className="mt-3 text-sm text-red-700">Не удалось загрузить состояние WARP.</p>}
+      {status.data?.node_id && !status.data.controls_ready && <p className="mt-3 text-sm text-amber-700">Для смены IP и режима адресов установите служебный обработчик WARP на ноде.</p>}
+      <div className="mt-4 flex items-center justify-between gap-4"><div><h3 className="text-sm font-semibold">Только IPv4</h3><p className="mt-1 text-xs text-neutral-500">Применяется к WARP на всех нодах, в том числе после переключения выхода.</p></div><Switch label="Только IPv4" checked={!!status.data?.ipv4_only} disabled={busy || !status.data?.controls_ready} onChange={value => ipv4.mutate(value)} /></div>
+      <div className="mt-4"><button className="ui-button ui-button-secondary" disabled={busy || !status.data?.controls_ready} onClick={() => rotate.mutate()}>{rotate.isPending ? 'Переподключаем WARP…' : 'Сменить IP'}</button><p className="mt-2 text-xs text-neutral-500">Переподключает WARP активной ноды. Соединения через WARP могут прерваться; новый IP не гарантируется. Регистрация сохраняется.</p></div>
     </section>
     <section data-autosave className={card}>
       <div className="mb-4 flex items-center gap-3">

@@ -76,17 +76,42 @@ class WarpService:
     async def status(cls, db: AsyncSession) -> dict[str, Any]:
         target = await cls.target(db)
         usage = await db.get(Setting, "warp.usage")
+        ipv4 = await db.get(Setting, "warp.ipv4_only")
         enabled = bool(usage and usage.value != "off")
+        ready = False
+        if target["node_id"]:
+            try:
+                await cls.control_node(await db.get(Node, target["node_id"]), "status", True)
+                ready = True
+            except Exception:
+                pass
         return {**target, "remote": True, "installed": bool(target["node_id"]),
-                "enabled": enabled, "state": "Enabled" if enabled else "Disabled",
+                "enabled": enabled, "controls_ready": ready,
+                "ipv4_only": ready and (not ipv4 or ipv4.value != "false"),
+                "state": "Enabled" if enabled else "Disabled",
                 "instruction": None if target["node_id"] else "Выберите активную ноду на странице «Узлы»."}
 
     @classmethod
     async def target(cls, db: AsyncSession) -> dict[str, Any]:
         from app.services.xray import XrayService
         node = await XrayService.get_active_node(db)
+        ipv4 = await db.get(Setting, "warp.ipv4_only")
         return {"node_id": node.id if node else None, "name": node.name if node else "Нода не выбрана",
-                "port": cls.DEFAULT_PORT, "expected_country": ""}
+                "port": 40001 if ipv4 and ipv4.value == "false" else cls.DEFAULT_PORT, "expected_country": ""}
+
+    @classmethod
+    async def control_node(cls, node, action: str, ipv4_only: bool) -> dict:
+        if action not in {"status", "rotate"}:
+            raise ValueError("Неизвестная операция WARP")
+        from app.services.warp_node import test_node_proxy
+        async def request(port, *, timeout):
+            async with httpx.AsyncClient(proxy=f"socks5://127.0.0.1:{port}", timeout=5 if action == "status" else timeout,
+                                         trust_env=False) as client:
+                response = await client.post(f"http://127.0.0.1:40002/{action}",
+                    headers={"Authorization": "Bearer " + node.secret}, json={"ipv4_only": ipv4_only})
+                response.raise_for_status()
+                return response.json()
+        return await test_node_proxy(node, 40002, request, control=True)
 
     @classmethod
     async def test_target(cls, db: AsyncSession, target: dict | None = None) -> dict[str, str]:
