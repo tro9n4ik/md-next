@@ -260,10 +260,24 @@ run_step "Регистрация узла в мастер-панели" register
 run_step "Создание конфигурации VLESS Reality" configure_xray_node
 run_step "Проверка конфигурации и запуск Xray" verify_and_start_xray
 
+install_warp_control() {
+  local temporary
+  temporary=$(mktemp) || return 1
+  printf '%s' '__WARP_CONTROL_SOURCE__' | base64 -d > "$temporary" || return 1
+  export NODE_SECRET
+  local result=0
+  python3 -I "$temporary" --install || result=$?
+  rm -f -- "$temporary"
+  return "$result"
+}
+
 # Ошибка необязательного WARP не отменяет подключение рабочей ноды.
 if [ "${MD_NEXT_NODE_WARP:-1}" = "1" ]; then
   printf "  ▸ Настройка бесплатного WARP на ноде... "
   if configure_warp_node >> "$LOG_FILE" 2>&1; then
+    if ! install_warp_control >> "$LOG_FILE" 2>&1; then
+      echo "Не удалось настроить управление WARP; нода продолжает работать."
+    fi
     printf "[${GREEN}Готово${NC}]\n"
     echo "WARP работает через локальный SOCKS5: 127.0.0.1:40000. Выберите эту ноду во вкладке WARP панели."
   else

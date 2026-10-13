@@ -299,6 +299,10 @@ async def join_node_script(token: str, request: Request, db: AsyncSession = Depe
 
     content = content.replace('PANEL_URL_INJECTED="__PANEL_URL__"', f'PANEL_URL_INJECTED={shlex.quote(panel_url)}')
     content = content.replace('TOKEN_INJECTED="__TOKEN__"', f'TOKEN_INJECTED={shlex.quote(token)}')
+    import base64
+    control_path = os.path.join(os.path.dirname(script_path), "warp-node-control.py")
+    with open(control_path, "rb") as control_source:
+        content = content.replace("__WARP_CONTROL_SOURCE__", base64.b64encode(control_source.read()).decode())
 
     return PlainTextResponse(content, media_type="text/plain")
 

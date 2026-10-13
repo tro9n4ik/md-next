@@ -1,8 +1,8 @@
 {
-  "version": "2.4.17",
+  "version": "2.4.18",
   "files": {
-    "dashboard-demo.jpg": "ec8b3403712a3a5c9cf1d76853c2c8279115997a718c6e051a81a2643d2c3946",
-    "clients-demo.jpg": "88ed197c1038f4e7dbb676696ad5c7b92752a9b43a226c7ec62ca31894abec1a",
-    "telegram-demo.jpg": "991b9e156164afcb85ee0ecb06f54876d047349a0ba635064af5d963683a30dd"
+    "dashboard-demo.jpg": "bd69e8b98ebc155d370a4d63e439d80d5ca872662624ac1e3555320d62b1d8b1",
+    "clients-demo.jpg": "c81f8e46cdd9f478a74e6a3c94ff41f848e9205a3d3c75a75c5f3500f95881d4",
+    "telegram-demo.jpg": "03924cbdb26ac4d568136e21e662fc59cf7734db65c75f99e69e089341807044"
   }
 }
