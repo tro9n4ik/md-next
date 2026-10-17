@@ -41,10 +41,12 @@ async def protected_message(bot, chat_id, identifier):
         return any(row.value == str(identifier) for row in rows)
 
 
-async def live_message(bot, chat_id, text, markup, *, channel, silent=False):
+async def live_message(bot, chat_id, text, markup, *, channel, silent=False, new_message=False):
     key = screen_key(bot, chat_id, channel)
     async with locks[key]:
-        previous = await message_id(bot, chat_id, channel)
+        # После очистки истории Telegram может разрешать редактирование старой
+        # карточки, которая уже не видна пользователю. Команде нужен новый ответ.
+        previous = None if new_message else await message_id(bot, chat_id, channel)
         if previous:
             try:
                 result = await bot.edit_message_text(text, chat_id=chat_id, message_id=previous,
