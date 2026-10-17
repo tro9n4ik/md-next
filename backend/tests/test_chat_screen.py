@@ -108,6 +108,44 @@ def test_replacing_screen_invalidates_old_confirmation_but_keeps_current():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('command', ['/start', '/menu', '/start@demo_bot', '/status'])
+async def test_command_reopens_menu_after_user_clears_history(command):
+    bot = Bot(token='123456:' + ('x' * 35))
+    try:
+        # Telegram не сообщает боту об очистке истории пользователем. Старый
+        # message_id всё ещё может приниматься API редактирования без ошибки.
+        await chat_screen.remember(bot, 42, 'menu', 100)
+        await chat_screen.remember(bot, 42, 'system', 99)
+        admin_tools.pending['cleared-history-confirmation'] = {'chat': 42, 'message': 100}
+        new_card = message(201, bot=bot, is_bot=True, actor=bot.id)
+        with patch.object(bot, 'send_message', AsyncMock(return_value=new_card)) as send, patch.object(bot, 'edit_message_text', AsyncMock(return_value=True)) as edit, patch.object(Message, 'edit_text', AsyncMock(return_value=new_card)) as callback_edit:
+            incoming = message(200, bot=bot).model_copy(update={'text': command})
+            await handlers.show_screen(incoming, 'Главное меню', None)
+            send.assert_awaited_once()
+            edit.assert_not_awaited()
+            assert await chat_screen.message_id(bot, 42, 'menu') == 201
+            assert await chat_screen.message_id(bot, 42, 'system') == 99
+            assert 'cleared-history-confirmation' not in admin_tools.pending
+            await handlers.show_screen(new_card, 'Подписки', None, edit=True)
+            assert send.await_count == 1
+            callback_edit.assert_awaited_once()
+            assert await chat_screen.message_id(bot, 42, 'menu') == 201
+    finally:
+        admin_tools.pending.pop('cleared-history-confirmation', None)
+        await bot.session.close()
+
+
+@pytest.mark.asyncio
+async def test_failed_new_command_keeps_previous_menu_pointer():
+    bot = SimpleNamespace(id=123, send_message=AsyncMock(side_effect=RuntimeError('network')), edit_message_text=AsyncMock())
+    await chat_screen.remember(bot, 42, 'menu', 100)
+    with pytest.raises(RuntimeError):
+        await chat_screen.live_message(bot, 42, 'Меню', None, channel='menu', new_message=True)
+    assert await chat_screen.message_id(bot, 42, 'menu') == 100
+    bot.edit_message_text.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_diagnostics_edits_screen_and_file_requires_explicit_owner_click():
     admin_tools.diagnostic_reports.clear()
     report={'checks':[{'name':'DNS <demo>','ok':True,'detail':'Works & ready'}],'notice':'Серверная проверка'}

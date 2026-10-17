@@ -61,7 +61,7 @@ async def show_screen(message, text, markup, *, edit=False):
         except RuntimeError:
             bound_bot = None
         if bound_bot is not None:
-            from .chat_screen import live_message, remember, protected_message
+            from .chat_screen import live_message, remember, protected_message, message_id
             # Callback notifications keep their own card; navigation opens the menu.
             protected = await protected_message(bound_bot, message.chat.id, message.message_id)
             if edit and message.text is not None and message.from_user and message.from_user.is_bot and not protected:
@@ -74,7 +74,13 @@ async def show_screen(message, text, markup, *, edit=False):
                 await remember(bound_bot, message.chat.id, 'menu', message.message_id)
                 invalidate_screen_actions(message.chat.id,message.message_id,markup)
                 return result
-            result, identifier = await live_message(bound_bot, message.chat.id, text, markup, channel='menu', silent=True)
+            fresh_command = bool(not edit and message.text and message.text.startswith('/')
+                                 and message.from_user and not message.from_user.is_bot)
+            previous_menu = await message_id(bound_bot, message.chat.id, 'menu') if fresh_command else None
+            result, identifier = await live_message(bound_bot, message.chat.id, text, markup,
+                                                   channel='menu', silent=True, new_message=fresh_command)
+            if previous_menu is not None and previous_menu != identifier:
+                invalidate_screen_actions(message.chat.id, previous_menu, None)
             invalidate_screen_actions(message.chat.id,identifier,markup)
             return result if isinstance(result, Message) else message.model_copy(update={'message_id': identifier, 'text': text})
     # У файла конфигурации нет текстового тела: открываем меню отдельным сообщением.
