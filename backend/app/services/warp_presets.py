@@ -87,6 +87,20 @@ _PRESETS: List[WarpPreset] = [
             "assets.grok.com",
         ],
     ),
+    WarpPreset(
+        key="hill-climb-racing-2",
+        title="Hill Climb Racing 2",
+        description=(
+            "Домены Fingersoft и ссылки playhcr.com используют WARP активной ноды. "
+            "Правила охватывают поддомены и могут затрагивать другие игры Fingersoft. "
+            "Сторонние службы входа и рекламы используют обычную маршрутизацию."
+        ),
+        domains=[
+            "fingersoft.com",
+            "fingersoft.net",
+            "playhcr.com",
+        ],
+    ),
 ]
 
 PRESETS: Dict[str, WarpPreset] = {preset.key: preset for preset in _PRESETS}
