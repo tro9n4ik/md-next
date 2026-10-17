@@ -32,21 +32,23 @@ async def test_presets_endpoint_lists_catalog_with_state(auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_apply_preset_creates_rules_and_applies_config(auth_headers):
+@pytest.mark.parametrize("preset_key", list(PRESETS))
+async def test_apply_preset_creates_rules_and_applies_config(auth_headers, preset_key):
     with _mock_sync() as apply_config:
-        response = await _request("POST", "/api/v1/warp/presets/apply", auth_headers, json={"key": "gemini"})
+        response = await _request("POST", "/api/v1/warp/presets/apply", auth_headers, json={"key": preset_key})
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "ok"
-    assert len(payload["created"]) == len(PRESETS["gemini"].domains)
+    assert len(payload["created"]) == len(PRESETS[preset_key].domains)
     assert apply_config.called
 
 
 @pytest.mark.asyncio
-async def test_apply_preset_is_idempotent_through_api(auth_headers):
+@pytest.mark.parametrize("preset_key", ["claude", "hill-climb-racing-2"])
+async def test_apply_preset_is_idempotent_through_api(auth_headers, preset_key):
     with _mock_sync():
-        first = await _request("POST", "/api/v1/warp/presets/apply", auth_headers, json={"key": "claude"})
-        second = await _request("POST", "/api/v1/warp/presets/apply", auth_headers, json={"key": "claude"})
+        first = await _request("POST", "/api/v1/warp/presets/apply", auth_headers, json={"key": preset_key})
+        second = await _request("POST", "/api/v1/warp/presets/apply", auth_headers, json={"key": preset_key})
     assert first.status_code == second.status_code == 200
     assert second.json()["created"] == []
     assert second.json()["removed"] == []
@@ -80,12 +82,13 @@ async def test_apply_preset_reports_xray_failure_as_502_for_other_reasons(auth_h
 
 
 @pytest.mark.asyncio
-async def test_remove_preset_deletes_rules(auth_headers):
+@pytest.mark.parametrize("preset_key", ["gemini", "hill-climb-racing-2"])
+async def test_remove_preset_deletes_rules(auth_headers, preset_key):
     with _mock_sync():
-        await _request("POST", "/api/v1/warp/presets/apply", auth_headers, json={"key": "gemini"})
-        response = await _request("POST", "/api/v1/warp/presets/remove", auth_headers, json={"key": "gemini"})
+        await _request("POST", "/api/v1/warp/presets/apply", auth_headers, json={"key": preset_key})
+        response = await _request("POST", "/api/v1/warp/presets/remove", auth_headers, json={"key": preset_key})
     assert response.status_code == 200
-    assert len(response.json()["removed"]) == len(PRESETS["gemini"].domains)
+    assert len(response.json()["removed"]) == len(PRESETS[preset_key].domains)
 
 
 @pytest.mark.asyncio
