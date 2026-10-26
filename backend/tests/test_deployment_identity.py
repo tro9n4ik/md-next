@@ -1,4 +1,5 @@
 import httpx
+import asyncio
 import pytest
 from app.services import deployment_identity as identity
 from app.services import panel_updates as updates
@@ -104,3 +105,21 @@ async def test_unidentified_installation_stays_blocked(installation, monkeypatch
     assert not result['available']
     assert result['relation'] == 'unknown'
     assert 'отсутствует' in result['identity_notice']
+
+
+@pytest.mark.asyncio
+async def test_slow_identity_lookup_does_not_hang_or_enable_update(installation, monkeypatch):
+    async def slow(*args):
+        await asyncio.Event().wait()
+    monkeypatch.setattr(identity, 'identify_installation', slow)
+    monkeypatch.setattr(updates, 'IDENTITY_TIMEOUT', 0.01)
+    factory = httpx.AsyncClient
+    def respond(request):
+        if request.url.path.endswith('/commits/main'):
+            return httpx.Response(200, json={'sha': HEAD, 'commit': {'verification': {'verified': True}}})
+        return httpx.Response(200, json={'workflow_runs': []})
+    monkeypatch.setattr(updates.httpx, 'AsyncClient', lambda **kwargs: factory(transport=httpx.MockTransport(respond), **kwargs))
+    result = await updates.check_update()
+    assert not result['available']
+    assert result['relation'] == 'unknown'
+    assert 'отведённое время' in result['identity_notice']

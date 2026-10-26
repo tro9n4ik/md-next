@@ -17,6 +17,7 @@ STATE_DIR = Path('/var/lib/md-next/updates')
 REPOSITORY = 'tro9n4ik/md-next'
 _launch_lock = asyncio.Lock()
 BUSY = {'queued', 'preparing', 'backup', 'installing', 'checking', 'rolling_back'}
+IDENTITY_TIMEOUT = 30
 
 
 def read_state():
@@ -84,11 +85,15 @@ async def check_update(token=''):
         identity_notice = ''
         if not re.fullmatch(r'[0-9a-f]{7,40}', current):
             from app.services.deployment_identity import identify_installation
-            current = await identify_installation(client, REPOSITORY, APP_ROOT, commit, headers)
+            try:
+                current = await asyncio.wait_for(identify_installation(client, REPOSITORY, APP_ROOT, commit, headers), timeout=IDENTITY_TIMEOUT)
+            except asyncio.TimeoutError:
+                current = ''
+                identity_notice = 'Сверка исходников не завершилась за отведённое время. Повторите проверку позже; установка не изменена.'
             if current:
                 installed = {**installed, 'commit': current, 'commit_source': 'files'}
                 identity_notice = 'Установленная сборка определена автоматически по файлам панели.'
-            else:
+            elif not identity_notice:
                 identity_notice = 'Номер установленной сборки отсутствует или недоступен. Сверка файлов не подтвердила сборку из недавней истории main. Обновление заблокировано; нужна проверка установки администратором.'
         relation = 'unknown'
         if len(current) >= 7 and commit.startswith(current):
