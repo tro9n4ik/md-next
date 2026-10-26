@@ -152,7 +152,7 @@ register_node() {
 
 configure_xray_node() {
   local temporary service_user service_group
-  temporary=$(mktemp /usr/local/etc/xray/md-next-config.XXXXXX) || return 1
+  temporary=$(mktemp --suffix=.json /usr/local/etc/xray/md-next-config.XXXXXX) || return 1
   export NODE_PORT NODE_SECRET
   if ! python3 - "$temporary" <<'PY'
 import json, os, sys

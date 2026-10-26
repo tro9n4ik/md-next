@@ -19,6 +19,8 @@ async def test_apply_config_format_json_flag(tmp_path):
     ]
 
     async def fake_run_cmd(*args, **kwargs):
+        if args[0] == 'xray':
+            assert args[-1].endswith('.json'), 'Xray requires a JSON extension even with -format json'
         return calls.pop(0)
 
     with mock.patch.dict(os.environ, {"XRAY_PRIVATE_KEY": "test_key", "XRAY_SERVER_NAME": "test.com"}):
