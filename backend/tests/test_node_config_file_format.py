@@ -6,6 +6,19 @@ import subprocess
 import pytest
 
 
+def test_generated_node_config_limits_loopback_access_to_warp_services(tmp_path, monkeypatch):
+    source = (Path(__file__).resolve().parents[2] / 'scripts/join-node.sh').read_text(encoding='utf-8')
+    builder = source.split("<<'PY'\n", 1)[1].split('\nPY\n', 1)[0]
+    for key, value in {'NODE_PORT': '443', 'NODE_SECRET': '11111111-1111-4111-8111-111111111111', 'NODE_PRIVATE_KEY': 'test-private', 'NODE_SHORT_ID': '0123456789abcdef'}.items():
+        monkeypatch.setenv(key, value)
+    import sys
+    path = tmp_path / 'node.json'
+    subprocess.run([sys.executable, '-c', builder, str(path)], check=True)
+    config = json.loads(path.read_text(encoding='utf-8'))
+    assert config['outbounds'][0]['settings']['finalRules'] == [
+        {'action': 'allow', 'network': 'tcp', 'ip': ['127.0.0.1/32'], 'port': '40000-40002'}]
+
+
 @pytest.mark.skipif(os.name == 'nt' or not shutil.which('bash'), reason='Linux node installer check')
 @pytest.mark.parametrize('reject', ['0', '1'])
 def test_node_validates_json_tempfile_before_replacing_live_config(tmp_path, reject):
@@ -27,6 +40,7 @@ assert sys.argv[1].endswith('.json'), 'unsupported config file extension'
 with open(sys.argv[1]) as file: config=json.load(file)
 assert config['inbounds'][0]['streamSettings']['security']=='reality'
 assert config['inbounds'][0]['settings']['clients'][0]['id']=='11111111-1111-4111-8111-111111111111'
+assert config['outbounds'][0]['settings']['finalRules']==[{'action':'allow','network':'tcp','ip':['127.0.0.1/32'],'port':'40000-40002'}]
 CHECK
   then
     return 1

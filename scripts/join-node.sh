@@ -165,7 +165,7 @@ config = {
                                                "privateKey": os.environ["NODE_PRIVATE_KEY"], "shortIds": [os.environ["NODE_SHORT_ID"]]}},
     }],
     "outbounds": [{"protocol": "freedom", "streamSettings": {"sockopt": {"domainStrategy": "UseIPv4"}}, "settings": {
-        "finalRules": [{"action": "allow", "network": "tcp", "ip": ["127.0.0.1/32"], "port": "40000"}]
+        "finalRules": [{"action": "allow", "network": "tcp", "ip": ["127.0.0.1/32"], "port": "40000-40002"}]
     }}],
 }
 with open(sys.argv[1], "w", encoding="utf-8") as target:
