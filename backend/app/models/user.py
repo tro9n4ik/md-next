@@ -17,3 +17,5 @@ class User(Base):
     role = Column(String(16), nullable=False, default="admin", server_default="admin")
     is_active = Column(Boolean, nullable=False, default=True, server_default="1")
     view_all_clients = Column(Boolean, nullable=False, default=False, server_default="0")
+    can_issue_subscriptions = Column(Boolean, nullable=False, default=True, server_default="1")
+    can_delete_subscriptions = Column(Boolean, nullable=False, default=False, server_default="0")

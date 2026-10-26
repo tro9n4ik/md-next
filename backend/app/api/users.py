@@ -31,6 +31,8 @@ class SubadminCreate(BaseModel):
     username: str = Field(min_length=3, max_length=64, pattern=r"^[a-zA-Z0-9_.-]+$")
     password: str
     view_all_clients: bool = False
+    can_issue_subscriptions: bool = True
+    can_delete_subscriptions: bool = False
 
     @field_validator("password")
     @classmethod
@@ -43,6 +45,8 @@ class SubadminUpdate(BaseModel):
     is_active: bool | None = None
     password: str | None = None
     view_all_clients: bool | None = None
+    can_issue_subscriptions: bool | None = None
+    can_delete_subscriptions: bool | None = None
 
     @field_validator("password")
     @classmethod
@@ -58,6 +62,8 @@ def account_data(user: User) -> dict:
         "is_active": user.is_active,
         "totp_enabled": user.totp_enabled,
         "view_all_clients": user.view_all_clients,
+        "can_issue_subscriptions": user.can_issue_subscriptions,
+        "can_delete_subscriptions": user.can_delete_subscriptions,
     }
 
 
@@ -89,6 +95,8 @@ async def create_subadmin(
         totp_enabled=False,
         token_version=1,
         view_all_clients=request.view_all_clients,
+        can_issue_subscriptions=request.can_issue_subscriptions,
+        can_delete_subscriptions=request.can_delete_subscriptions,
     )
     db.add(user)
     try:
@@ -129,6 +137,11 @@ async def update_subadmin(
     ):
         user.view_all_clients = request.view_all_clients
         changed = True
+    for permission in ("can_issue_subscriptions", "can_delete_subscriptions"):
+        value = getattr(request, permission)
+        if value is not None and getattr(user, permission) != value:
+            setattr(user, permission, value)
+            changed = True
     if changed:
         # A disabled account must not regain old sessions after re-enabling.
         user.token_version = (user.token_version or 1) + 1

@@ -6,7 +6,7 @@ import ClientsTable from '../components/ClientsTable';
 export default function ClientsPage() {
   const user = useCurrentUser();
   const description = user.role === 'admin' ? 'Пользователи, условия подписки и профили подключения'
-    : user.view_all_clients ? 'Создание и выдача подключений. Видны все клиенты.' : 'Создание и выдача подключений. Видны только созданные вами клиенты.';
+    : user.view_all_clients ? 'Видны все клиенты. Действия определяются правами вашей учётной записи.' : 'Видны только созданные вами клиенты. Действия определяются правами вашей учётной записи.';
   return <PageLayout title="Клиенты" description={description} icon={Users}>
       <ClientsTable />
   </PageLayout>;
