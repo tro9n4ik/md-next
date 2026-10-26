@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select, text, delete, func, cast, Integer, case
-from app.api.auth import get_current_user
+from app.api.auth import require_admin as get_current_user
 from app.db.database import get_db
 from app.models.operations import NodeSample, TelegramLink
 from app.models.client import Client

@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.auth import get_current_user
+from app.api.auth import require_admin
 from app.db.database import get_db
 from app.models.node import Node
 from app.models.setting import Setting
@@ -51,7 +51,7 @@ async def _notify(text: str) -> None:
 async def set_active_node(
     request: ActiveNodeRequest,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_admin),
 ):
     node = None
     if request.node_id is not None:
@@ -82,12 +82,12 @@ async def set_active_node(
 
 
 @router.get("/failover")
-async def read_failover(db: AsyncSession = Depends(get_db), current_user=Depends(get_current_user)):
+async def read_failover(db: AsyncSession = Depends(get_db), current_user=Depends(require_admin)):
     return await get_failover_settings(db)
 
 
 @router.put("/failover")
-async def update_failover(request: FailoverRequest, db: AsyncSession = Depends(get_db), current_user=Depends(get_current_user)):
+async def update_failover(request: FailoverRequest, db: AsyncSession = Depends(get_db), current_user=Depends(require_admin)):
     values = request.model_dump()
     try:
         for key, value in values.items():
@@ -119,7 +119,7 @@ async def _service_active(service: str) -> bool:
 
 
 @router.get("/route")
-async def get_route(db: AsyncSession = Depends(get_db), current_user=Depends(get_current_user)):
+async def get_route(db: AsyncSession = Depends(get_db), current_user=Depends(require_admin)):
     nodes = (await db.execute(select(Node).order_by(Node.priority, Node.id))).scalars().all()
     active_node = await get_selected_node(db)
     healthy = [node for node in nodes if node.is_enabled and node.is_active and node.status == "healthy"]
@@ -147,7 +147,7 @@ async def get_route(db: AsyncSession = Depends(get_db), current_user=Depends(get
 
 
 @router.post("/route/check")
-async def check_route(db: AsyncSession = Depends(get_db), current_user=Depends(get_current_user)):
+async def check_route(db: AsyncSession = Depends(get_db), current_user=Depends(require_admin)):
     """Проверяет реальный внешний IP запросом через SOCKS-вход текущего Xray."""
     active_node = await get_selected_node(db)
     try:

@@ -15,14 +15,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
 from app.models.traffic import TrafficSample
-from app.api.auth import get_current_user
+from app.api.auth import require_admin
 from app.services.net_utils import get_primary_interface
 from app.models.setting import Setting
 from app.services.warp import WarpService
 from app.services.shell import run_cmd
 from app.bot.bot import bot_manager
 
-router = APIRouter(prefix="/api/v1/system", tags=["Система"])
+router = APIRouter(prefix="/api/v1/system", tags=["Система"], dependencies=[Depends(require_admin)])
 
 LAST_NET_IO = None
 LAST_NET_TIME = None
@@ -103,13 +103,13 @@ async def get_system_info():
         "version": version
     }
 
-@router.get("/stats", dependencies=[Depends(get_current_user)])
+@router.get("/stats", dependencies=[Depends(require_admin)])
 async def get_system_stats():
     loop = asyncio.get_running_loop()
     stats = await loop.run_in_executor(None, _get_psutil_stats)
     return stats
 
-@router.get("/traffic", dependencies=[Depends(get_current_user)])
+@router.get("/traffic", dependencies=[Depends(require_admin)])
 async def get_system_traffic(db: AsyncSession = Depends(get_db)):
     now = datetime.datetime.now(datetime.timezone.utc)
     start_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -195,7 +195,7 @@ async def _certificate_days() -> int | None:
         return None
 
 
-@router.get("/health", dependencies=[Depends(get_current_user)])
+@router.get("/health", dependencies=[Depends(require_admin)])
 async def get_system_health(db: AsyncSession = Depends(get_db)):
     checks: list[dict] = [{"key": "api", "name": "Панель (API)", "status": "ok", "description": "API отвечает на запросы"}]
 

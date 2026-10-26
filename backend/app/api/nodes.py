@@ -18,7 +18,7 @@ from app.db.database import get_db
 from app.models.node import Node
 from app.models.node_invite import NodeInvite
 from app.models.setting import Setting
-from app.api.auth import get_current_user
+from app.api.auth import require_admin
 from app.services.xray import XrayService
 from app.services.cluster import apply_active_node, get_failover_settings, is_manual_direct_route
 from app.services.client_service import ClientService
@@ -85,7 +85,7 @@ def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 @router.get("", response_model=List[NodeResponse])
-async def get_nodes(db: AsyncSession = Depends(get_db), current_user = Depends(get_current_user)):
+async def get_nodes(db: AsyncSession = Depends(get_db), current_user = Depends(require_admin)):
     """
     Получить список всех узлов кластера (требует авторизации)
     """
@@ -97,7 +97,7 @@ class NodeReorder(BaseModel):
     ids: List[int]
 
 @router.post("/reorder")
-async def reorder_nodes(data: NodeReorder, db: AsyncSession = Depends(get_db), current_user = Depends(get_current_user)):
+async def reorder_nodes(data: NodeReorder, db: AsyncSession = Depends(get_db), current_user = Depends(require_admin)):
     nodes = (await db.execute(select(Node).order_by(Node.id))).scalars().all()
     expected = {node.id for node in nodes}
     if len(data.ids) != len(set(data.ids)) or set(data.ids) != expected:
@@ -113,7 +113,7 @@ async def reorder_nodes(data: NodeReorder, db: AsyncSession = Depends(get_db), c
 async def toggle_node_enabled(
     node_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user = Depends(require_admin)
 ):
     """
     Включить или отключить узел кластера вручную (администратором)
@@ -145,7 +145,7 @@ async def toggle_node_enabled(
 async def delete_node(
     node_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user = Depends(require_admin)
 ):
     """
     Удалить ноду из кластера и пересобрать конфигурацию Xray (требует авторизации)
@@ -204,7 +204,7 @@ async def delete_node(
 async def create_node_invite(
     data: NodeInviteCreate,
     db: AsyncSession = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user = Depends(require_admin)
 ):
     """
     Создать одноразовое приглашение для подключения новой ноды
@@ -233,7 +233,7 @@ async def create_node_invite(
 @router.get("/invites", response_model=List[NodeInviteItem])
 async def get_node_invites(
     db: AsyncSession = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user = Depends(require_admin)
 ):
     """
     Получить список всех приглашений для нод
@@ -246,7 +246,7 @@ async def get_node_invites(
 async def revoke_node_invite(
     invite_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user = Depends(require_admin)
 ):
     """
     Отозвать одноразовое приглашение по ID

@@ -5,6 +5,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Users, ArrowLeft, Check, Copy, Download, RefreshCw } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import PageLayout from '../components/ui/PageLayout';
+import { useCurrentUser } from '../contexts/AuthContext';
 import { apiFetch } from '../utils/api';
 import SubscriptionFields from '../components/SubscriptionFields';
 import ClientQuickActions from '../components/ClientQuickActions';
@@ -86,6 +87,7 @@ const CopyButton: React.FC<{ value: string }> = ({ value }) => {
 };
 
 const ClientAccessPage: React.FC = () => {
+  const isAdmin = useCurrentUser().role === 'admin';
   const { id = '' } = useParams();
   const clientId = Number(id);
   const navigate = useNavigate();
@@ -139,9 +141,9 @@ const ClientAccessPage: React.FC = () => {
   return <PageLayout title={`Доступ: ${data.client.name}`} description="Условия подписки, профили подключения и конфигурации" icon={Users}
     actions={<button onClick={() => navigate('/clients')} className="ui-button ui-button-secondary"><ArrowLeft size={16} />К клиентам</button>}>
     {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
-    <SubscriptionEditor key={`${data.client.id}-${data.client.monthly_traffic_limit}-${data.client.cdn_monthly_traffic_limit}-${data.client.expires_at}`} client={data.client} refresh={refresh} />
+    {isAdmin && <><SubscriptionEditor key={`${data.client.id}-${data.client.monthly_traffic_limit}-${data.client.cdn_monthly_traffic_limit}-${data.client.expires_at}`} client={data.client} refresh={refresh} />
     <ClientQuickActions client={data.client} refresh={refresh} />
-    <ProfileAccessEditor key={`${data.client.id}-${JSON.stringify(data.access)}-${data.adblock_enabled}`} data={data} refresh={refresh} />
+    <ProfileAccessEditor key={`${data.client.id}-${JSON.stringify(data.access)}-${data.adblock_enabled}`} data={data} refresh={refresh} /></>}
 
     {data.profiles.map((profile) => {
       const size = new TextEncoder().encode(profile.data).length;
@@ -157,13 +159,13 @@ const ClientAccessPage: React.FC = () => {
 
           </div>
           {!profile.key_available && isAwg ? <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">Ключ недоступен, нажмите «Перевыпустить»</p> : <textarea readOnly value={profile.data} className="h-28 w-full resize-y rounded-lg border bg-neutral-50 p-3 font-mono text-xs text-neutral-700" />}
-          <div className="flex flex-wrap gap-2">{profile.data && <CopyButton value={profile.data} />}{profile.kind !== 'cdn' && <button onClick={() => { if (window.confirm('Перевыпустить профиль? Старые данные перестанут работать.')) { setError(''); profileMutation.mutate({ profileId: profile.id, action: 'regenerate' }); } }} className="inline-flex items-center gap-1 rounded-lg border border-amber-200 px-3 py-2 text-xs font-medium text-amber-800 hover:bg-amber-50"><RefreshCw size={14} /> Перевыпустить</button>}</div>
+          <div className="flex flex-wrap gap-2">{profile.data && <CopyButton value={profile.data} />}{isAdmin && profile.kind !== 'cdn' && <button onClick={() => { if (window.confirm('Перевыпустить профиль? Старые данные перестанут работать.')) { setError(''); profileMutation.mutate({ profileId: profile.id, action: 'regenerate' }); } }} className="inline-flex items-center gap-1 rounded-lg border border-amber-200 px-3 py-2 text-xs font-medium text-amber-800 hover:bg-amber-50"><RefreshCw size={14} /> Перевыпустить</button>}</div>
         </div>
       </article>;
     })}
     <section className="grid gap-5 ui-card ui-panel md:grid-cols-[190px_1fr]">
       <div className="flex items-center justify-center rounded-xl bg-neutral-50 p-4">{data.subscription_url && <QRCodeSVG value={data.subscription_url} size={160} level="L" includeMargin />}</div>
-      <div className="space-y-3"><h2 className="font-semibold text-neutral-800">Ссылка подписки</h2><p className="text-xs text-neutral-500">В подписку входят разрешённые VLESS, Hysteria 2 и CDN. AmneziaWG выдаётся отдельным .conf файлом.</p><textarea readOnly value={data.subscription_url} className="h-20 w-full resize-none rounded-lg border bg-neutral-50 p-3 font-mono text-xs" /><div className="flex flex-wrap gap-2"><CopyButton value={data.subscription_url} /><a href={`${data.subscription_url}?format=page`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center rounded-lg border px-3 py-2 text-xs font-medium hover:bg-neutral-50">Личная страница</a><button onClick={() => { if (window.confirm('Перевыпустить ссылку? Старая ссылка перестанет работать.')) { setError(''); subscriptionMutation.mutate(); } }} className="inline-flex items-center gap-1 rounded-lg border border-amber-200 px-3 py-2 text-xs font-medium text-amber-800 hover:bg-amber-50"><RefreshCw size={14} /> Перевыпустить ссылку</button></div></div>
+      <div className="space-y-3"><h2 className="font-semibold text-neutral-800">Ссылка подписки</h2><p className="text-xs text-neutral-500">В подписку входят разрешённые VLESS, Hysteria 2 и CDN. AmneziaWG выдаётся отдельным .conf файлом.</p><textarea readOnly value={data.subscription_url} className="h-20 w-full resize-none rounded-lg border bg-neutral-50 p-3 font-mono text-xs" /><div className="flex flex-wrap gap-2"><CopyButton value={data.subscription_url} /><a href={`${data.subscription_url}?format=page`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center rounded-lg border px-3 py-2 text-xs font-medium hover:bg-neutral-50">Личная страница</a>{isAdmin && <button onClick={() => { if (window.confirm('Перевыпустить ссылку? Старая ссылка перестанет работать.')) { setError(''); subscriptionMutation.mutate(); } }} className="inline-flex items-center gap-1 rounded-lg border border-amber-200 px-3 py-2 text-xs font-medium text-amber-800 hover:bg-amber-50"><RefreshCw size={14} /> Перевыпустить ссылку</button>}</div></div>
     </section>
   </PageLayout>;
 };

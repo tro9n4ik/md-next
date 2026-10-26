@@ -54,3 +54,21 @@ test('Истёкшая авторизация завершает сеанс, н�
   assert.equal(f.storage.has('token'), false);
   assert.equal(f.events.at(-1).type, 'auth:unauthorized');
 });
+
+
+test('Отказ в правах 403 сохраняет текущий сеанс', async () => {
+  const f = fixture(403);
+  await f.api('/api/v1/settings');
+  assert.equal(f.storage.get('token'), 'test-token');
+  assert.equal(f.events.some(event => event.type === 'auth:unauthorized'), false);
+});
+
+
+test('Запоздалый 401 прежней учётной записи не завершает новый сеанс', async () => {
+  const f = fixture(401);
+  const pending = f.api('/api/v1/clients');
+  f.storage.set('token', 'new-account-token');
+  await pending;
+  assert.equal(f.storage.get('token'), 'new-account-token');
+  assert.equal(f.events.some(event => event.type === 'auth:unauthorized'), false);
+});

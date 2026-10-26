@@ -22,3 +22,6 @@ class UserResponse(BaseModel):
     id: int
     username: str
     totp_enabled: bool
+    role: str
+    is_active: bool
+    view_all_clients: bool

@@ -210,13 +210,13 @@ async def issue_access(message, client_id, *, awg=False):
 async def create_subscription(message, draft):
     # Панель и бот используют одну проверку полей, транзакцию и синхронизацию
     # протоколов. Не создаём сначала бессрочного клиента с последующим обновлением.
-    from app.api.clients import ClientCreate, create_client
+    from app.api.clients import ClientCreate, create_client_record
     from .handlers import back_menu
     values = {k: v for k, v in draft.values.items() if not k.startswith("_")}
     created_id = None
     try:
         async with AsyncSessionLocal() as session:
-            result = await create_client(ClientCreate(**values), db=session)
+            result = await create_client_record(ClientCreate(**values), db=session)
             created_id = result["client"]["id"]
         await detail(message, created_id, edit=True)
         await issue_access(message, created_id)

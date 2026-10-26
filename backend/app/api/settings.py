@@ -9,7 +9,7 @@ from sqlalchemy.future import select
 
 from app.db.database import get_db
 from app.models.setting import Setting
-from app.api.auth import get_current_user
+from app.api.auth import require_admin
 from app.bot.bot import bot_manager
 from app.services.telegram_settings import (
     get_telegram_settings_from_db,
@@ -18,7 +18,7 @@ from app.services.telegram_settings import (
 from app.services.crypto import encrypt_secret
 from app.services.events import log_event
 
-router = APIRouter(prefix="/api/v1/settings", tags=["Настройки"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/api/v1/settings", tags=["Настройки"], dependencies=[Depends(require_admin)])
 
 
 @router.get('/placeholder')

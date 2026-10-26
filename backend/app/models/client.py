@@ -9,6 +9,7 @@ class Client(Base):
     __tablename__ = "clients"
 
     id = Column(Integer, primary_key=True, index=True)
+    created_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     name = Column(String, index=True, nullable=False)
     phone = Column(String, nullable=False)
     email = Column(String, nullable=False)

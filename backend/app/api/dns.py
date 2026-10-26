@@ -6,11 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.auth import get_current_user
+from app.api.auth import require_admin
 from app.db.database import get_db
 from app.models.setting import Setting
 
-router = APIRouter(prefix="/api/v1/settings/dns", tags=["DNS"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/api/v1/settings/dns", tags=["DNS"], dependencies=[Depends(require_admin)])
 
 DNS_DEFAULTS = {
     "dns.remote_type": "DoH",
