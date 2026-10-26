@@ -334,7 +334,7 @@ class XrayService:
                 profile_options=profile_options,
             )
 
-            tmp_path = f"{config_path}.tmp.{time.time_ns()}"
+            tmp_path = f"{config_path}.tmp.{time.time_ns()}.json"
             backup_path = f"{config_path}.bak.{int(time.time())}"
 
             existed_before = os.path.exists(config_path)
