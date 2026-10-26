@@ -226,8 +226,10 @@ class Updater:
         if self.saved_identities != identities(self.root):
             raise RuntimeError('Client identities changed')
         self.run(['systemctl', 'is-active', 'md-next-backend', 'xray', 'nginx'])
-        (self.root / 'DEPLOYED_COMMIT').write_text(self.request['commit'] + '\n')
-        (self.root / 'FRONTEND_DEPLOYED_COMMIT').write_text(self.request['commit'] + '\n')
+        for name in ('DEPLOYED_COMMIT', 'FRONTEND_DEPLOYED_COMMIT'):
+            marker = self.root / name
+            marker.write_text(self.request['commit'] + '\n')
+            marker.chmod(0o644)
         self.phase('success', 'Панель обновлена. Резервная копия сохранена; обновите страницу.')
 
     def wait_ready(self):

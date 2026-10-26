@@ -17,6 +17,7 @@ STATE_DIR = Path('/var/lib/md-next/updates')
 REPOSITORY = 'tro9n4ik/md-next'
 _launch_lock = asyncio.Lock()
 BUSY = {'queued', 'preparing', 'backup', 'installing', 'checking', 'rolling_back'}
+IDENTITY_TIMEOUT = 30
 
 
 def read_state():
@@ -79,7 +80,21 @@ async def check_update(token=''):
         if not re.fullmatch(r'[0-9a-f]{40}', commit):
             raise ValueError('GitHub вернул некорректный идентификатор версии.')
         verified = data.get('commit', {}).get('verification', {}).get('verified') is True
-        current = installed_info()['commit']
+        installed = installed_info()
+        current = installed['commit']
+        identity_notice = ''
+        if not re.fullmatch(r'[0-9a-f]{7,40}', current):
+            from app.services.deployment_identity import identify_installation
+            try:
+                current = await asyncio.wait_for(identify_installation(client, REPOSITORY, APP_ROOT, commit, headers), timeout=IDENTITY_TIMEOUT)
+            except asyncio.TimeoutError:
+                current = ''
+                identity_notice = 'Сверка исходников не завершилась за отведённое время. Повторите проверку позже; установка не изменена.'
+            if current:
+                installed = {**installed, 'commit': current, 'commit_source': 'files'}
+                identity_notice = 'Установленная сборка определена автоматически по файлам панели.'
+            elif not identity_notice:
+                identity_notice = 'Номер установленной сборки отсутствует или недоступен. Сверка файлов не подтвердила сборку из недавней истории main. Обновление заблокировано; нужна проверка установки администратором.'
         relation = 'unknown'
         if len(current) >= 7 and commit.startswith(current):
             relation = 'identical'
@@ -97,8 +112,9 @@ async def check_update(token=''):
         for run in checks:
             latest.setdefault(run['path'], run)
         ready = verified and all(latest.get(path, {}).get('conclusion') == 'success' for path in ('.github/workflows/ci.yml', '.github/workflows/secrets.yml'))
-    installed = installed_info()
-    return {'commit': commit, 'summary': data.get('commit', {}).get('message', '').split('\n')[0][:300], 'published_at': data.get('commit', {}).get('committer', {}).get('date'), 'available': relation == 'ahead', 'relation': relation, 'ready': ready, 'signature_verified': verified, 'installed': installed}
+    if relation == 'unknown' and not identity_notice:
+        identity_notice = 'GitHub не подтвердил связь установленного коммита с main. Проверьте источник установки; автоматический переход на неизвестную или более старую сборку запрещён.'
+    return {'commit': commit, 'summary': data.get('commit', {}).get('message', '').split('\n')[0][:300], 'published_at': data.get('commit', {}).get('committer', {}).get('date'), 'available': relation == 'ahead', 'relation': relation, 'ready': ready, 'signature_verified': verified, 'installed': installed, 'identity_notice': identity_notice}
 
 
 async def start_update(commit, token=''):
