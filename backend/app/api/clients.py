@@ -12,7 +12,8 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import or_, select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user, require_admin
+from app.models.user import User
 from app.db.database import get_db
 from app.models.client import Client, ClientProfile
 from app.services.awg import AWGService
@@ -111,8 +112,11 @@ async def get_clients(
     sort: Literal["name", "status", "traffic", "protocol", "created"] = "created",
     order: Literal["asc", "desc"] = "desc", status: Literal["all", "active", "disabled"] | None = None,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     query = select(Client)
+    if current_user.role != "admin" and not current_user.view_all_clients:
+        query = query.where(Client.created_by_id == current_user.id)
     if q.strip():
         pattern = f"%{q.strip()}%"
         query = query.where(or_(Client.name.ilike(pattern), Client.phone.ilike(pattern), Client.email.ilike(pattern)))
@@ -145,7 +149,12 @@ async def get_clients(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-async def create_client(client_data: ClientCreate, db: AsyncSession = Depends(get_db)):
+async def create_client(client_data: ClientCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    return await create_client_record(client_data, db, created_by_id=current_user.id, is_admin=current_user.role == "admin")
+
+
+async def create_client_record(client_data: ClientCreate, db: AsyncSession, *, created_by_id: int | None = None, is_admin: bool = True):
+    """Shared transaction for the authenticated panel and administrator Telegram bot."""
     enabled = await enabled_profile_kinds(db)
     protocol_settings = await get_profile_settings(db)
     if client_data.protocol == "vless" and any(kind.startswith("vless_") for kind in enabled) and not all(protocol_settings.get(key) for key in ("protocol.reality.server_address", "protocol.reality.public_key", "protocol.reality.server_name")):
@@ -157,7 +166,7 @@ async def create_client(client_data: ClientCreate, db: AsyncSession = Depends(ge
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     client = Client(name=client_data.name.strip(), phone=client_data.phone or "", email=client_data.email or "", protocol=None,
                     created_at=now, expires_at=expires, monthly_traffic_limit=client_data.monthly_traffic_limit,
-                    cdn_monthly_traffic_limit=client_data.cdn_monthly_traffic_limit, traffic_period_start=now)
+                    cdn_monthly_traffic_limit=client_data.cdn_monthly_traffic_limit, traffic_period_start=now, created_by_id=created_by_id)
     db.add(client)
     try:
         await db.flush()
@@ -168,7 +177,7 @@ async def create_client(client_data: ClientCreate, db: AsyncSession = Depends(ge
         legacy_conf = next((make_profile_data(client, p, settings) for p in profiles if p.kind == "awg"), None)
         legacy_protocol = client_data.protocol or ("vless" if legacy_link else "awg" if legacy_conf else None)
         await db.commit()
-        log_event("info", "client", "Клиент создан", {"client_id": client.id, "name": client.name})
+        log_event("info", "client", "Клиент создан", {"client_id": client.id, "name": client.name, "actor_id": created_by_id})
         return {
             "client": {"id": client.id, "name": client.name, "phone": client.phone, "email": client.email, "protocol": legacy_protocol,
                        **limit_info(client),
@@ -180,11 +189,18 @@ async def create_client(client_data: ClientCreate, db: AsyncSession = Depends(ge
         await db.rollback()
         await ClientService.restore_committed_configs(db)
         logger.exception("Не удалось создать клиента")
-        detail = str(exc) or exc.__class__.__name__
+        detail = (str(exc) or exc.__class__.__name__) if is_admin else "Ошибка применения профилей; обратитесь к администратору"
         raise HTTPException(status_code=502, detail=f"Не удалось создать и применить профили клиента: {detail}") from exc
 
 
 @router.get("/{client_id}/profiles")
+async def read_client_profiles(client_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    client = await db.get(Client, client_id)
+    if client is None or (current_user.role != "admin" and not current_user.view_all_clients and client.created_by_id != current_user.id):
+        raise HTTPException(status_code=404, detail="Клиент не найден")
+    return await get_client_profiles(client_id, db)
+
+
 async def get_client_profiles(client_id: int, db: AsyncSession = Depends(get_db)):
     client = await db.get(Client, client_id)
     if client is None:
@@ -213,7 +229,7 @@ async def get_client_profiles(client_id: int, db: AsyncSession = Depends(get_db)
     }
 
 
-@router.put("/{client_id}/access")
+@router.put("/{client_id}/access", dependencies=[Depends(require_admin)])
 async def update_client_access(client_id: int, request: ClientAccessUpdate, db: AsyncSession = Depends(get_db)):
     client = await db.get(Client, client_id)
     if client is None:
@@ -258,7 +274,7 @@ async def update_client_access(client_id: int, request: ClientAccessUpdate, db: 
     return await get_client_profiles(client_id, db)
 
 
-@router.put("/{client_id}/profiles/{profile_id}")
+@router.put("/{client_id}/profiles/{profile_id}", dependencies=[Depends(require_admin)])
 async def update_client_profile(client_id: int, profile_id: int, data: dict, db: AsyncSession = Depends(get_db)):
     profile = await db.get(ClientProfile, profile_id)
     if profile is None or profile.client_id != client_id:
@@ -276,7 +292,7 @@ async def update_client_profile(client_id: int, profile_id: int, data: dict, db:
     return {"id": profile.id, "is_enabled": profile.is_enabled}
 
 
-@router.post("/{client_id}/profiles/{profile_id}/regenerate")
+@router.post("/{client_id}/profiles/{profile_id}/regenerate", dependencies=[Depends(require_admin)])
 async def regenerate_profile(client_id: int, profile_id: int, db: AsyncSession = Depends(get_db)):
     profile = await db.get(ClientProfile, profile_id)
     if profile is None or profile.client_id != client_id:
@@ -299,7 +315,7 @@ async def regenerate_profile(client_id: int, profile_id: int, db: AsyncSession =
     return {"status": "ok"}
 
 
-@router.post("/{client_id}/sub/regenerate")
+@router.post("/{client_id}/sub/regenerate", dependencies=[Depends(require_admin)])
 async def regenerate_subscription(client_id: int, db: AsyncSession = Depends(get_db)):
     client = await db.get(Client, client_id)
     if client is None:
@@ -444,7 +460,7 @@ async def get_subscription(token: str, request: Request, format: Literal["raw", 
     })
 
 
-@router.put("/{client_id}")
+@router.put("/{client_id}", dependencies=[Depends(require_admin)])
 async def update_client(client_id: int, data: ClientUpdate, db: AsyncSession = Depends(get_db)):
     client = await db.get(Client, client_id)
     if client is None:
@@ -480,7 +496,7 @@ async def update_client(client_id: int, data: ClientUpdate, db: AsyncSession = D
         raise HTTPException(status_code=502, detail=f"Не удалось обновить клиента: {exc}") from exc
 
 
-@router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_admin)])
 async def delete_client(client_id: int, db: AsyncSession = Depends(get_db)):
     client = await db.get(Client, client_id)
     if client is None:
@@ -501,7 +517,7 @@ async def delete_client(client_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=502, detail=f"Не удалось удалить клиента из протоколов: {exc}") from exc
 
 
-@router.post("/{client_id}/traffic", deprecated=True)
+@router.post("/{client_id}/traffic", deprecated=True, dependencies=[Depends(require_admin)])
 async def record_client_traffic(client_id: int, data: TrafficUpdate, db: AsyncSession = Depends(get_db)):
     client = await db.get(Client, client_id)
     if client is None:
@@ -524,7 +540,7 @@ async def record_client_traffic(client_id: int, data: TrafficUpdate, db: AsyncSe
     return {"id": client.id, "traffic_used": client.traffic_total, "is_active": client.is_active}
 
 
-@router.post("/{client_id}/reset-traffic")
+@router.post("/{client_id}/reset-traffic", dependencies=[Depends(require_admin)])
 async def reset_client_traffic(client_id: int, db: AsyncSession = Depends(get_db)):
     client = await db.get(Client, client_id)
     if client is None:

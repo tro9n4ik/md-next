@@ -20,7 +20,7 @@ SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
 
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 LOGIN_ATTEMPTS: Dict[Tuple[str, str], list] = {}
 IP_ATTEMPTS: Dict[str, list] = {}
@@ -52,9 +52,11 @@ def create_access_token(data: dict) -> str:
     return jwt.encode(to_encode, secret, algorithm=ALGORITHM)
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_db)
 ) -> User:
+    if credentials is None:
+        raise HTTPException(status_code=401, detail="Требуется вход в панель", headers={"WWW-Authenticate": "Bearer"})
     secret = os.getenv("JWT_SECRET_KEY")
     if not secret:
         raise RuntimeError("КРИТИЧЕСКАЯ ОШИБКА: Переменная окружения JWT_SECRET_KEY не задана!")
@@ -70,7 +72,7 @@ async def get_current_user(
 
     result = await db.execute(select(User).where(User.username == username))
     user = result.scalar_one_or_none()
-    if user is None:
+    if user is None or not user.is_active or user.role not in {"admin", "subadmin"}:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Пользователь не найден")
 
     user_token_version = getattr(user, 'token_version', 1) or 1
@@ -80,6 +82,11 @@ async def get_current_user(
             detail="Срок действия токена истёк или пароль был изменён"
         )
 
+    return user
+
+async def require_admin(user: User = Depends(get_current_user)) -> User:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Доступно только администратору")
     return user
 
 async def ensure_admin_created(db: AsyncSession):
@@ -149,7 +156,7 @@ async def login(req: LoginRequest, request: Request, db: AsyncSession = Depends(
     result = await db.execute(select(User).where(User.username == req.username))
     user = result.scalar_one_or_none()
 
-    if not user or not verify_password(req.password, user.hashed_password):
+    if not user or not user.is_active or user.role not in {"admin", "subadmin"} or not verify_password(req.password, user.hashed_password):
         _record_failed_attempt(client_ip, req.username)
         log_event("warning", "auth", "Неудачная попытка входа", {"username": req.username})
         raise HTTPException(status_code=401, detail="Неверный логин или пароль")
@@ -239,7 +246,8 @@ async def disable_2fa(req: TOTPDisableRequest, user: User = Depends(get_current_
 
 @router.get("/me", response_model=UserResponse)
 async def get_me(user: User = Depends(get_current_user)):
-    return UserResponse(id=user.id, username=user.username, totp_enabled=user.totp_enabled)
+    return UserResponse(id=user.id, username=user.username, totp_enabled=user.totp_enabled,
+                        role=user.role, is_active=user.is_active, view_all_clients=user.view_all_clients)
 
 class ChangePasswordRequest(BaseModel):
     old_password: str
@@ -262,5 +270,5 @@ async def change_password(
     db.add(user)
     await db.commit()
     await db.refresh(user)
-    log_event("info", "security", "Пароль администратора изменён", {"username": user.username})
-    return {"status": "ok", "message": "Пароль администратора успешно изменён"}
+    log_event("info", "security", "Пароль пользователя изменён", {"username": user.username})
+    return {"status": "ok", "message": "Пароль успешно изменён"}

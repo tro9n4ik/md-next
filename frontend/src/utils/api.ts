@@ -18,7 +18,8 @@ export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {},
   if (mutation && response.ok) window.dispatchEvent(new CustomEvent('api:mutation-saved', { detail }));
 
   // При неверном пароле на эндпоинте /login не очищаем токен и не шлем auth:unauthorized
-  if ((response.status === 401 || response.status === 403) && !urlStr.includes('/api/v1/auth/login')) {
+  if (response.status === 401 && !urlStr.includes('/api/v1/auth/login')
+    && token && localStorage.getItem('token') === token && headers.get('Authorization') === `Bearer ${token}`) {
     localStorage.removeItem('token');
     window.dispatchEvent(new Event('auth:unauthorized'));
   }

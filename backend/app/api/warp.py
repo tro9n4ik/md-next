@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.api.auth import get_current_user
+from app.api.auth import require_admin
 from app.db.database import get_db
 from app.services.warp import WarpService
 from app.services.client_service import ClientService
@@ -15,7 +15,7 @@ from app.models.setting import Setting
 from app.services.events import log_event
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/v1/warp", tags=["Cloudflare WARP / Gemini"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/api/v1/warp", tags=["Cloudflare WARP / Gemini"], dependencies=[Depends(require_admin)])
 
 
 class GeminiRequest(BaseModel):

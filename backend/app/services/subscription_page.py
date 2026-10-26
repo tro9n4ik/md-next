@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 import qrcode
+from qrcode.image.pure import PyPNGImage
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from app.services.client_limits import limit_info, utc
 from app.services.cdn import make_cdn_link, cdn_access_allowed
@@ -47,7 +48,7 @@ def render_subscription_page(client, profiles, settings, enabled, url, usage, to
                         and settings.get('cdn.enabled') == 'true' and cdn_access_allowed(client, p, settings)
                         for p in profiles)
     buffer = BytesIO()
-    qrcode.make(url).save(buffer, format="PNG")
+    qrcode.make(url, image_factory=PyPNGImage).save(buffer)
     expiry = utc(client.expires_at) if client.expires_at else None
     days = max(0, int((expiry - datetime.now(timezone.utc)).total_seconds() // 86400)) if expiry else None
     return environment.get_template("subscription.html").render(

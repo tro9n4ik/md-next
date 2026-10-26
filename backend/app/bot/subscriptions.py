@@ -9,6 +9,7 @@ from decimal import Decimal, InvalidOperation
 from html import escape
 
 import qrcode
+from qrcode.image.pure import PyPNGImage
 from aiogram import F
 from aiogram.filters import Command
 from aiogram.types import BufferedInputFile
@@ -201,7 +202,7 @@ async def issue_access(message, client_id, *, awg=False):
         await message.answer("Адрес панели не настроен. Данные подключения доступны в панели.", reply_markup=back_menu())
         return
     bio = io.BytesIO()
-    qrcode.make(url).save(bio, format="PNG")
+    qrcode.make(url, image_factory=PyPNGImage).save(bio)
     await message.answer_photo(BufferedInputFile(bio.getvalue(), filename="subscription.png"), caption="🔗 QR-код подписки")
     await message.answer(f"<b>Подписка: {escape(data['client']['name'])}</b>\n\n<code>{escape(url)}</code>\n\n"
                          "Добавьте эту ссылку в VPN-приложение. AmneziaWG выдаётся отдельным файлом.", parse_mode="HTML", reply_markup=back_menu())
@@ -210,13 +211,13 @@ async def issue_access(message, client_id, *, awg=False):
 async def create_subscription(message, draft):
     # Панель и бот используют одну проверку полей, транзакцию и синхронизацию
     # протоколов. Не создаём сначала бессрочного клиента с последующим обновлением.
-    from app.api.clients import ClientCreate, create_client
+    from app.api.clients import ClientCreate, create_client_record
     from .handlers import back_menu
     values = {k: v for k, v in draft.values.items() if not k.startswith("_")}
     created_id = None
     try:
         async with AsyncSessionLocal() as session:
-            result = await create_client(ClientCreate(**values), db=session)
+            result = await create_client_record(ClientCreate(**values), db=session)
             created_id = result["client"]["id"]
         await detail(message, created_id, edit=True)
         await issue_access(message, created_id)

@@ -6,11 +6,11 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.auth import get_current_user
+from app.api.auth import require_admin
 from app.db.database import get_db
 from app.models.event import Event
 
-router = APIRouter(prefix="/api/v1/events", tags=["События"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/api/v1/events", tags=["События"], dependencies=[Depends(require_admin)])
 
 
 class EventResponse(BaseModel):

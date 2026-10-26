@@ -2,13 +2,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.api.auth import get_current_user
+from app.api.auth import require_admin
 from app.db.database import get_db
 from app.models.setting import Setting
 from app.services.cdn import validate_domain, probe_cdn, cdn_path
 from app.services.profiles import get_profile_settings, enabled_profile_kinds
 
-router = APIRouter(prefix="/api/v1/cdn", tags=["CDN"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/api/v1/cdn", tags=["CDN"], dependencies=[Depends(require_admin)])
 
 
 class CdnDraft(BaseModel):

@@ -2,11 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, SecretStr
 import httpx
 
-from app.api.auth import get_current_user
+from app.api.auth import require_admin
 from app.services.component_status import get_components
 from app.services.panel_updates import get_status, check_update, start_update
 
-router = APIRouter(prefix='/api/v1/system/updates', tags=['Обновление панели'], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix='/api/v1/system/updates', tags=['Обновление панели'], dependencies=[Depends(require_admin)])
 
 class CheckRequest(BaseModel):
     github_token: SecretStr | None = Field(default=None, max_length=512)

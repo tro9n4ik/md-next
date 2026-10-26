@@ -127,10 +127,12 @@ export const Settings: React.FC = () => {
       return res.json();
     },
     onSuccess: () => {
-      setPwdMessage({ type: 'success', text: 'Пароль администратора успешно изменён!' });
+      setPwdMessage({ type: 'success', text: 'Пароль изменён. Войдите заново.' });
       setOldPassword('');
       setNewPassword('');
       setConfirmPassword('');
+      localStorage.removeItem('token');
+      window.dispatchEvent(new Event('auth:unauthorized'));
     },
     onError: (err: Error) => {
       setPwdMessage({ type: 'error', text: err.message });
@@ -157,7 +159,7 @@ export const Settings: React.FC = () => {
     <div className="grid items-start gap-6 xl:grid-cols-2">
         <div className="ui-card ui-panel space-y-5">
           <div>
-            <h3 className="text-base font-bold text-neutral-800 mb-1">Смена пароля администратора</h3>
+            <h3 className="text-base font-bold text-neutral-800 mb-1">Смена пароля</h3>
             <p className="text-xs text-neutral-500">Пароль должен состоять минимум из 10 символов</p>
           </div>
 

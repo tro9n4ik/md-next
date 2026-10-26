@@ -169,3 +169,21 @@ def test_migration_schema_matches_models(alembic_config):
         mc = MigrationContext.configure(connection)
         diff = compare_metadata(mc, Base.metadata)
         assert diff == [], f"Расхождения между миграциями и моделями SQLAlchemy: {diff}"
+
+
+def test_subadmin_upgrade_preserves_admin_and_client_credentials(alembic_config):
+    cfg, db_file = alembic_config
+    command.upgrade(cfg, "0014_node_short_id")
+    with sqlite3.connect(db_file) as db:
+        db.execute("insert into users (id,username,hashed_password,totp_enabled,token_version) values (1,'admin','existing-hash',0,7)")
+        db.execute("insert into clients (id,name,phone,email,sub_token,is_active) values (1,'Existing','','','same-subscription',1)")
+        db.execute("insert into client_profiles (client_id,kind,uuid,is_enabled) values (1,'vless_reality_tcp','existing-uuid',1)")
+    command.upgrade(cfg, "head")
+    with sqlite3.connect(db_file) as db:
+        assert db.execute("select role,is_active,view_all_clients,hashed_password,token_version from users where id=1").fetchone() == ('admin', 1, 0, 'existing-hash', 7)
+        assert db.execute("select created_by_id,sub_token,is_active from clients where id=1").fetchone() == (None, 'same-subscription', 1)
+        assert db.execute("select uuid from client_profiles where client_id=1").fetchone() == ('existing-uuid',)
+        assert not db.execute("PRAGMA foreign_key_check").fetchall()
+    command.downgrade(cfg, "0014_node_short_id")
+    with sqlite3.connect(db_file) as db:
+        assert db.execute("select sub_token from clients where id=1").fetchone() == ('same-subscription',)

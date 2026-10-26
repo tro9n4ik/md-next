@@ -5,6 +5,7 @@ import secrets
 from dataclasses import dataclass
 from html import escape
 import qrcode
+from qrcode.image.pure import PyPNGImage
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, BufferedInputFile, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -253,7 +254,7 @@ async def create_client(message, actor_id, kind):
             qr = qrcode.QRCode(version=1, box_size=10, border=4)
             qr.add_data(link)
             qr.make(fit=True)
-            img = qr.make_image(fill_color="black", back_color="white")
+            img = qr.make_image(image_factory=PyPNGImage, fill_color="black", back_color="white")
 
             bio = io.BytesIO()
             img.save(bio, "PNG")

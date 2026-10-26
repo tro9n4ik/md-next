@@ -3,6 +3,7 @@ import hashlib
 import time
 from datetime import datetime, timezone
 from html import escape
+from qrcode.image.pure import PyPNGImage
 from aiogram import Router,F
 from aiogram.filters import Command,CommandStart
 from sqlalchemy import select,update
@@ -104,7 +105,7 @@ async def mine(callback):
         from aiogram.types import BufferedInputFile
         if data['subscription_url']:
             import io,qrcode
-            image=io.BytesIO();qrcode.make(data['subscription_url']).save(image,format='PNG')
+            image=io.BytesIO();qrcode.make(data['subscription_url'], image_factory=PyPNGImage).save(image)
             await callback.message.answer_photo(BufferedInputFile(image.getvalue(),filename='subscription.png'))
             await callback.message.answer('Ссылка подписки:\n'+data['subscription_url'],parse_mode=None,disable_web_page_preview=True)
         for profile in data['profiles']:

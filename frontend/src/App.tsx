@@ -5,6 +5,10 @@ import PageError from './components/ui/PageError';
 import Sidebar from './components/Sidebar';
 import { LoginModal } from './components/LoginModal';
 import './index.css';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { AuthContext, useCurrentUser } from './contexts/AuthContext';
+import type { CurrentUser } from './contexts/AuthContext';
+import { apiFetch } from './utils/api';
 
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const ClientsPage = lazy(() => import('./pages/ClientsPage'));
@@ -24,6 +28,8 @@ const HelpPage = lazy(() => import('./pages/HelpPage'));
 const DiagnosticsPage = lazy(() => import('./pages/DiagnosticsPage'));
 const HistoryPage = lazy(() => import('./pages/HistoryPage'));
 const BackupsPage = lazy(() => import('./pages/BackupsPage'));
+const UsersPage = lazy(() => import('./pages/UsersPage'));
+const AccountPage = lazy(() => import('./pages/AccountPage'));
 const EventsPage = lazy(() => import('./pages/EventsPage'));
 
 const PageSkeleton: React.FC = () => (
@@ -34,6 +40,10 @@ const PageSkeleton: React.FC = () => (
   </div>
 );
 
+function AdminOnly({ children }: { children: React.ReactNode }) {
+  return useCurrentUser().role === "admin" ? children : <Navigate to="/clients" replace />;
+}
+
 function Shell() {
   return <div className="app-shell"><UnsavedGuard /><Sidebar onLogout={() => {
     const detail = { cancelled: false }; window.dispatchEvent(new CustomEvent('ui:before-logout', { detail }));
@@ -42,12 +52,14 @@ function Shell() {
   }} /><main className="app-main" id="main-content"><Suspense fallback={<PageSkeleton />}><Outlet /></Suspense></main></div>;
 }
 const router = createHashRouter([{ element: <Shell />, children: [
+  { path: '/account', element: <AccountPage /> },
   { path: '/', element: <DashboardPage /> }, { path: '/clients', element: <ClientsPage /> },
   { path: '/clients/:id/access', element: <ClientAccessPage /> }, { path: '/nodes', element: <NodesPage /> },
   { path: '/routing', element: <RoutingPage /> }, { path: '/warp', element: <WarpPage /> },
   { path: '/bypass', element: <BypassPage /> }, { path: '/protocols', element: <ProtocolsPage /> },
   { path: '/dns', element: <DnsPage /> }, { path: '/settings', element: <SettingsPage />, children: [
     { index: true, element: <GeneralSettingsPage /> },
+    { path: 'users', element: <UsersPage /> },
     { path: 'telegram', element: <TelegramPage embedded /> },
     { path: 'backups', element: <BackupsPage embedded /> },
     { path: 'update', element: <UpdatePage /> },
@@ -57,14 +69,25 @@ const router = createHashRouter([{ element: <Shell />, children: [
   { path: '/diagnostics', element: <DiagnosticsPage /> }, { path: '/history', element: <HistoryPage /> },
   { path: '/backups', element: <Navigate to="/settings/backups" replace /> }, { path: '/events', element: <EventsPage /> },
   { path: '*', element: <Navigate to="/" replace /> },
-].map(route => ({ ...route, errorElement: <PageError /> })) }]);
+].map(route => ({ ...route, element: route.path === '/account' || route.path?.startsWith('/clients') ? route.element : <AdminOnly>{route.element}</AdminOnly>, errorElement: <PageError /> })) }]);
 
 const App: React.FC = () => {
+  const queryClient = useQueryClient();
   const [authToken, setAuthToken] = useState<string | null>(() => localStorage.getItem('token'));
+
+  const account = useQuery<CurrentUser>({
+    queryKey: ['currentUser', authToken], enabled: !!authToken, retry: false,
+    queryFn: async () => {
+      const response = await apiFetch('/api/v1/auth/me');
+      if (!response.ok) throw new Error('Не удалось проверить права доступа');
+      return response.json();
+    },
+  });
 
   useEffect(() => {
     const handleUnauthorized = () => {
       setAuthToken(null);
+      queryClient.clear();
     };
 
     window.addEventListener('auth:unauthorized', handleUnauthorized);
@@ -72,13 +95,15 @@ const App: React.FC = () => {
     return () => {
       window.removeEventListener('auth:unauthorized', handleUnauthorized);
     };
-  }, []);
+  }, [queryClient]);
 
   if (!authToken) {
-    return <LoginModal onLoginSuccess={(token) => setAuthToken(token)} />;
+    return <LoginModal onLoginSuccess={(token) => { queryClient.clear(); setAuthToken(token); }} />;
   }
 
-  return <RouterProvider router={router} />;
+  if (account.isLoading) return <div className="p-8"><PageSkeleton /></div>;
+  if (!account.data || account.isError) return <PageError />;
+  return <AuthContext.Provider value={account.data}><RouterProvider router={router} /></AuthContext.Provider>;
 };
 
 export default App;

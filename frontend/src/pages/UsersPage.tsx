@@ -1,0 +1,76 @@
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Users } from 'lucide-react';
+import PageLayout from '../components/ui/PageLayout';
+import Switch from '../components/ui/Switch';
+import { apiFetch } from '../utils/api';
+
+interface Account { id: number; username: string; is_active: boolean; view_all_clients: boolean; totp_enabled: boolean }
+
+async function request(path = '', method = 'GET', body?: unknown) {
+  const response = await apiFetch('/api/v1/users' + path, {
+    method, ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Проверьте логин и пароль');
+  return data;
+}
+
+function AccountRow({ account, refresh }: { account: Account; refresh: () => void }) {
+  const [password, setPassword] = useState('');
+  const [notice, setNotice] = useState('');
+  const update = useMutation({
+    mutationFn: (body: { is_active?: boolean; password?: string; view_all_clients?: boolean }) => request('/' + account.id, 'PUT', body),
+    onSuccess: () => { setPassword(''); setNotice('Сохранено. Субадминистратору потребуется войти заново.'); refresh(); },
+    onError: (error: Error) => setNotice(error.message),
+  });
+  return <article className="space-y-4 rounded-xl border border-neutral-200 p-4">
+    <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-semibold">{account.username}</h3><p className="text-xs text-neutral-500">Субадминистратор · 2FA {account.totp_enabled ? 'включена' : 'выключена'}</p></div>
+      <Switch label={`Доступ в панель: ${account.username}`} checked={account.is_active} disabled={update.isPending} onChange={is_active => update.mutate({ is_active })} />
+    </div>
+    <div className="flex items-center justify-between gap-4"><div><p className="text-sm font-medium">Видит всех клиентов</p><p className="text-xs text-neutral-500">{account.view_all_clients ? 'Может выдавать подключения всем клиентам' : 'Видит и выдаёт только созданных им клиентов'}</p></div>
+      <Switch label={`Все клиенты: ${account.username}`} checked={account.view_all_clients} disabled={update.isPending} onChange={view_all_clients => update.mutate({ view_all_clients })} />
+    </div>
+    <form className="flex flex-wrap gap-3" onSubmit={event => { event.preventDefault(); update.mutate({ password }); }}>
+      <input aria-label={`Новый пароль: ${account.username}`} type="password" autoComplete="new-password" minLength={10} maxLength={72} required value={password} onChange={event => setPassword(event.target.value)} placeholder="Новый пароль" className="min-w-0 flex-1 rounded-lg border p-3 text-sm" />
+      <button className="ui-button ui-button-secondary" disabled={update.isPending || password.length < 10}>Сбросить пароль</button>
+    </form>
+    {notice && <p role="status" className="text-sm text-neutral-600">{notice}</p>}
+  </article>;
+}
+
+export default function UsersPage() {
+  const queryClient = useQueryClient();
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [viewAll, setViewAll] = useState(false);
+  const [notice, setNotice] = useState('');
+  const accounts = useQuery<Account[]>({ queryKey: ['subadmins'], queryFn: () => request() });
+  const refresh = () => { void queryClient.invalidateQueries({ queryKey: ['subadmins'] }); };
+  const create = useMutation({
+    mutationFn: () => request('', 'POST', { username, password, view_all_clients: viewAll }),
+    onSuccess: () => { setUsername(''); setPassword(''); setViewAll(false); setNotice('Учётная запись создана. Передайте логин и пароль субадминистратору.'); refresh(); },
+    onError: (error: Error) => setNotice(error.message),
+  });
+  return <PageLayout title="Субадминистраторы" description="Учётные записи для создания клиентов и выдачи подключений" icon={Users}>
+    <section className="ui-card ui-panel space-y-4">
+      <h2 className="font-semibold">Создать учётную запись</h2>
+      <p className="text-sm text-neutral-500">Субадминистраторы могут создавать клиентов и выдавать ссылки, QR-коды и конфигурации. Настройки панели, изменение и удаление клиентов им недоступны.</p>
+      <form className="space-y-4" onSubmit={event => { event.preventDefault(); create.mutate(); }}>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="text-sm">Логин<input required minLength={3} maxLength={64} pattern="[a-zA-Z0-9_.-]+" autoComplete="off" value={username} onChange={event => setUsername(event.target.value)} className="mt-1 w-full rounded-lg border p-3" /><span className="text-xs text-neutral-500">Латинские буквы, цифры, точка, дефис и подчёркивание</span></label>
+          <label className="text-sm">Пароль<input required type="password" autoComplete="new-password" minLength={10} maxLength={72} value={password} onChange={event => setPassword(event.target.value)} className="mt-1 w-full rounded-lg border p-3" /><span className="text-xs text-neutral-500">Минимум 10 символов, максимум 72 байта</span></label>
+        </div>
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={viewAll} onChange={event => setViewAll(event.target.checked)} />Видит всех клиентов</label>
+        <button disabled={create.isPending} className="ui-button ui-button-primary">{create.isPending ? 'Создаём…' : 'Создать субадминистратора'}</button>
+      </form>
+      {notice && <p role="status" className="text-sm text-neutral-600">{notice}</p>}
+    </section>
+    <section className="ui-card ui-panel space-y-4"><h2 className="font-semibold">Учётные записи</h2>
+      {accounts.isLoading && <p>Загрузка…</p>}
+      {accounts.isError && <p role="alert">Не удалось загрузить учётные записи. <button onClick={() => accounts.refetch()} className="underline">Повторить</button></p>}
+      {accounts.data?.length === 0 && <p className="text-sm text-neutral-500">Субадминистраторы ещё не созданы.</p>}
+      {accounts.data?.map(account => <AccountRow key={account.id} account={account} refresh={refresh} />)}
+    </section>
+  </PageLayout>;
+}
