@@ -9,6 +9,7 @@ from decimal import Decimal, InvalidOperation
 from html import escape
 
 import qrcode
+from qrcode.image.pure import PyPNGImage
 from aiogram import F
 from aiogram.filters import Command
 from aiogram.types import BufferedInputFile
@@ -201,7 +202,7 @@ async def issue_access(message, client_id, *, awg=False):
         await message.answer("Адрес панели не настроен. Данные подключения доступны в панели.", reply_markup=back_menu())
         return
     bio = io.BytesIO()
-    qrcode.make(url).save(bio, format="PNG")
+    qrcode.make(url, image_factory=PyPNGImage).save(bio)
     await message.answer_photo(BufferedInputFile(bio.getvalue(), filename="subscription.png"), caption="🔗 QR-код подписки")
     await message.answer(f"<b>Подписка: {escape(data['client']['name'])}</b>\n\n<code>{escape(url)}</code>\n\n"
                          "Добавьте эту ссылку в VPN-приложение. AmneziaWG выдаётся отдельным файлом.", parse_mode="HTML", reply_markup=back_menu())
