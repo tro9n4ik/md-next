@@ -87,7 +87,9 @@ const CopyButton: React.FC<{ value: string }> = ({ value }) => {
 };
 
 const ClientAccessPage: React.FC = () => {
-  const isAdmin = useCurrentUser().role === 'admin';
+  const user = useCurrentUser();
+  const isAdmin = user.role === 'admin';
+  const canIssue = isAdmin || user.can_issue_subscriptions;
   const { id = '' } = useParams();
   const clientId = Number(id);
   const navigate = useNavigate();
@@ -99,7 +101,7 @@ const ClientAccessPage: React.FC = () => {
       const response = await apiFetch(`/api/v1/clients/${clientId}/profiles`);
       if (!response.ok) throw new Error(await readError(response, 'Не удалось загрузить профили'));
       return response.json();
-    }, enabled: Number.isFinite(clientId) && clientId > 0,
+    }, enabled: canIssue && Number.isFinite(clientId) && clientId > 0,
   });
   const refresh = async () => {
     await Promise.all([
@@ -133,6 +135,9 @@ const ClientAccessPage: React.FC = () => {
     const anchor = document.createElement('a'); anchor.href = url; anchor.download = `${accessQuery.data?.client.name || 'client'}.conf`; anchor.click(); URL.revokeObjectURL(url);
   };
 
+  if (!canIssue) return <PageLayout title="Доступ клиента" description="Выдача подписок запрещена администратором" icon={Users}>
+    <button onClick={() => navigate('/clients')} className="ui-button ui-button-secondary"><ArrowLeft size={16} />К клиентам</button>
+  </PageLayout>;
   if (accessQuery.isLoading || accessQuery.isError || !accessQuery.data) return <PageLayout title="Доступ клиента" description="Условия подписки, профили подключения и конфигурации" icon={Users}>
     <div className="ui-empty-state" role="status">{accessQuery.isLoading ? 'Загрузка профилей…' : accessQuery.error?.message || 'Клиент не найден'}</div>
   </PageLayout>;

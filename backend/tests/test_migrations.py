@@ -187,3 +187,18 @@ def test_subadmin_upgrade_preserves_admin_and_client_credentials(alembic_config)
     command.downgrade(cfg, "0014_node_short_id")
     with sqlite3.connect(db_file) as db:
         assert db.execute("select sub_token from clients where id=1").fetchone() == ('same-subscription',)
+
+
+def test_subscription_permissions_upgrade_preserves_existing_accounts(alembic_config):
+    cfg, db_file = alembic_config
+    command.upgrade(cfg, "0015_subadmins")
+    with sqlite3.connect(db_file) as db:
+        db.execute("insert into users (id,username,hashed_password,token_version,role,is_active,view_all_clients) values (1,'issuer','existing-hash',5,'subadmin',1,1)")
+    command.upgrade(cfg, "head")
+    with sqlite3.connect(db_file) as db:
+        assert db.execute("select can_issue_subscriptions,can_delete_subscriptions,hashed_password,token_version,role,view_all_clients from users where id=1").fetchone() == (1, 0, 'existing-hash', 5, 'subadmin', 1)
+        db.execute("update users set can_issue_subscriptions=0,can_delete_subscriptions=1 where id=1")
+    command.downgrade(cfg, "0015_subadmins")
+    with sqlite3.connect(db_file) as db:
+        assert db.execute("select username,token_version from users where id=1").fetchone() == ('issuer', 5)
+    command.upgrade(cfg, "head")

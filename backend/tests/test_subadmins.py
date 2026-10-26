@@ -19,7 +19,7 @@ async def request(method, path, headers, **kwargs):
         return await api.request(method, path, headers=headers, **kwargs)
 
 
-async def account(admin, name="issuer", view_all=False):
+async def account(admin, name="issuer", view_all=False, **permissions):
     response = await request(
         "POST",
         "/api/v1/users",
@@ -28,6 +28,7 @@ async def account(admin, name="issuer", view_all=False):
             "username": name,
             "password": "SubadminPassword123!",
             "view_all_clients": view_all,
+            **permissions,
         },
     )
     assert response.status_code == 201, response.text

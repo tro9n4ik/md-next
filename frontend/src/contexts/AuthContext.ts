@@ -7,6 +7,8 @@ export interface CurrentUser {
   is_active: boolean;
   totp_enabled: boolean;
   view_all_clients: boolean;
+  can_issue_subscriptions: boolean;
+  can_delete_subscriptions: boolean;
 }
 
 export const AuthContext = createContext<CurrentUser | null>(null);

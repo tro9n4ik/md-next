@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import or_, select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.auth import get_current_user, require_admin
+from app.api.auth import get_current_user, require_admin, require_subscription_issuer, require_subscription_deleter
 from app.models.user import User
 from app.db.database import get_db
 from app.models.client import Client, ClientProfile
@@ -140,6 +140,7 @@ async def get_clients(
             "traffic_up": sum(p.traffic_up or 0 for p in profiles_by_client.get(c.id, [])),
             "traffic_down": sum(p.traffic_down or 0 for p in profiles_by_client.get(c.id, [])),
             "is_active": c.is_active, "created_at": c.created_at,
+            "can_delete": current_user.role == "admin" or (current_user.can_delete_subscriptions and c.created_by_id == current_user.id),
             **limit_info(c, now),
             **client_activity(c.id, [p.kind for p in profiles_by_client.get(c.id, []) if p.is_enabled], access_allowed(c, now)),
             "profiles": [{"id": p.id, "kind": p.kind, "is_enabled": p.is_enabled} for p in profiles_by_client.get(c.id, [])],
@@ -149,7 +150,7 @@ async def get_clients(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-async def create_client(client_data: ClientCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def create_client(client_data: ClientCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_subscription_issuer)):
     return await create_client_record(client_data, db, created_by_id=current_user.id, is_admin=current_user.role == "admin")
 
 
@@ -194,7 +195,7 @@ async def create_client_record(client_data: ClientCreate, db: AsyncSession, *, c
 
 
 @router.get("/{client_id}/profiles")
-async def read_client_profiles(client_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def read_client_profiles(client_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_subscription_issuer)):
     client = await db.get(Client, client_id)
     if client is None or (current_user.role != "admin" and not current_user.view_all_clients and client.created_by_id != current_user.id):
         raise HTTPException(status_code=404, detail="Клиент не найден")
@@ -496,10 +497,11 @@ async def update_client(client_id: int, data: ClientUpdate, db: AsyncSession = D
         raise HTTPException(status_code=502, detail=f"Не удалось обновить клиента: {exc}") from exc
 
 
-@router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_admin)])
-async def delete_client(client_id: int, db: AsyncSession = Depends(get_db)):
+@router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_client(client_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_subscription_deleter)):
+    is_admin = current_user.role == "admin"
     client = await db.get(Client, client_id)
-    if client is None:
+    if client is None or (current_user.role != "admin" and client.created_by_id != current_user.id):
         raise HTTPException(status_code=404, detail="Клиент не найден")
     deleted_name = client.name
     await db.execute(delete(Setting).where(Setting.key.in_([f"client.cdn.{client_id}", f"client.adblock.{client_id}"])))
@@ -510,11 +512,12 @@ async def delete_client(client_id: int, db: AsyncSession = Depends(get_db)):
     try:
         await _sync_protocols(db)
         await db.commit()
-        log_event("info", "client", "Клиент удалён", {"client_id": client_id, "name": deleted_name})
+        log_event("info", "client", "Клиент удалён", {"client_id": client_id, "name": deleted_name, "actor_id": current_user.id})
     except Exception as exc:
         await db.rollback()
         await ClientService.restore_committed_configs(db)
-        raise HTTPException(status_code=502, detail=f"Не удалось удалить клиента из протоколов: {exc}") from exc
+        detail = str(exc) if is_admin else "Ошибка применения профилей; обратитесь к администратору"
+        raise HTTPException(status_code=502, detail=f"Не удалось удалить клиента из протоколов: {detail}") from exc
 
 
 @router.post("/{client_id}/traffic", deprecated=True, dependencies=[Depends(require_admin)])

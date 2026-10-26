@@ -25,3 +25,5 @@ class UserResponse(BaseModel):
     role: str
     is_active: bool
     view_all_clients: bool
+    can_issue_subscriptions: bool
+    can_delete_subscriptions: bool

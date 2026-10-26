@@ -19,13 +19,13 @@ const Sidebar = require('../src/components/Sidebar.tsx').default;
 const ClientsTable = require('../src/components/ClientsTable.tsx').default;
 const ClientAccessPage = require('../src/pages/ClientAccessPage.tsx').default;
 const UsersPage = require('../src/pages/UsersPage.tsx').default;
-const subadmin = { id: 2, username: 'issuer', role: 'subadmin', view_all_clients: false };
+const subadmin = { id: 2, username: 'issuer', role: 'subadmin', view_all_clients: false, can_issue_subscriptions: true, can_delete_subscriptions: false };
 const admin = { ...subadmin, id: 1, username: 'admin', role: 'admin' };
-function fixture() {
+function fixture(clientOverrides = {}) {
   const query = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const client = { id: 123, name: 'Issued client', phone: '', email: '', is_active: true, access_allowed: true,
     expires_at: null, profiles: [], connected_protocols: [], monthly_traffic_used: 0, monthly_traffic_limit: 0,
-    cdn_monthly_traffic_used: 0, cdn_monthly_traffic_limit: 0, traffic_total: 0, connection_status: 'offline' };
+    cdn_monthly_traffic_used: 0, cdn_monthly_traffic_limit: 0, traffic_total: 0, connection_status: 'offline', can_delete: false, ...clientOverrides };
   query.setQueryData(['clients', '', 'all', 'created', 'desc'], [client]);
   query.setQueryData(['clientProfiles', 123], { client, access: [], adblock_enabled: false,
     profiles: [{ id: 456, kind: 'vless_reality_tcp', label: 'Reality TCP', data: 'vless://test-profile', is_enabled: true, key_available: true }],
@@ -74,12 +74,35 @@ test('Выдача содержит QR и ссылку, без редактор�
   assert.match(full, /Сохранить доступ/);
   assert.match(full, /Перевыпустить/);
 });
-test('Переключатель видимости доступен при создании и для существующей учётки', () => {
+test('Видимость и права используют тумблеры в создании и редактировании учётки', () => {
   const query = fixture();
   query.setQueryData(['subadmins'], [{ ...subadmin, is_active: true, view_all_clients: true, totp_enabled: false }]);
   const html = render(UsersPage, admin, query);
-  assert.match(html, /type="checkbox"/);
+  assert.doesNotMatch(html, /type="checkbox"/);
+  for (const label of ['Видит всех клиентов', 'Создание и выдача подписок', 'Удаление своих подписок', 'Создание и выдача подписок: issuer', 'Удаление своих подписок: issuer']) {
+    assert.ok(html.includes(`role="switch" aria-checked="${label.startsWith('Создание') ? 'true' : 'false'}" aria-label="${label}"`));
+  }
   assert.match(html, /Все клиенты: issuer/);
   assert.match(html, /aria-checked="true"/);
   assert.match(html, /Сбросить пароль/);
+});
+
+test('Отзыв выдачи скрывает создание и подключения, включая ранее загруженный кэш', () => {
+  const restricted = { ...subadmin, can_issue_subscriptions: false };
+  const table = render(ClientsTable, restricted);
+  assert.doesNotMatch(table, /Добавить|Выдать подключение/);
+  assert.match(table, /Issued client/);
+  const page = render(ClientAccessPage, restricted);
+  assert.match(page, /Выдача подписок запрещена/);
+  assert.doesNotMatch(page, /test-profile|test-subscription|<svg.*viewBox="0 0 37 37"/);
+});
+
+test('Удаление требует разрешения учётки и права на конкретного клиента', () => {
+  for (const can_delete_subscriptions of [false, true]) {
+    for (const can_delete of [false, true]) {
+      const html = render(ClientsTable, { ...subadmin, can_issue_subscriptions: false, can_delete_subscriptions, view_all_clients: true }, fixture({ can_delete }));
+      assert.equal(html.includes('aria-label="Удалить клиента'), can_delete_subscriptions && can_delete);
+      assert.doesNotMatch(html, /aria-label="Приостановить/);
+    }
+  }
 });
