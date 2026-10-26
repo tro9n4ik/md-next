@@ -23,6 +23,10 @@ systemctl is-active --quiet md-next-backend
 systemctl is-active --quiet xray
 systemctl is-active --quiet nginx
 test "$(systemctl show md-next-backend -p User --value)" = "md-next"
+expected_commit=$(git -C "$SCRIPT_DIR/.." rev-parse HEAD)
+test "$(cat /opt/md-next/DEPLOYED_COMMIT)" = "$expected_commit"
+test "$(cat /opt/md-next/FRONTEND_DEPLOYED_COMMIT)" = "$expected_commit"
+runuser -u md-next -- test -r /opt/md-next/DEPLOYED_COMMIT
 test -L /opt/md-next/backend/md_next.db
 test "$(stat -c '%U:%a' /var/lib/md-next/data/md_next.db)" = "root:660"
 test -f /etc/sudoers.d/md-next

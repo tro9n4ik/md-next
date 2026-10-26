@@ -73,11 +73,18 @@ def test_activation_preserves_uploaded_placeholder(tmp_path, monkeypatch):
     monkeypatch.setattr(module.subprocess, 'check_output', lambda *args: b'backend/app/static/fake/index.html\0backend/app/static/fake/welcome.txt\0backend/new.py\0')
     monkeypatch.setattr(updater, 'run', lambda *args, **kwargs: None)
     monkeypatch.setattr(updater, 'wait_ready', lambda: None)
-    updater.activate(repository)
+    original_umask = os.umask(0o077)
+    try:
+        updater.activate(repository)
+    finally:
+        os.umask(original_umask)
     assert (root / 'backend/app/static/fake/index.html').read_text() == 'Uploaded page'
     assert (root / 'backend/app/static/fake/own.txt').read_text() == 'Own asset'
     assert not (root / 'backend/app/static/fake/welcome.txt').exists()
     assert (root / 'backend/new.py').read_text() == 'new version'
+    for name in ('DEPLOYED_COMMIT', 'FRONTEND_DEPLOYED_COMMIT'):
+        assert (root / name).read_text() == SHA + '\n'
+        assert (root / name).stat().st_mode & 0o777 == 0o644
 
 @pytest.fixture(autouse=True)
 def update_directory(monkeypatch, tmp_path):

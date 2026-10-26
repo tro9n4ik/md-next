@@ -41,6 +41,34 @@ APP_DIR="/opt/md-next"
 EXISTING_INSTALL=false
 [ ! -f "$APP_DIR/backend/.env" ] || EXISTING_INSTALL=true
 REPOSITORY_URL="https://github.com/tro9n4ik/md-next.git"
+INSTALL_COMMIT=""
+
+resolve_install_commit() {
+  local source="$1"
+  INSTALL_COMMIT="${MDNEXT_INSTALL_COMMIT:-}"
+  if [ -d "$source/.git" ]; then
+    INSTALL_COMMIT=$(git -c safe.directory="$source" -C "$source" rev-parse --verify HEAD 2>/dev/null || true)
+    if ! git -c safe.directory="$source" -C "$source" diff --quiet HEAD -- backend frontend scripts ':(exclude)backend/app/static/fake/**'; then
+      INSTALL_COMMIT=""
+    fi
+  fi
+  [[ "$INSTALL_COMMIT" =~ ^[0-9a-f]{40}$ ]] || INSTALL_COMMIT=""
+}
+
+record_install_commit() {
+  if [ -z "$INSTALL_COMMIT" ]; then
+    rm -f -- "$APP_DIR/DEPLOYED_COMMIT" "$APP_DIR/FRONTEND_DEPLOYED_COMMIT"
+    echo 'Номер сборки не определён: для автоматического определения обновлений используйте официальный bootstrap или чистую Git-копию.' >&2
+    return 0
+  fi
+  local name temporary
+  for name in DEPLOYED_COMMIT FRONTEND_DEPLOYED_COMMIT; do
+    temporary=$(mktemp "$APP_DIR/.${name}.XXXXXX")
+    printf '%s\n' "$INSTALL_COMMIT" > "$temporary"
+    chmod 644 "$temporary"
+    mv -f -- "$temporary" "$APP_DIR/$name"
+  done
+}
 
 update_nginx_routes() {
   local nginx_config="/etc/nginx/sites-available/md-next.conf"
@@ -281,10 +309,13 @@ update_installation() {
   mkdir -p "$backup_dir"
   [ ! -f "$APP_DIR/backend/.env" ] || cp -a "$APP_DIR/backend/.env" "$backup_dir/"
   [ ! -f "$APP_DIR/backend/md_next.db" ] || cp -a "$APP_DIR/backend/md_next.db" "$backup_dir/"
+  [ ! -f "$APP_DIR/DEPLOYED_COMMIT" ] || cp -a "$APP_DIR/DEPLOYED_COMMIT" "$backup_dir/"
+  [ ! -f "$APP_DIR/FRONTEND_DEPLOYED_COMMIT" ] || cp -a "$APP_DIR/FRONTEND_DEPLOYED_COMMIT" "$backup_dir/"
   [ ! -d "$APP_DIR/backend/app/static/fake" ] || cp -a "$APP_DIR/backend/app/static/fake" "$backup_dir/fake"
 
   echo "Резервная копия настроек и базы: $backup_dir"
   clone_repo "$update_dir/repo"
+  resolve_install_commit "$update_dir/repo"
   cp -a "$update_dir/repo/." "$APP_DIR/"
   [ ! -d "$backup_dir/fake" ] || cp -a "$backup_dir/fake/." "$APP_DIR/backend/app/static/fake/"
   rm -rf "$update_dir"
@@ -308,6 +339,7 @@ update_installation() {
   python3 "$APP_DIR/scripts/install-privilege-separation.py"
   wait_backend_ready
   systemctl reload nginx
+  record_install_commit
   echo "MD-Next успешно обновлён. Резервная копия: $backup_dir"
 }
 
@@ -534,6 +566,7 @@ install_xray() {
 setup_repo() {
   local placeholder_backup=""
   SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
+  resolve_install_commit "$SCRIPT_DIR"
   mkdir -p /opt/md-next
   if [ "$SCRIPT_DIR" != "/opt/md-next" ]; then
     if [ -f /opt/md-next/backend/app/static/fake/index.html ]; then
@@ -947,6 +980,7 @@ run_step "Настройка Nginx, SSL и системных сервисов" 
 run_step "Первичная синхронизация VPN" wait_backend_ready
 run_step "Изоляция панели от root" python3 /opt/md-next/scripts/install-privilege-separation.py
 run_step "Ожидание готовности API" wait_backend_ready
+run_step "Сохранение номера установленной сборки" record_install_commit
 
 echo ""
 echo "================================================="
