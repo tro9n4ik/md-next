@@ -157,11 +157,7 @@ export const Settings: React.FC = () => {
 
   return (
     <div className="grid items-start gap-6 xl:grid-cols-2">
-        <div className="ui-card ui-panel space-y-5">
-          <div>
-            <h3 className="text-base font-bold text-neutral-800 mb-1">Смена пароля</h3>
-            <p className="text-xs text-neutral-500">Пароль должен состоять минимум из 10 символов</p>
-          </div>
+        <details className="ui-card ui-panel"><summary className="cursor-pointer text-sm font-semibold">Смена пароля</summary><div className="mt-5 space-y-5"><p className="text-xs text-neutral-500">Не менее 10 символов</p>
 
           {pwdMessage && (
             <div className={`p-3.5 rounded-xl text-xs flex items-center space-x-2 ${
@@ -216,13 +212,9 @@ export const Settings: React.FC = () => {
             </button>
           </form>
 
-        </div>
+        </div></details>
           {/* Двухфакторная аутентификация (2FA) */}
-          <div className="ui-card ui-panel space-y-4">
-            <div>
-              <h3 className="text-base font-bold text-neutral-800 mb-1">Двухфакторная аутентификация (2FA)</h3>
-              <p className="text-xs text-neutral-500">Защита аккаунта одноразовыми кодами TOTP (Google Authenticator / YubiKey)</p>
-            </div>
+          <details className="ui-card ui-panel"><summary className="cursor-pointer text-sm font-semibold">Двухфакторная аутентификация <span className="ml-2 text-xs font-normal text-neutral-500">{userMe ? userMe.totp_enabled ? 'Включена' : 'Выключена' : '…'}</span></summary><div className="mt-5 space-y-4">
 
             {totpMessage && (
               <div className={`p-3.5 rounded-xl text-xs flex items-center space-x-2 ${
@@ -353,7 +345,7 @@ export const Settings: React.FC = () => {
                 )}
               </div>
             )}
-          </div>
+          </div></details>
     </div>
   );
 };
