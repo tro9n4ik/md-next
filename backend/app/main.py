@@ -23,6 +23,7 @@ from app.api.events import router as events_router
 from app.api.cdn import router as cdn_router
 from app.api.operations import router as operations_router
 from app.services.watchdog import watchdog
+from app.services.gemini_monitor import gemini_monitor_loop
 from app.services.traffic_collector import start_traffic_collector
 from app.services.telegram_settings import get_telegram_settings_from_db, resolve_telegram_proxy
 from app.bot import bot_manager
@@ -85,6 +86,7 @@ async def lifespan(app: FastAPI):
         logger.exception("Не удалось синхронизировать профили клиентов при запуске")
     # Проверкам узлов нужны отдельные входы, созданные при первичной синхронизации.
     watchdog.start()
+    gemini_task = asyncio.create_task(gemini_monitor_loop())
     traffic_task = asyncio.create_task(start_traffic_collector())
     from app.services.notifications import notification_loop
     notification_task = asyncio.create_task(notification_loop())
@@ -104,6 +106,11 @@ async def lifespan(app: FastAPI):
     from app.services.telegram_settings import telegram_node_loop
     telegram_node_task = asyncio.create_task(telegram_node_loop())
     yield
+    gemini_task.cancel()
+    try:
+        await gemini_task
+    except asyncio.CancelledError:
+        pass
     telegram_node_task.cancel()
     try:
         await telegram_node_task

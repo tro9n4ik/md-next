@@ -19,6 +19,7 @@ const Sidebar = require('../src/components/Sidebar.tsx').default;
 const ClientsTable = require('../src/components/ClientsTable.tsx').default;
 const ClientAccessPage = require('../src/pages/ClientAccessPage.tsx').default;
 const UsersPage = require('../src/pages/UsersPage.tsx').default;
+const WarpPage = require('../src/pages/WarpPage.tsx').default;
 const { NodesManager } = require('../src/components/NodesManager.tsx');
 const subadmin = { id: 2, username: 'issuer', role: 'subadmin', view_all_clients: false, can_issue_subscriptions: true, can_delete_subscriptions: false };
 const admin = { ...subadmin, id: 1, username: 'admin', role: 'admin' };
@@ -43,6 +44,33 @@ function render(component, user, query = fixture()) {
           element: React.createElement(component, { onLogout: () => {} }),
         }))))));
 }
+test('WARP показывает результат Gemini и объясняет границы автоматической смены IP', () => {
+  const query = fixture();
+  query.setQueryData(['warp-status'], {enabled: true, controls_ready: true, node_id: 1, name: 'Первая нода', ipv4_only: true});
+  query.setQueryData(['warp-presets'], {presets: []});
+  query.setQueryData(['warp-gemini-monitor'], {enabled: true, node_id: 1, node_name: 'Первая нода', result: {
+    status: 'region_blocked', message: 'Gemini явно сообщил, что регион выхода не поддерживается.',
+    ip: '104.28.1.2', country: 'DE', checked_at: 10000,
+    rotation_note: 'WARP переподключён; Cloudflare сохранил прежний IP.',
+  }});
+  const html = render(WarpPage, admin, query);
+  assert.match(html, /Автопроверка Gemini/);
+  assert.match(html, /Проверить Gemini/);
+  assert.match(html, /регион выхода не поддерживается/);
+  assert.match(html, /Cloudflare сохранил прежний IP/);
+  assert.match(html, /Страна по Cloudflare: DE/);
+  assert.match(html, /Ручная проверка показывает результат и не переподключает WARP/);
+  assert.match(html, /не более 3 попыток за 6 часов/);
+});
+test('WARP сообщает о приостановке мониторинга при выключенном выходе', () => {
+  const query = fixture();
+  query.setQueryData(['warp-status'], {enabled: false, controls_ready: false, node_id: 1, name: 'Нода'});
+  query.setQueryData(['warp-presets'], {presets: []});
+  query.setQueryData(['warp-gemini-monitor'], {enabled: false, node_id: 1, node_name: 'Нода', result: {}});
+  const html = render(WarpPage, admin, query);
+  assert.match(html, /Пока WARP выключен, автопроверка приостановлена/);
+  assert.match(html, /disabled=""[^>]*>Проверить Gemini/);
+});
 test('Меню субадминистратора скрывает инфраструктуру и настройки', () => {
   const html = render(Sidebar, subadmin);
   assert.match(html, /href="\/clients"/);
