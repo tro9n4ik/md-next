@@ -7,7 +7,7 @@ import { apiFetch } from '../utils/api';
 interface WarpPreset { key: string; title: string; description: string; domains: string[]; state: {total: number; missing: number; extra: number} }
 interface GeminiMonitorState {
   enabled: boolean; node_id: number | null; node_name: string;
-  result: {status?: string; message?: string; checked_at?: number; ip?: string; country?: string; rotation_note?: string};
+  result: {status?: string; message?: string; checked_at?: number; ip?: string; country?: string; warp?: string; rotation_note?: string};
 }
 async function request(path: string, method = 'GET', body?: unknown) {
   const res = await apiFetch('/api/v1/warp/' + path, {method, ...(body ? {headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)} : {})});
@@ -32,6 +32,13 @@ export default function WarpPage() {
   const geminiCheck = useMutation({mutationFn: () => request('gemini/check', 'POST'), onSuccess: async () => {setNotice(''); await client.invalidateQueries({queryKey: ['warp-gemini-monitor']});}, onError: (error: Error) => setNotice(error.message)});
   const busy = toggle.isPending || presetMutation.isPending || test.isPending || ipv4.isPending || rotate.isPending || geminiToggle.isPending || geminiCheck.isPending;
   const card = 'ui-card ui-panel';
+  const result = gemini.data?.result;
+  const countryCode = result?.country?.toUpperCase();
+  const countryName = countryCode && /^[A-Z]{2}$/.test(countryCode)
+    ? new Intl.DisplayNames(['ru'], {type: 'region'}).of(countryCode) : undefined;
+  const resultTitle = result?.status === 'region_blocked' ? 'Региональный отказ Gemini'
+    : result?.status === 'page_loaded' ? 'Доступ к Gemini не подтверждён' : 'Результат проверки не определён';
+  const resultBorder = result?.status === 'region_blocked' ? 'border-red-600' : 'border-amber-500';
   return <PageLayout title="WARP" description="Выход через активную ноду для выбранных сервисов" icon={Cloud}>
     <section data-autosave className={card}>
       <div className="flex items-center justify-between gap-4"><div><h2 className="font-semibold">{status.isPending ? 'Загрузка WARP…' : status.data?.enabled ? 'WARP включён' : 'WARP выключен'}</h2><p className="mt-1 text-sm text-neutral-500">Нода: {status.data?.name || '—'}</p></div><Switch label="Включить WARP" checked={!!status.data?.enabled} disabled={busy || !status.data?.node_id} onChange={value => toggle.mutate(value)} /></div>
@@ -75,7 +82,13 @@ export default function WarpPage() {
       <p className="mt-3 text-xs text-neutral-500">При региональном отказе WARP переподключается. Соединения через него могут прерваться.</p>
       {!status.data?.enabled && <p className="mt-3 text-sm text-amber-700">Пока WARP выключен, автопроверка приостановлена.</p>}
       {gemini.isError && <p role="alert" className="mt-3 text-sm text-red-700">Не удалось загрузить состояние автопроверки Gemini.</p>}
-      {gemini.data?.result.message && <div role="status" className="mt-4 border-l-2 border-emerald-600 pl-3 text-sm"><p>{gemini.data.result.message}</p>
+      {gemini.data?.result.message && <div role="status" className={`mt-4 border-l-2 ${resultBorder} pl-3 text-sm`}>
+        <p className="font-semibold">{resultTitle}</p>
+        <p className="mt-2">{gemini.data.result.message}</p>
+        <p className="mt-2">Страна IP по Cloudflare: <b>{countryName ? `${countryName} (${countryCode})` : 'не определена'}</b></p>
+        {result?.ip && <p className="mt-1">IP выхода: {result.ip}</p>}
+        <p className="mt-1">WARP: {result?.warp === 'on' || result?.warp === 'plus' ? 'подтверждён' : result?.warp === 'off' ? 'выключен на проверочном выходе' : 'не проверен'}</p>
+        <p className="mt-2 text-xs text-neutral-500">Это страна IP по данным Cloudflare, а не регион аккаунта Google. Доступ к генерации проверяется в Gemini под вашим аккаунтом.</p>
         {gemini.data.result.checked_at && <p className="mt-1 text-xs text-neutral-500">{new Date(gemini.data.result.checked_at * 1000).toLocaleString()} · {gemini.data.node_name}</p>}
         {gemini.data.result.rotation_note && <p className="mt-2">{gemini.data.result.rotation_note}</p>}
       </div>}
@@ -84,7 +97,6 @@ export default function WarpPage() {
       <p className="mt-3 text-sm text-neutral-500">После двух региональных отказов подряд переподключаю WARP. Между попытками — не менее 30 минут, не более 3 попыток за 6 часов для каждой ноды. Соединения через WARP могут прерваться; новый IP не гарантируется.</p>
       <p className="mt-2 text-xs text-neutral-500">Для трафика Gemini включите соответствующий пресет или режим WARP для всего трафика. CAPTCHA, запрос входа и ошибки сети не вызывают смену IP. Проверка без аккаунта Google не подтверждает доступ к генерации и не определяет страну аккаунта.</p>
       <p className="mt-2 text-xs text-neutral-500">Ручная проверка показывает результат и не переподключает WARP.</p>
-        {gemini.data?.result.ip && <p className="mt-1 text-xs text-neutral-500">IP: {gemini.data.result.ip} · Страна по Cloudflare: {gemini.data.result.country || '—'}</p>}
       </details>
     </section>
     {notice && <p role="status" className="rounded-xl border border-neutral-200 bg-white p-4 text-sm">{notice}</p>}

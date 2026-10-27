@@ -76,7 +76,7 @@ def classify_page(url: str, status: int, body: str) -> dict:
     if blocked:
         return {"status": "region_blocked", "message": "Gemini явно сообщил, что регион выхода не поддерживается."}
     if status == 200 and location.path.rstrip("/") == "/app" and any("gemini" in text for text in blocks):
-        return {"status": "page_loaded", "message": "Страница Gemini открылась. Доступ к генерации и страна аккаунта не проверены."}
+        return {"status": "page_loaded", "message": "Публичная страница Gemini открылась без явного регионального отказа. Доступ к генерации не подтверждён."}
     return {"status": "unknown", "message": "Явного ответа о регионе нет. Автосмена IP пропущена."}
 
 
@@ -85,7 +85,14 @@ async def probe_proxy(port: int, *, timeout: float) -> dict:
     observed = await WarpService.test_proxy(port, timeout=timeout)
     trace = {key: observed.get(key, "") for key in ("ip", "country", "warp")}
     if trace.get("warp") not in {"on", "plus"}:
-        return {"status": "unknown", "message": "Проверочный выход работает без WARP."}
+        return {"status": "unknown", "message": "Проверочный выход работает без WARP.", **trace}
+    try:
+        return await _probe_gemini_page(port, timeout=timeout, trace=trace)
+    except httpx.HTTPError:
+        return {"status": "unknown", "message": "WARP ответил, но ответ Gemini получить не удалось. Доступ не подтверждён.", **trace}
+
+
+async def _probe_gemini_page(port: int, *, timeout: float, trace: dict) -> dict:
     async with httpx.AsyncClient(proxy=f"socks5://127.0.0.1:{port}", timeout=timeout,
                                  follow_redirects=False, trust_env=False) as client:
         url = GEMINI_URL
@@ -162,6 +169,7 @@ class GeminiMonitor:
         blocked = state.get("blocked_checks", 0) + 1 if result["status"] == "region_blocked" else 0
         state.update({"status": result["status"], "message": result["message"],
                       "ip": result.get("ip", ""), "country": result.get("country", ""),
+                      "warp": result.get("warp", ""),
                       "checked_at": now, "next_check_at": now + CHECK_INTERVAL,
                       "blocked_checks": blocked, "rotation_attempts": attempts})
         state.pop("rotation_note", None)
@@ -202,11 +210,13 @@ class GeminiMonitor:
                 result = await asyncio.wait_for(test_node_proxy(node, target["port"], probe_proxy), 45)
                 state.update({"status": result["status"], "message": result["message"],
                               "ip": result.get("ip", ""), "country": result.get("country", ""),
+                              "warp": result.get("warp", ""),
                               "checked_at": time.time()})
                 log_event("warning", "warp", "Автопереподключение WARP для Gemini", {
                     "node_id": node.id, "changed": rotated["changed"], "status": result["status"]})
             except Exception:
                 state["status"] = "unknown"
+                state.update({"ip": "", "country": "", "warp": ""})
                 state["message"] = "Переподключение WARP или повторная проверка не завершились."
                 log_event("error", "warp", "Не удалось восстановить доступ Gemini через WARP", {"node_id": node.id})
         await _save_state(db, node.id, state)
