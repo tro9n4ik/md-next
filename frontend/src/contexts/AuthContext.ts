@@ -9,6 +9,7 @@ export interface CurrentUser {
   view_all_clients: boolean;
   can_issue_subscriptions: boolean;
   can_delete_subscriptions: boolean;
+  can_pause_subscriptions: boolean;
 }
 
 export const AuthContext = createContext<CurrentUser | null>(null);

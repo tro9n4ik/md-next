@@ -19,3 +19,4 @@ class User(Base):
     view_all_clients = Column(Boolean, nullable=False, default=False, server_default="0")
     can_issue_subscriptions = Column(Boolean, nullable=False, default=True, server_default="1")
     can_delete_subscriptions = Column(Boolean, nullable=False, default=False, server_default="0")
+    can_pause_subscriptions = Column(Boolean, nullable=False, default=False, server_default="0")

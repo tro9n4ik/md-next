@@ -202,3 +202,17 @@ def test_subscription_permissions_upgrade_preserves_existing_accounts(alembic_co
     with sqlite3.connect(db_file) as db:
         assert db.execute("select username,token_version from users where id=1").fetchone() == ('issuer', 5)
     command.upgrade(cfg, "head")
+
+
+def test_pause_permission_defaults_off_and_preserves_other_rights(alembic_config):
+    cfg, db_file = alembic_config
+    command.upgrade(cfg, "0016_subscription_permissions")
+    with sqlite3.connect(db_file) as db:
+        db.execute("insert into users (id,username,hashed_password,token_version,role,is_active,view_all_clients,can_issue_subscriptions,can_delete_subscriptions) values (2,'issuer','saved-hash',7,'subadmin',1,1,0,1)")
+    command.upgrade(cfg, "head")
+    with sqlite3.connect(db_file) as db:
+        assert db.execute("select can_pause_subscriptions,can_issue_subscriptions,can_delete_subscriptions,hashed_password,token_version from users where id=2").fetchone() == (0, 0, 1, 'saved-hash', 7)
+    command.downgrade(cfg, "0016_subscription_permissions")
+    with sqlite3.connect(db_file) as db:
+        assert db.execute("select username,token_version from users where id=2").fetchone() == ('issuer', 7)
+    command.upgrade(cfg, "head")

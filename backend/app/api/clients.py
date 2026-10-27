@@ -8,11 +8,11 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import or_, select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.auth import get_current_user, require_admin, require_subscription_issuer, require_subscription_deleter
+from app.api.auth import get_current_user, require_admin, require_subscription_issuer, require_subscription_deleter, require_subscription_pauser
 from app.models.user import User
 from app.db.database import get_db
 from app.models.client import Client, ClientProfile
@@ -80,6 +80,11 @@ class TrafficUpdate(BaseModel):
     bytes_used: int
 
 
+class ClientStatusUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    is_active: bool = Field(strict=True)
+
+
 class ClientAccessUpdate(BaseModel):
     profiles: dict[str, bool] = Field(default_factory=dict)
     adblock_enabled: bool | None = None
@@ -141,6 +146,7 @@ async def get_clients(
             "traffic_down": sum(p.traffic_down or 0 for p in profiles_by_client.get(c.id, [])),
             "is_active": c.is_active, "created_at": c.created_at,
             "can_delete": current_user.role == "admin" or (current_user.can_delete_subscriptions and c.created_by_id == current_user.id),
+            "can_pause": current_user.role == "admin" or (current_user.can_pause_subscriptions and c.created_by_id == current_user.id),
             **limit_info(c, now),
             **client_activity(c.id, [p.kind for p in profiles_by_client.get(c.id, []) if p.is_enabled], access_allowed(c, now)),
             "profiles": [{"id": p.id, "kind": p.kind, "is_enabled": p.is_enabled} for p in profiles_by_client.get(c.id, [])],
@@ -459,6 +465,27 @@ async def get_subscription(token: str, request: Request, format: Literal["raw", 
         "profile-update-interval": "12",
         "routing": happ_dns,
     })
+
+
+@router.put("/{client_id}/status")
+async def set_client_status(client_id: int, data: ClientStatusUpdate, db: AsyncSession = Depends(get_db),
+                            current_user: User = Depends(require_subscription_pauser)):
+    client = await db.get(Client, client_id)
+    if client is None or (current_user.role != "admin" and client.created_by_id != current_user.id):
+        raise HTTPException(status_code=404, detail="Клиент не найден")
+    if client.is_active == data.is_active:
+        return {"id": client.id, "is_active": client.is_active}
+    client.is_active = data.is_active
+    try:
+        await _sync_protocols(db)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        await ClientService.restore_committed_configs(db)
+        raise HTTPException(status_code=502, detail="Не удалось изменить доступ клиента; обратитесь к администратору") from None
+    log_event("info", "client", "Клиент включён" if client.is_active else "Клиент приостановлен", {
+        "client_id": client.id, "name": client.name, "actor_id": current_user.id})
+    return {"id": client.id, "is_active": client.is_active}
 
 
 @router.put("/{client_id}", dependencies=[Depends(require_admin)])

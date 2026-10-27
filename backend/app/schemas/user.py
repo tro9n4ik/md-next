@@ -27,3 +27,4 @@ class UserResponse(BaseModel):
     view_all_clients: bool
     can_issue_subscriptions: bool
     can_delete_subscriptions: bool
+    can_pause_subscriptions: bool
