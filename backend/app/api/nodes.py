@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from app.services.input_validation import validate_host
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import update
+from sqlalchemy import update, delete, or_
 
 from app.db.database import get_db
 from app.models.node import Node
@@ -80,6 +80,14 @@ class NodeInviteItem(BaseModel):
     expires_at: datetime.datetime
     used_at: Optional[datetime.datetime] = None
     revoked: bool
+
+    @field_validator('created_at', 'expires_at', 'used_at')
+    @classmethod
+    def utc_timestamps(cls, value: Optional[datetime.datetime]) -> Optional[datetime.datetime]:
+        # SQLite возвращает время без зоны; приглашения хранятся в UTC.
+        if value is not None and value.tzinfo is None:
+            return value.replace(tzinfo=datetime.timezone.utc)
+        return value
 
 def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
@@ -241,6 +249,25 @@ async def get_node_invites(
     result = await db.execute(select(NodeInvite).order_by(NodeInvite.id.desc()))
     invites = result.scalars().all()
     return invites
+
+@router.delete("/invites/history")
+async def clear_node_invite_history(
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(require_admin),
+):
+    """Удаляет только использованные, отозванные и истёкшие приглашения."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    result = await db.execute(delete(NodeInvite).where(or_(
+        NodeInvite.used_at.is_not(None),
+        NodeInvite.revoked.is_(True),
+        NodeInvite.expires_at <= now,
+    )))
+    deleted = result.rowcount
+    await db.commit()
+    if deleted:
+        log_event("info", "node_invite", "Очищена история приглашений узлов", {"deleted": deleted, "actor_id": current_user.id})
+    return {"deleted": deleted}
+
 
 @router.delete("/invites/{invite_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def revoke_node_invite(

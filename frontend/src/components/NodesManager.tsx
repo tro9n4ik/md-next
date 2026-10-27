@@ -93,6 +93,7 @@ export const NodesManager: React.FC = () => {
   const [inviteName, setFormInviteName] = useState('Новый узел');
   const [ttlHours, setFormTtlHours] = useState(24);
   const [generatedInvite, setGeneratedInvite] = useState<GeneratedInvite | null>(null);
+  const [inviteCleanupNotice, setInviteCleanupNotice] = useState('');
 
   const [nodeToDelete, setNodeToDelete] = useState<NodeData | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -233,6 +234,21 @@ export const NodesManager: React.FC = () => {
       if (!res.ok) throw new Error('Не удалось отозвать инвайт');
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['nodeInvites'] })
+  });
+
+  const clearInviteHistoryMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiFetch('/api/v1/nodes/invites/history', { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Не удалось очистить историю приглашений');
+      return data as { deleted: number };
+    },
+    onMutate: () => setInviteCleanupNotice(''),
+    onSuccess: (data) => {
+      setInviteCleanupNotice(data.deleted ? `Удалено приглашений: ${data.deleted}. Действующие приглашения сохранены.` : 'Нет завершённых приглашений для удаления. Действующие приглашения сохранены.');
+      void queryClient.invalidateQueries({ queryKey: ['nodeInvites'] });
+    },
+    onError: (error: Error) => setInviteCleanupNotice(error.message),
   });
 
   const deleteNodeMutation = useMutation({
@@ -440,7 +456,7 @@ export const NodesManager: React.FC = () => {
 
       {/* Таблица одноразовых инвайтов */}
       <div className="ui-card ui-panel">
-        <h4 className="text-sm font-bold text-neutral-800 mb-4">Активные одноразовые приглашения</h4>
+        <h4 className="text-sm font-bold text-neutral-800 mb-4">Одноразовые приглашения</h4>
         <div className="overflow-x-auto border border-neutral-100 rounded-xl">
           <table className="w-full text-xs text-left">
             <thead className="text-neutral-500 bg-neutral-50 uppercase font-medium">
@@ -503,6 +519,14 @@ export const NodesManager: React.FC = () => {
               )}
             </tbody>
           </table>
+        </div>
+        <div className="ui-actionbar">
+          <p role={clearInviteHistoryMutation.isError ? 'alert' : 'status'} className={`text-xs ${clearInviteHistoryMutation.isError ? 'text-red-700' : 'text-neutral-500'}`}>
+            {inviteCleanupNotice || 'Очистка удаляет использованные, отозванные и истёкшие приглашения. Действующие приглашения и ноды сохраняются.'}
+          </p>
+          <button type="button" disabled={!invites.length || clearInviteHistoryMutation.isPending || createInviteMutation.isPending || revokeInviteMutation.isPending}
+            onClick={() => { if (window.confirm('Очистить историю использованных, отозванных и истёкших приглашений? Действующие приглашения и подключённые ноды сохранятся.')) clearInviteHistoryMutation.mutate(); }}
+            className="ui-button ui-button-secondary shrink-0"><Trash2 size={16} />{clearInviteHistoryMutation.isPending ? 'Очищаем…' : 'Очистить историю'}</button>
         </div>
       </div>
 
