@@ -1,5 +1,6 @@
 import re
 import os
+from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -20,6 +21,7 @@ from app.services.links_guard import (
 )
 from app.services.profiles import PROFILE_KINDS, enabled_profile_kinds, get_profile_settings, create_profiles
 from app.services.nginx import apply_xhttp_tls_path
+from app.services import sni_scanner
 
 router = APIRouter(prefix="/api/v1/settings/protocols", tags=["Настройки"], dependencies=[Depends(require_admin)])
 
@@ -191,3 +193,20 @@ async def update_protocol_settings(req: ProtocolSettingsRequest, db: AsyncSessio
             detail = detail.replace(private_key, "[скрыто]")
         raise HTTPException(status_code=502, detail=f"Не удалось применить настройки протоколов: {detail}") from exc
     return await get_protocol_settings(db)
+
+
+class SniScanRequest(BaseModel):
+    domains: list[Annotated[str, Field(min_length=1, max_length=253)]] = Field(
+        default_factory=lambda: list(sni_scanner.DEFAULT_DOMAINS), min_length=1, max_length=12
+    )
+
+
+@router.post("/sni/check")
+async def check_sni(req: SniScanRequest, db: AsyncSession = Depends(get_db)):
+    try:
+        values = await get_profile_settings(db)
+        return await sni_scanner.scan_domains(req.domains, values.get("protocol.reality.server_address", ""))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
