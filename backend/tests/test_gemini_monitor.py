@@ -78,6 +78,8 @@ async def test_two_confirmations_rotate_and_verify_same_node_and_port():
         assert [call.args[0].id for call in probe.call_args_list] == [1, 1]
         assert [call.args[1] for call in probe.call_args_list] == [40000, 40000]
         assert (await module._load_state(db, 1))["last_rotation_changed"] is True
+        assert result["country"] == "DE"
+        assert result["warp"] == "on"
 
 
 @pytest.mark.asyncio
@@ -248,6 +250,31 @@ async def test_probe_uses_socks_and_refuses_non_gemini_redirect():
         result = await module.probe_proxy(23456, timeout=1)
     assert result["status"] == "unknown"
     assert calls == [module.GEMINI_URL]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["loaded", "blocked", "network", "warp_off"])
+async def test_probe_keeps_exit_country_separate_from_gemini_access(outcome):
+    trace = {"ip": "104.28.1.2", "country": "DE", "warp": "off" if outcome == "warp_off" else "on"}
+    def response(request):
+        if outcome == "warp_off":
+            pytest.fail("Gemini must not be queried without WARP")
+        if outcome == "network":
+            raise httpx.ReadTimeout("test timeout", request=request)
+        if outcome == "blocked":
+            return httpx.Response(302, headers={"location": "/unsupportedcountry"})
+        return httpx.Response(200, text="<h1>Gemini</h1>")
+    original = httpx.AsyncClient
+    def client(**kwargs):
+        assert kwargs.pop("proxy") == "socks5://127.0.0.1:23456"
+        return original(transport=httpx.MockTransport(response), **kwargs)
+    with patch.object(module.WarpService, "test_proxy", AsyncMock(return_value=trace)), \
+         patch.object(module.httpx, "AsyncClient", client):
+        result = await module.probe_proxy(23456, timeout=1)
+    assert all(result[key] == value for key, value in trace.items())
+    assert result["status"] == {"loaded": "page_loaded", "blocked": "region_blocked"}.get(outcome, "unknown")
+    if outcome == "loaded":
+        assert "не подтверждён" in result["message"]
 
 
 @pytest.mark.asyncio

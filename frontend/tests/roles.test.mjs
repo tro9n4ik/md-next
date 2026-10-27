@@ -52,7 +52,7 @@ test('WARP показывает результат Gemini и объясняет 
   query.setQueryData(['warp-presets'], {presets: []});
   query.setQueryData(['warp-gemini-monitor'], {enabled: true, node_id: 1, node_name: 'Первая нода', result: {
     status: 'region_blocked', message: 'Gemini явно сообщил, что регион выхода не поддерживается.',
-    ip: '104.28.1.2', country: 'DE', checked_at: 10000,
+    ip: '104.28.1.2', country: 'DE', warp: 'on', checked_at: 10000,
     rotation_note: 'WARP переподключён; Cloudflare сохранил прежний IP.',
   }});
   const html = render(WarpPage, admin, query);
@@ -60,9 +60,26 @@ test('WARP показывает результат Gemini и объясняет 
   assert.match(html, /Проверить Gemini/);
   assert.match(html, /регион выхода не поддерживается/);
   assert.match(html, /Cloudflare сохранил прежний IP/);
-  assert.match(html, /Страна по Cloudflare: DE/);
+  assert.match(html, /Страна IP по Cloudflare: <b>Германия \(DE\)/);
+  assert.match(html, /WARP: подтверждён/);
+  assert.match(html, /Региональный отказ Gemini/);
+  assert.match(html, /border-red-600/);
   assert.match(html, /Ручная проверка показывает результат и не переподключает WARP/);
   assert.match(html, /не более 3 попыток за 6 часов/);
+});
+test('Открытая страница Gemini не становится зелёным подтверждением доступа', () => {
+  const query = fixture();
+  query.setQueryData(['warp-status'], {enabled: true, controls_ready: true, node_id: 1, name: 'Нода NL'});
+  query.setQueryData(['warp-presets'], {presets: []});
+  query.setQueryData(['warp-gemini-monitor'], {enabled: true, node_id: 1, node_name: 'Нода NL', result: {
+    status: 'page_loaded', message: 'Публичная страница открылась.', country: 'DE', warp: 'on', checked_at: 10000,
+  }});
+  const html = render(WarpPage, admin, query);
+  assert.match(html, /Доступ к Gemini не подтверждён/);
+  assert.match(html, /Германия \(DE\)/);
+  assert.match(html, /border-amber-500/);
+  assert.doesNotMatch(html, /border-emerald-600/);
+  assert.match(html, /а не регион аккаунта Google/);
 });
 test('WARP сообщает о приостановке мониторинга при выключенном выходе', () => {
   const query = fixture();
@@ -72,6 +89,19 @@ test('WARP сообщает о приостановке мониторинга �
   const html = render(WarpPage, admin, query);
   assert.match(html, /Пока WARP выключен, автопроверка приостановлена/);
   assert.match(html, /disabled=""[^>]*>Проверить Gemini/);
+});
+test('Неизвестный ответ Gemini не подменяет страну выхода названием ноды', () => {
+  const query = fixture();
+  query.setQueryData(['warp-status'], {enabled: true, node_id: 1, name: 'Нода NL'});
+  query.setQueryData(['warp-presets'], {presets: []});
+  query.setQueryData(['warp-gemini-monitor'], {enabled: true, node_id: 1, node_name: 'Нода NL', result: {
+    status: 'unknown', message: 'Ответ не получен.',
+  }});
+  const html = render(WarpPage, admin, query);
+  assert.match(html, /Результат проверки не определён/);
+  assert.match(html, /Страна IP по Cloudflare: <b>не определена/);
+  assert.match(html, /WARP: не проверен/);
+  assert.doesNotMatch(html, /Нидерланды/);
 });
 test('Меню субадминистратора скрывает инфраструктуру и настройки', () => {
   const html = render(Sidebar, subadmin);
