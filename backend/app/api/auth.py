@@ -99,6 +99,11 @@ async def require_subscription_deleter(user: User = Depends(get_current_user)) -
         raise HTTPException(status_code=403, detail="Удаление подписок запрещено администратором")
     return user
 
+async def require_subscription_pauser(user: User = Depends(get_current_user)) -> User:
+    if user.role != "admin" and not user.can_pause_subscriptions:
+        raise HTTPException(status_code=403, detail="Приостановка подписок запрещена администратором")
+    return user
+
 async def ensure_admin_created(db: AsyncSession):
     result = await db.execute(select(User).where(User.username == "admin"))
     user = result.scalar_one_or_none()
@@ -259,7 +264,8 @@ async def get_me(user: User = Depends(get_current_user)):
     return UserResponse(id=user.id, username=user.username, totp_enabled=user.totp_enabled,
                         role=user.role, is_active=user.is_active, view_all_clients=user.view_all_clients,
                         can_issue_subscriptions=user.role == "admin" or user.can_issue_subscriptions,
-                        can_delete_subscriptions=user.role == "admin" or user.can_delete_subscriptions)
+                        can_delete_subscriptions=user.role == "admin" or user.can_delete_subscriptions,
+                        can_pause_subscriptions=user.role == "admin" or user.can_pause_subscriptions)
 
 class ChangePasswordRequest(BaseModel):
     old_password: str

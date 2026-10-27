@@ -44,6 +44,32 @@ class WarpIPv4Request(BaseModel):
     ipv4_only: bool = Field(strict=True)
 
 
+class GeminiMonitorRequest(BaseModel):
+    enabled: bool = Field(strict=True)
+
+
+@router.get("/gemini/monitor")
+async def get_gemini_monitor(db: AsyncSession = Depends(get_db)):
+    from app.services.gemini_monitor import monitor_status
+    return await monitor_status(db)
+
+
+@router.put("/gemini/monitor")
+async def set_gemini_monitor(request: GeminiMonitorRequest, db: AsyncSession = Depends(get_db)):
+    from app.services.gemini_monitor import ENABLED_KEY, monitor_status
+    await WarpService._save_setting(db, ENABLED_KEY, str(request.enabled).lower())
+    log_event("info", "warp", "Изменена автопроверка Gemini", {"enabled": request.enabled})
+    return await monitor_status(db)
+
+
+@router.post("/gemini/check")
+async def check_gemini(db: AsyncSession = Depends(get_db)):
+    from app.services.gemini_monitor import gemini_monitor
+    if gemini_monitor._lock.locked():
+        raise HTTPException(status_code=409, detail="Проверка Gemini уже выполняется. Дождитесь результата.")
+    return await gemini_monitor.check(db)
+
+
 @router.put("/ipv4")
 async def set_warp_ipv4(request: WarpIPv4Request, db: AsyncSession = Depends(get_db)):
     from app.models.node import Node

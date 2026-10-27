@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Users } from 'lucide-react';
 import PageLayout from '../components/ui/PageLayout';
 import Switch from '../components/ui/Switch';
 import { apiFetch } from '../utils/api';
 
-interface Account { id: number; username: string; is_active: boolean; view_all_clients: boolean; totp_enabled: boolean; can_issue_subscriptions: boolean; can_delete_subscriptions: boolean }
+interface Account { id: number; username: string; is_active: boolean; view_all_clients: boolean; totp_enabled: boolean; can_issue_subscriptions: boolean; can_delete_subscriptions: boolean; can_pause_subscriptions: boolean }
 
 async function request(path = '', method = 'GET', body?: unknown) {
   const response = await apiFetch('/api/v1/users' + path, {
@@ -20,7 +20,7 @@ function AccountRow({ account, refresh }: { account: Account; refresh: () => voi
   const [password, setPassword] = useState('');
   const [notice, setNotice] = useState('');
   const update = useMutation({
-    mutationFn: (body: { is_active?: boolean; password?: string; view_all_clients?: boolean; can_issue_subscriptions?: boolean; can_delete_subscriptions?: boolean }) => request('/' + account.id, 'PUT', body),
+    mutationFn: (body: { is_active?: boolean; password?: string; view_all_clients?: boolean; can_issue_subscriptions?: boolean; can_delete_subscriptions?: boolean; can_pause_subscriptions?: boolean }) => request('/' + account.id, 'PUT', body),
     onSuccess: () => { setPassword(''); setNotice('Сохранено. Субадминистратору потребуется войти заново.'); refresh(); },
     onError: (error: Error) => setNotice(error.message),
   });
@@ -37,6 +37,9 @@ function AccountRow({ account, refresh }: { account: Account; refresh: () => voi
     <div className="flex items-center justify-between gap-4"><div><p className="text-sm font-medium">Удаление своих подписок</p><p className="text-xs text-neutral-500">Удаление только созданных им клиентов вместе с профилями; чужие подписки защищены</p></div>
       <Switch label={`Удаление своих подписок: ${account.username}`} checked={account.can_delete_subscriptions} disabled={update.isPending} onChange={can_delete_subscriptions => update.mutate({ can_delete_subscriptions })} />
     </div>
+    <div className="flex items-center justify-between gap-4"><div><p className="text-sm font-medium">Приостановка своих подписок</p><p className="text-xs text-neutral-500">Приостановка и возобновление только созданных им клиентов без изменения срока, лимитов и ссылок</p></div>
+      <Switch label={`Приостановка своих подписок: ${account.username}`} checked={account.can_pause_subscriptions} disabled={update.isPending} onChange={can_pause_subscriptions => update.mutate({ can_pause_subscriptions })} />
+    </div>
     <form className="flex flex-wrap gap-3" onSubmit={event => { event.preventDefault(); update.mutate({ password }); }}>
       <input aria-label={`Новый пароль: ${account.username}`} type="password" autoComplete="new-password" minLength={10} maxLength={72} required value={password} onChange={event => setPassword(event.target.value)} placeholder="Новый пароль" className="min-w-0 flex-1 rounded-lg border p-3 text-sm" />
       <button className="ui-button ui-button-secondary" disabled={update.isPending || password.length < 10}>Сбросить пароль</button>
@@ -52,19 +55,22 @@ export default function UsersPage() {
   const [viewAll, setViewAll] = useState(false);
   const [canIssue, setCanIssue] = useState(true);
   const [canDelete, setCanDelete] = useState(false);
+  const [canPause, setCanPause] = useState(false);
+  const createDetails = useRef<HTMLDetailsElement>(null);
   const [notice, setNotice] = useState('');
   const accounts = useQuery<Account[]>({ queryKey: ['subadmins'], queryFn: () => request() });
   const refresh = () => { void queryClient.invalidateQueries({ queryKey: ['subadmins'] }); };
   const create = useMutation({
-    mutationFn: () => request('', 'POST', { username, password, view_all_clients: viewAll, can_issue_subscriptions: canIssue, can_delete_subscriptions: canDelete }),
-    onSuccess: () => { setUsername(''); setPassword(''); setViewAll(false); setCanIssue(true); setCanDelete(false); setNotice('Учётная запись создана. Передайте логин и пароль субадминистратору.'); refresh(); },
+    mutationFn: () => request('', 'POST', { username, password, view_all_clients: viewAll, can_issue_subscriptions: canIssue, can_delete_subscriptions: canDelete, can_pause_subscriptions: canPause }),
+    onSuccess: () => { setUsername(''); setPassword(''); setViewAll(false); setCanIssue(true); setCanDelete(false); setCanPause(false); if (createDetails.current) createDetails.current.open = false; setNotice('Учётная запись создана. Передайте логин и пароль субадминистратору.'); refresh(); },
     onError: (error: Error) => setNotice(error.message),
   });
   return <PageLayout title="Субадминистраторы" description="Учётные записи для создания клиентов и выдачи подключений" icon={Users}>
     <section className="ui-card ui-panel space-y-4">
-      <h2 className="font-semibold">Создать учётную запись</h2>
-      <p className="text-sm text-neutral-500">Разрешения на создание, выдачу и удаление подписок задаются отдельно. Настройки панели и редактирование клиентов доступны только администратору. Отзыв выдачи не отключает уже полученные клиентами ссылки.</p>
-      <form className="space-y-4" onSubmit={event => { event.preventDefault(); create.mutate(); }}>
+      <details ref={createDetails}>
+      <summary className="cursor-pointer font-semibold">Добавить субадминистратора</summary>
+      <p className="mt-4 text-sm text-neutral-500">Права на выдачу, удаление и приостановку подписок задаются отдельно. Настройки панели и изменение условий клиентов доступны только администратору. Отзыв выдачи не отключает уже полученные клиентами ссылки.</p>
+      <form className="mt-4 space-y-4" onSubmit={event => { event.preventDefault(); create.mutate(); }}>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-sm">Логин<input required minLength={3} maxLength={64} pattern="[a-zA-Z0-9_.-]+" autoComplete="off" value={username} onChange={event => setUsername(event.target.value)} className="mt-1 w-full rounded-lg border p-3" /><span className="text-xs text-neutral-500">Латинские буквы, цифры, точка, дефис и подчёркивание</span></label>
           <label className="text-sm">Пароль<input required type="password" autoComplete="new-password" minLength={10} maxLength={72} value={password} onChange={event => setPassword(event.target.value)} className="mt-1 w-full rounded-lg border p-3" /><span className="text-xs text-neutral-500">Минимум 10 символов, максимум 72 байта</span></label>
@@ -72,8 +78,10 @@ export default function UsersPage() {
         <div className="flex items-center justify-between gap-4 text-sm"><span>Видит всех клиентов</span><Switch label="Видит всех клиентов" checked={viewAll} onChange={setViewAll} /></div>
         <div className="flex items-center justify-between gap-4 text-sm"><span>Создание и выдача подписок</span><Switch label="Создание и выдача подписок" checked={canIssue} onChange={setCanIssue} /></div>
         <div className="flex items-center justify-between gap-4 text-sm"><span>Удаление своих подписок</span><Switch label="Удаление своих подписок" checked={canDelete} onChange={setCanDelete} /></div>
+        <div className="flex items-center justify-between gap-4 text-sm"><span>Приостановка своих подписок</span><Switch label="Приостановка своих подписок" checked={canPause} onChange={setCanPause} /></div>
         <button disabled={create.isPending} className="ui-button ui-button-primary">{create.isPending ? 'Создаём…' : 'Создать субадминистратора'}</button>
       </form>
+      </details>
       {notice && <p role="status" className="text-sm text-neutral-600">{notice}</p>}
     </section>
     <section className="ui-card ui-panel space-y-4"><h2 className="font-semibold">Учётные записи</h2>

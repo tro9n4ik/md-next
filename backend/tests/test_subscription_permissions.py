@@ -96,3 +96,83 @@ async def test_admin_has_effective_permissions_and_subadmin_cannot_self_grant(au
     assert (await request("POST", "/api/v1/clients", forged, json={"name": "Forbidden"})).status_code == 403
     assert (await request("DELETE", "/api/v1/clients/1", forged)).status_code == 403
     assert (await request("PUT", "/api/v1/users/2", issuer, json={"can_issue_subscriptions": True})).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_pause_permission_only_changes_status_of_own_clients(auth_headers):
+    uid, issuer = await account(auth_headers, view_all=True, can_pause_subscriptions=True)
+    own = await client(issuer, "Own", monthly_traffic_limit=12345, subscription_period="month")
+    foreign = await client(auth_headers, "Foreign")
+    async with TestingSessionLocal() as db:
+        stored = await db.get(Client, own)
+        before = (stored.sub_token, stored.expires_at, stored.monthly_traffic_limit)
+    rows = (await request("GET", "/api/v1/clients", issuer)).json()
+    assert {c["id"]: c["can_pause"] for c in rows} == {own: True, foreign: False}
+    with patch("app.api.clients._sync_protocols", new=AsyncMock()) as sync:
+        for cid in (foreign, 99999):
+            assert (await request("PUT", f"/api/v1/clients/{cid}/status", issuer, json={"is_active": False})).status_code == 404
+        sync.assert_not_awaited()
+        for active in (False, True):
+            result = await request("PUT", f"/api/v1/clients/{own}/status", issuer, json={"is_active": active})
+            assert result.status_code == 200 and result.json()["is_active"] == active
+            async with TestingSessionLocal() as db:
+                stored = await db.get(Client, own)
+                assert stored.is_active == active
+                assert (stored.sub_token, stored.expires_at, stored.monthly_traffic_limit) == before
+        assert sync.await_count == 2
+        assert (await request("PUT", f"/api/v1/clients/{own}", issuer, json={"monthly_traffic_limit": 0})).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_pause_permission_is_independent_and_revokes_existing_tokens(auth_headers):
+    uid, issuer = await account(auth_headers)
+    own = await client(issuer)
+    with patch("app.api.clients._sync_protocols", new=AsyncMock()) as sync:
+        assert (await request("PUT", f"/api/v1/clients/{own}/status", issuer, json={"is_active": False})).status_code == 403
+        sync.assert_not_awaited()
+    await request("PUT", f"/api/v1/users/{uid}", auth_headers, json={"can_pause_subscriptions": True, "can_issue_subscriptions": False})
+    assert (await request("PUT", f"/api/v1/clients/{own}/status", issuer, json={"is_active": False})).status_code == 401
+    issuer = await fresh_headers(uid)
+    me = (await request("GET", "/api/v1/auth/me", issuer)).json()
+    assert me["can_pause_subscriptions"] is True and me["can_issue_subscriptions"] is False
+    with patch("app.api.clients._sync_protocols", new=AsyncMock()):
+        assert (await request("PUT", f"/api/v1/clients/{own}/status", issuer, json={"is_active": False})).status_code == 200
+    await request("PUT", f"/api/v1/users/{uid}", auth_headers, json={"can_pause_subscriptions": False})
+    assert (await request("GET", "/api/v1/auth/me", issuer)).status_code == 401
+    issuer = await fresh_headers(uid)
+    assert (await request("PUT", f"/api/v1/clients/{own}/status", issuer, json={"is_active": True})).status_code == 403
+    assert (await request("PUT", f"/api/v1/users/{uid}", issuer, json={"can_pause_subscriptions": True})).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_pause_rejects_extra_fields_and_non_boolean_values(auth_headers):
+    _, issuer = await account(auth_headers, can_pause_subscriptions=True)
+    own = await client(issuer)
+    with patch("app.api.clients._sync_protocols", new=AsyncMock()) as sync:
+        for body in ({"is_active": False, "monthly_traffic_limit": 0}, {"is_active": "false"}, {}):
+            assert (await request("PUT", f"/api/v1/clients/{own}/status", issuer, json=body)).status_code == 422
+        sync.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_pause_failure_restores_status_without_leaking_config(auth_headers):
+    _, issuer = await account(auth_headers, can_pause_subscriptions=True)
+    own = await client(issuer)
+    with patch("app.api.clients._sync_protocols", side_effect=RuntimeError("private-config-detail")), \
+         patch("app.services.client_service.ClientService.restore_committed_configs", new=AsyncMock()) as restore:
+        result = await request("PUT", f"/api/v1/clients/{own}/status", issuer, json={"is_active": False})
+        assert result.status_code == 502 and "private-config-detail" not in result.text
+        restore.assert_awaited_once()
+    async with TestingSessionLocal() as db:
+        assert (await db.get(Client, own)).is_active is True
+
+
+@pytest.mark.asyncio
+async def test_admin_can_pause_other_owners_and_repeated_status_is_noop(auth_headers):
+    _, issuer = await account(auth_headers)
+    own = await client(issuer)
+    assert (await request("GET", "/api/v1/auth/me", auth_headers)).json()["can_pause_subscriptions"] is True
+    with patch("app.api.clients._sync_protocols", new=AsyncMock()) as sync:
+        for _ in range(2):
+            assert (await request("PUT", f"/api/v1/clients/{own}/status", auth_headers, json={"is_active": False})).status_code == 200
+        sync.assert_awaited_once()

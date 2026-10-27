@@ -19,14 +19,15 @@ const Sidebar = require('../src/components/Sidebar.tsx').default;
 const ClientsTable = require('../src/components/ClientsTable.tsx').default;
 const ClientAccessPage = require('../src/pages/ClientAccessPage.tsx').default;
 const UsersPage = require('../src/pages/UsersPage.tsx').default;
+const WarpPage = require('../src/pages/WarpPage.tsx').default;
 const { NodesManager } = require('../src/components/NodesManager.tsx');
-const subadmin = { id: 2, username: 'issuer', role: 'subadmin', view_all_clients: false, can_issue_subscriptions: true, can_delete_subscriptions: false };
+const subadmin = { id: 2, username: 'issuer', role: 'subadmin', view_all_clients: false, can_issue_subscriptions: true, can_delete_subscriptions: false, can_pause_subscriptions: false };
 const admin = { ...subadmin, id: 1, username: 'admin', role: 'admin' };
 function fixture(clientOverrides = {}) {
   const query = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const client = { id: 123, name: 'Issued client', phone: '', email: '', is_active: true, access_allowed: true,
     expires_at: null, profiles: [], connected_protocols: [], monthly_traffic_used: 0, monthly_traffic_limit: 0,
-    cdn_monthly_traffic_used: 0, cdn_monthly_traffic_limit: 0, traffic_total: 0, connection_status: 'offline', can_delete: false, ...clientOverrides };
+    cdn_monthly_traffic_used: 0, cdn_monthly_traffic_limit: 0, traffic_total: 0, connection_status: 'offline', can_delete: false, can_pause: false, ...clientOverrides };
   query.setQueryData(['clients', '', 'all', 'created', 'desc'], [client]);
   query.setQueryData(['clientProfiles', 123], { client, access: [], adblock_enabled: false,
     profiles: [{ id: 456, kind: 'vless_reality_tcp', label: 'Reality TCP', data: 'vless://test-profile', is_enabled: true, key_available: true }],
@@ -43,6 +44,33 @@ function render(component, user, query = fixture()) {
           element: React.createElement(component, { onLogout: () => {} }),
         }))))));
 }
+test('WARP показывает результат Gemini и объясняет границы автоматической смены IP', () => {
+  const query = fixture();
+  query.setQueryData(['warp-status'], {enabled: true, controls_ready: true, node_id: 1, name: 'Первая нода', ipv4_only: true});
+  query.setQueryData(['warp-presets'], {presets: []});
+  query.setQueryData(['warp-gemini-monitor'], {enabled: true, node_id: 1, node_name: 'Первая нода', result: {
+    status: 'region_blocked', message: 'Gemini явно сообщил, что регион выхода не поддерживается.',
+    ip: '104.28.1.2', country: 'DE', checked_at: 10000,
+    rotation_note: 'WARP переподключён; Cloudflare сохранил прежний IP.',
+  }});
+  const html = render(WarpPage, admin, query);
+  assert.match(html, /Автопроверка Gemini/);
+  assert.match(html, /Проверить Gemini/);
+  assert.match(html, /регион выхода не поддерживается/);
+  assert.match(html, /Cloudflare сохранил прежний IP/);
+  assert.match(html, /Страна по Cloudflare: DE/);
+  assert.match(html, /Ручная проверка показывает результат и не переподключает WARP/);
+  assert.match(html, /не более 3 попыток за 6 часов/);
+});
+test('WARP сообщает о приостановке мониторинга при выключенном выходе', () => {
+  const query = fixture();
+  query.setQueryData(['warp-status'], {enabled: false, controls_ready: false, node_id: 1, name: 'Нода'});
+  query.setQueryData(['warp-presets'], {presets: []});
+  query.setQueryData(['warp-gemini-monitor'], {enabled: false, node_id: 1, node_name: 'Нода', result: {}});
+  const html = render(WarpPage, admin, query);
+  assert.match(html, /Пока WARP выключен, автопроверка приостановлена/);
+  assert.match(html, /disabled=""[^>]*>Проверить Gemini/);
+});
 test('Меню субадминистратора скрывает инфраструктуру и настройки', () => {
   const html = render(Sidebar, subadmin);
   assert.match(html, /href="\/clients"/);
@@ -80,12 +108,27 @@ test('Видимость и права используют тумблеры в 
   query.setQueryData(['subadmins'], [{ ...subadmin, is_active: true, view_all_clients: true, totp_enabled: false }]);
   const html = render(UsersPage, admin, query);
   assert.doesNotMatch(html, /type="checkbox"/);
-  for (const label of ['Видит всех клиентов', 'Создание и выдача подписок', 'Удаление своих подписок', 'Создание и выдача подписок: issuer', 'Удаление своих подписок: issuer']) {
+  for (const label of ['Видит всех клиентов', 'Создание и выдача подписок', 'Удаление своих подписок', 'Приостановка своих подписок', 'Приостановка своих подписок: issuer', 'Создание и выдача подписок: issuer', 'Удаление своих подписок: issuer']) {
     assert.ok(html.includes(`role="switch" aria-checked="${label.startsWith('Создание') ? 'true' : 'false'}" aria-label="${label}"`));
   }
   assert.match(html, /Все клиенты: issuer/);
   assert.match(html, /aria-checked="true"/);
   assert.match(html, /Сбросить пароль/);
+  assert.match(html, /<details><summary[^>]*>Добавить субадминистратора/);
+  assert.doesNotMatch(html, /<details[^>]*\bopen/);
+});
+
+test('Приостановка и возобновление требуют права учётки и владения подпиской', () => {
+  for (const allowed of [false, true]) {
+    const user = { ...subadmin, can_issue_subscriptions: false, can_pause_subscriptions: allowed };
+    for (const own of [false, true]) {
+      const html = render(ClientsTable, user, fixture({ can_pause: own }));
+      if (allowed && own) assert.match(html, /aria-label="Приостановить"/);
+      else assert.doesNotMatch(html, /aria-label="Приостановить"/);
+    }
+  }
+  const paused = render(ClientsTable, { ...subadmin, can_pause_subscriptions: true }, fixture({ can_pause: true, is_active: false }));
+  assert.match(paused, /aria-label="Возобновить"/);
 });
 
 test('Отзыв выдачи скрывает создание и подключения, включая ранее загруженный кэш', () => {

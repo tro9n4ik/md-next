@@ -33,6 +33,7 @@ class SubadminCreate(BaseModel):
     view_all_clients: bool = False
     can_issue_subscriptions: bool = True
     can_delete_subscriptions: bool = False
+    can_pause_subscriptions: bool = False
 
     @field_validator("password")
     @classmethod
@@ -47,6 +48,7 @@ class SubadminUpdate(BaseModel):
     view_all_clients: bool | None = None
     can_issue_subscriptions: bool | None = None
     can_delete_subscriptions: bool | None = None
+    can_pause_subscriptions: bool | None = None
 
     @field_validator("password")
     @classmethod
@@ -64,6 +66,7 @@ def account_data(user: User) -> dict:
         "view_all_clients": user.view_all_clients,
         "can_issue_subscriptions": user.can_issue_subscriptions,
         "can_delete_subscriptions": user.can_delete_subscriptions,
+        "can_pause_subscriptions": user.can_pause_subscriptions,
     }
 
 
@@ -97,6 +100,7 @@ async def create_subadmin(
         view_all_clients=request.view_all_clients,
         can_issue_subscriptions=request.can_issue_subscriptions,
         can_delete_subscriptions=request.can_delete_subscriptions,
+        can_pause_subscriptions=request.can_pause_subscriptions,
     )
     db.add(user)
     try:
@@ -137,7 +141,7 @@ async def update_subadmin(
     ):
         user.view_all_clients = request.view_all_clients
         changed = True
-    for permission in ("can_issue_subscriptions", "can_delete_subscriptions"):
+    for permission in ("can_issue_subscriptions", "can_delete_subscriptions", "can_pause_subscriptions"):
         value = getattr(request, permission)
         if value is not None and getattr(user, permission) != value:
             setattr(user, permission, value)
