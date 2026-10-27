@@ -19,6 +19,7 @@ const Sidebar = require('../src/components/Sidebar.tsx').default;
 const ClientsTable = require('../src/components/ClientsTable.tsx').default;
 const ClientAccessPage = require('../src/pages/ClientAccessPage.tsx').default;
 const UsersPage = require('../src/pages/UsersPage.tsx').default;
+const { NodesManager } = require('../src/components/NodesManager.tsx');
 const subadmin = { id: 2, username: 'issuer', role: 'subadmin', view_all_clients: false, can_issue_subscriptions: true, can_delete_subscriptions: false };
 const admin = { ...subadmin, id: 1, username: 'admin', role: 'admin' };
 function fixture(clientOverrides = {}) {
@@ -104,5 +105,19 @@ test('Удаление требует разрешения учётки и пр�
       assert.equal(html.includes('aria-label="Удалить клиента'), can_delete_subscriptions && can_delete);
       assert.doesNotMatch(html, /aria-label="Приостановить/);
     }
+  }
+});
+
+test('У истории приглашений есть отдельная кнопка очистки и пояснение о сохранении нод', () => {
+  for (const filled of [false, true]) {
+    const query = fixture();
+    query.setQueryData(['nodeInvites'], filled ? [{ id: 1, name: 'Old invite', created_at: '2026-01-01T00:00:00Z', expires_at: '2026-01-02T00:00:00Z', revoked: true }] : []);
+    const html = render(NodesManager, admin, query);
+    assert.match(html, /Одноразовые приглашения/);
+    assert.doesNotMatch(html, /Активные одноразовые приглашения/);
+    assert.match(html, /Действующие приглашения и ноды сохраняются/);
+    const button = [...html.matchAll(/<button\b[^]*?<\/button>/g)].map(match => match[0]).find(markup => markup.includes('Очистить историю'));
+    assert.ok(button, 'Кнопка очистки отображается');
+    assert.equal(/disabled=""/.test(button), !filled);
   }
 });
