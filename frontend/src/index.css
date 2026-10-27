@@ -28,6 +28,9 @@
   .ui-card { @apply min-w-0 rounded-2xl border border-neutral-200/80 bg-white; box-shadow: 0 2px 8px -5px rgb(15 23 42 / .16); }
   .ui-panel { @apply p-5 sm:p-6; }
   .ui-card-title { @apply text-base font-semibold tracking-tight text-neutral-800; }
+  .ui-drawer { @apply m-0 ml-auto h-dvh max-h-dvh w-full max-w-lg border-0 bg-white p-0 text-neutral-900 shadow-xl; }
+  .ui-drawer[open] { @apply flex flex-col; }
+  .ui-drawer::backdrop { background: rgb(15 23 42 / .3); }
   .ui-actionbar { @apply flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white/95 p-4 shadow-sm backdrop-blur sm:flex-row sm:items-center sm:justify-between; }
   .ui-button { @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-transparent px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50; }
   .ui-button-primary { @apply bg-emerald-600 text-white hover:bg-emerald-700; }
@@ -72,6 +75,7 @@
 html[data-theme="dark"] { color-scheme: dark; }
 html[data-theme="dark"] body, html[data-theme="dark"] .app-shell { background: #111b21; color: #e2e8f0; }
 html[data-theme="dark"] .ui-card, html[data-theme="dark"] .ui-actionbar { background: #1b2932; border-color: #344650; }
+html[data-theme="dark"] .ui-drawer { background: #1b2932; color: #e2e8f0; }
 html[data-theme="dark"] .page-header { border-color: #344650; }
 html[data-theme="dark"] .page-heading p, html[data-theme="dark"] .page-breadcrumb, html[data-theme="dark"] .page-breadcrumb span:last-child { color: #acbdc8; }
 html[data-theme="dark"] .page-icon { background: #163e35; color: #6ee7b7; border-color: #28594b; }

@@ -34,43 +34,34 @@ export default function WarpPage() {
   const card = 'ui-card ui-panel';
   return <PageLayout title="WARP" description="Выход через активную ноду для выбранных сервисов" icon={Cloud}>
     <section data-autosave className={card}>
-      <div className="flex items-center justify-between gap-4"><div><h2 className="font-semibold">{status.data?.enabled ? 'WARP включён' : 'WARP выключен'}</h2><p className="mt-1 text-sm text-neutral-500">Нода: {status.data?.name || '—'}</p></div><Switch label="Включить WARP" checked={!!status.data?.enabled} disabled={busy || !status.data?.node_id} onChange={value => toggle.mutate(value)} /></div>
-      <p className="mt-3 text-sm text-neutral-500">Используется активная нода из раздела «Узлы». На ней должен работать WARP. Отключение сохраняет пресеты.</p>
+      <div className="flex items-center justify-between gap-4"><div><h2 className="font-semibold">{status.isPending ? 'Загрузка WARP…' : status.data?.enabled ? 'WARP включён' : 'WARP выключен'}</h2><p className="mt-1 text-sm text-neutral-500">Нода: {status.data?.name || '—'}</p></div><Switch label="Включить WARP" checked={!!status.data?.enabled} disabled={busy || !status.data?.node_id} onChange={value => toggle.mutate(value)} /></div>
       {status.data?.instruction && <p className="mt-3 text-sm text-amber-700">{status.data.instruction}</p>}
       {status.isError && <p role="alert" className="mt-3 text-sm text-red-700">Не удалось загрузить состояние WARP.</p>}
       {status.data?.node_id && !status.data.controls_ready && <p className="mt-3 text-sm text-amber-700">Для смены IP и режима адресов установите служебный обработчик WARP на ноде.</p>}
+      <details className="mt-5 border-t border-neutral-200 pt-4"><summary className="cursor-pointer text-sm font-medium">Подключение и диагностика</summary>
       <div className="mt-4 flex items-center justify-between gap-4"><div><h3 className="text-sm font-semibold">Только IPv4</h3><p className="mt-1 text-xs text-neutral-500">Применяется к WARP на всех нодах, в том числе после переключения выхода.</p></div><Switch label="Только IPv4" checked={!!status.data?.ipv4_only} disabled={busy || !status.data?.controls_ready} onChange={value => ipv4.mutate(value)} /></div>
       <div className="mt-4"><button className="ui-button ui-button-secondary" disabled={busy || !status.data?.controls_ready} onClick={() => rotate.mutate()}>{rotate.isPending ? 'Переподключаем WARP…' : 'Сменить IP'}</button><p className="mt-2 text-xs text-neutral-500">Переподключает WARP активной ноды. Соединения через WARP могут прерваться; новый IP не гарантируется. Регистрация сохраняется.</p></div>
-    </section>
-    <section data-autosave className={card}>
-      <div className="flex items-center justify-between gap-4"><div><h2 className="font-semibold">Автопроверка Gemini</h2><p className="mt-1 text-sm text-neutral-500">Проверяю региональный отказ через WARP активной ноды каждые 5 минут.</p></div><Switch label="Автопроверка Gemini" checked={!!gemini.data?.enabled} disabled={busy || !gemini.data || (!gemini.data.enabled && !status.data?.controls_ready)} onChange={enabled => geminiToggle.mutate(enabled)} /></div>
-      <p className="mt-3 text-sm text-neutral-500">После двух региональных отказов подряд переподключаю WARP. Между попытками — не менее 30 минут, не более 3 попыток за 6 часов для каждой ноды. Соединения через WARP могут прерваться; новый IP не гарантируется.</p>
-      <p className="mt-2 text-xs text-neutral-500">Для трафика Gemini включите соответствующий пресет или режим WARP для всего трафика. CAPTCHA, запрос входа и ошибки сети не вызывают смену IP. Проверка без аккаунта Google не подтверждает доступ к генерации и не определяет страну аккаунта.</p>
-      {!status.data?.enabled && <p className="mt-3 text-sm text-amber-700">Пока WARP выключен, автопроверка приостановлена.</p>}
-      {gemini.isError && <p role="alert" className="mt-3 text-sm text-red-700">Не удалось загрузить состояние автопроверки Gemini.</p>}
-      {gemini.data?.result.message && <div role="status" className="mt-4 rounded-xl border border-neutral-200 p-4 text-sm"><p>{gemini.data.result.message}</p>
-        {gemini.data.result.checked_at && <p className="mt-1 text-xs text-neutral-500">{new Date(gemini.data.result.checked_at * 1000).toLocaleString()} · {gemini.data.node_name}</p>}
-        {gemini.data.result.ip && <p className="mt-1 text-xs text-neutral-500">IP: {gemini.data.result.ip} · Страна по Cloudflare: {gemini.data.result.country || '—'}</p>}
-        {gemini.data.result.rotation_note && <p className="mt-2">{gemini.data.result.rotation_note}</p>}
-      </div>}
-      <button className="ui-button ui-button-secondary mt-4" disabled={busy || !status.data?.enabled || !status.data?.node_id} onClick={() => geminiCheck.mutate()}>{geminiCheck.isPending ? 'Проверяем Gemini…' : 'Проверить Gemini'}</button>
-      <p className="mt-2 text-xs text-neutral-500">Ручная проверка показывает результат и не переподключает WARP.</p>
+
+      <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="font-semibold">Проверка IPv4</h2><button className="ui-button ui-button-secondary" disabled={busy || !status.data?.node_id} onClick={() => test.mutate()}>{test.isPending ? 'Проверяем…' : 'Проверить IPv4'}</button></div>
+      {testResult && <p role="status" className="mt-4 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900">IPv4: <b>{testResult.ip}</b> · Страна: <b>{testResult.country || '—'}</b> · WARP: <b>{testResult.warp}</b></p>}
+
+      </details>
     </section>
     <section data-autosave className={card}>
       <div className="mb-4 flex items-center gap-3">
         <Sparkles className="h-5 w-5 text-indigo-600" />
         <div>
-          <h2 className="font-semibold">Готовые правила для сервисов</h2>
-          <p className="text-sm text-neutral-500">Выберите сервисы, которые будут использовать WARP при включённом переключателе.</p>
+          <h2 className="font-semibold">Сервисы через WARP</h2>
+          <p className="text-sm text-neutral-500">Выбранные сервисы используют WARP при его включении.</p>
         </div>
       </div>
       {presets.isError && <p role="alert" className="mb-3 text-sm text-red-700">Не удалось загрузить пресеты.</p>}
-      {presets.isLoading ? <Loader2 className="h-5 w-5 animate-spin text-neutral-400" /> : <div className="flex flex-col gap-3">
+      {presets.isLoading ? <Loader2 className="h-5 w-5 animate-spin text-neutral-400" /> : <div className="grid gap-x-8 md:grid-cols-2">
         {(presets.data?.presets || []).map(preset => {
           const applied = preset.state.total > 0;
-          return <div key={preset.key} className="flex items-center justify-between gap-4 rounded-xl border border-neutral-200 bg-neutral-50 p-4">
+          return <div key={preset.key} className="flex items-start justify-between gap-4 border-b border-neutral-100 py-4">
             <div className="min-w-0"><h3 className="text-sm font-semibold text-neutral-800">{preset.title}</h3>
-              <p className="mt-1.5 text-xs leading-5 text-neutral-600">{preset.description}</p>
+              <details className="mt-2 text-xs text-neutral-500"><summary className="w-fit cursor-pointer">Подробнее</summary><p className="mt-2 leading-5">{preset.description}</p></details>
               {applied && preset.state.missing > 0 && <p className="mt-1 text-xs text-amber-700">Набор правил неполный. Выключите и включите пресет для обновления.</p>}
             </div>
             <div className="shrink-0"><Switch label={preset.title} checked={applied} disabled={busy || presets.isFetching} onChange={enabled => presetMutation.mutate({key: preset.key, action: enabled ? 'apply' : 'remove'})} /></div>
@@ -79,9 +70,22 @@ export default function WarpPage() {
       </div>}
       <p className="mt-4 text-xs leading-5 text-neutral-500">Изменения сохраняются автоматически. При выключенном WARP выбранные пресеты сохраняются.</p>
     </section>
-    <section className={card}>
-      <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="font-semibold">Проверка IPv4</h2><button className="ui-button ui-button-secondary" disabled={busy || !status.data?.node_id} onClick={() => test.mutate()}>{test.isPending ? 'Проверяем…' : 'Проверить IPv4'}</button></div>
-      {testResult && <p role="status" className="mt-4 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900">IPv4: <b>{testResult.ip}</b> · Страна: <b>{testResult.country || '—'}</b> · WARP: <b>{testResult.warp}</b></p>}
+    <section data-autosave className={card}>
+      <div className="flex items-center justify-between gap-4"><div><h2 className="font-semibold">Автопроверка Gemini</h2><p className="mt-1 text-sm text-neutral-500">Проверяю региональный отказ через WARP активной ноды каждые 5 минут.</p></div><Switch label="Автопроверка Gemini" checked={!!gemini.data?.enabled} disabled={busy || !gemini.data || (!gemini.data.enabled && !status.data?.controls_ready)} onChange={enabled => geminiToggle.mutate(enabled)} /></div>
+      <p className="mt-3 text-xs text-neutral-500">При региональном отказе WARP переподключается. Соединения через него могут прерваться.</p>
+      {!status.data?.enabled && <p className="mt-3 text-sm text-amber-700">Пока WARP выключен, автопроверка приостановлена.</p>}
+      {gemini.isError && <p role="alert" className="mt-3 text-sm text-red-700">Не удалось загрузить состояние автопроверки Gemini.</p>}
+      {gemini.data?.result.message && <div role="status" className="mt-4 border-l-2 border-emerald-600 pl-3 text-sm"><p>{gemini.data.result.message}</p>
+        {gemini.data.result.checked_at && <p className="mt-1 text-xs text-neutral-500">{new Date(gemini.data.result.checked_at * 1000).toLocaleString()} · {gemini.data.node_name}</p>}
+        {gemini.data.result.rotation_note && <p className="mt-2">{gemini.data.result.rotation_note}</p>}
+      </div>}
+      <button className="ui-button ui-button-secondary mt-4" disabled={busy || !status.data?.enabled || !status.data?.node_id} onClick={() => geminiCheck.mutate()}>{geminiCheck.isPending ? 'Проверяем Gemini…' : 'Проверить Gemini'}</button>
+      <details className="mt-4 text-xs text-neutral-500"><summary className="cursor-pointer text-sm">Как работает проверка</summary>
+      <p className="mt-3 text-sm text-neutral-500">После двух региональных отказов подряд переподключаю WARP. Между попытками — не менее 30 минут, не более 3 попыток за 6 часов для каждой ноды. Соединения через WARP могут прерваться; новый IP не гарантируется.</p>
+      <p className="mt-2 text-xs text-neutral-500">Для трафика Gemini включите соответствующий пресет или режим WARP для всего трафика. CAPTCHA, запрос входа и ошибки сети не вызывают смену IP. Проверка без аккаунта Google не подтверждает доступ к генерации и не определяет страну аккаунта.</p>
+      <p className="mt-2 text-xs text-neutral-500">Ручная проверка показывает результат и не переподключает WARP.</p>
+        {gemini.data?.result.ip && <p className="mt-1 text-xs text-neutral-500">IP: {gemini.data.result.ip} · Страна по Cloudflare: {gemini.data.result.country || '—'}</p>}
+      </details>
     </section>
     {notice && <p role="status" className="rounded-xl border border-neutral-200 bg-white p-4 text-sm">{notice}</p>}
   </PageLayout>;

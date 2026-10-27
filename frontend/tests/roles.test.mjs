@@ -19,6 +19,8 @@ const Sidebar = require('../src/components/Sidebar.tsx').default;
 const ClientsTable = require('../src/components/ClientsTable.tsx').default;
 const ClientAccessPage = require('../src/pages/ClientAccessPage.tsx').default;
 const UsersPage = require('../src/pages/UsersPage.tsx').default;
+const { AccountEditor } = require('../src/pages/UsersPage.tsx');
+const UpdatePage = require('../src/pages/UpdatePage.tsx').default;
 const WarpPage = require('../src/pages/WarpPage.tsx').default;
 const { NodesManager } = require('../src/components/NodesManager.tsx');
 const subadmin = { id: 2, username: 'issuer', role: 'subadmin', view_all_clients: false, can_issue_subscriptions: true, can_delete_subscriptions: false, can_pause_subscriptions: false };
@@ -103,19 +105,30 @@ test('Выдача содержит QR и ссылку, без редактор�
   assert.match(full, /Сохранить доступ/);
   assert.match(full, /Перевыпустить/);
 });
-test('Видимость и права используют тумблеры в создании и редактировании учётки', () => {
+test('Список учёток не раскрывает формы; редактор сохраняет все права', () => {
   const query = fixture();
-  query.setQueryData(['subadmins'], [{ ...subadmin, is_active: true, view_all_clients: true, totp_enabled: false }]);
-  const html = render(UsersPage, admin, query);
+  const account = { ...subadmin, is_active: true, view_all_clients: true, totp_enabled: false };
+  query.setQueryData(['subadmins'], [account]);
+  const list = render(UsersPage, admin, query);
+  assert.match(list, /Настроить issuer/);
+  assert.match(list, /Добавить субадминистратора/);
+  assert.doesNotMatch(list, /role="switch"|type="password"|<h1|<dialog/);
+  const html = render(() => React.createElement(AccountEditor, {account, refresh() {}, onClose() {}}), admin, query);
   assert.doesNotMatch(html, /type="checkbox"/);
-  for (const label of ['Видит всех клиентов', 'Создание и выдача подписок', 'Удаление своих подписок', 'Приостановка своих подписок', 'Приостановка своих подписок: issuer', 'Создание и выдача подписок: issuer', 'Удаление своих подписок: issuer']) {
-    assert.ok(html.includes(`role="switch" aria-checked="${label.startsWith('Создание') ? 'true' : 'false'}" aria-label="${label}"`));
+  for (const [label, checked] of [['Все клиенты', true], ['Создание и выдача подписок', true], ['Приостановка своих подписок', false], ['Удаление своих подписок', false]]) {
+    assert.ok(html.includes(`role="switch" aria-checked="${checked}" aria-label="${label}: issuer"`));
   }
-  assert.match(html, /Все клиенты: issuer/);
-  assert.match(html, /aria-checked="true"/);
   assert.match(html, /Сбросить пароль/);
-  assert.match(html, /<details><summary[^>]*>Добавить субадминистратора/);
+});
+test('Прогресс обновления виден без раскрытия подробностей', () => {
+  const query = fixture();
+  query.setQueryData(['panel-update'], {installed: {version: '2.4.18', commit: 'd1d369e'}, can_install: true, job: {phase: 'checking', message: 'Проверяю запуск новой панели'}});
+  query.setQueryData(['update-components'], {components: []});
+  const html = render(UpdatePage, admin, query);
+  assert.match(html, /Обновление выполняется/);
+  assert.match(html, /role="status"[^>]*>Проверяю запуск новой панели/);
   assert.doesNotMatch(html, /<details[^>]*\bopen/);
+  assert.match(html, /Компоненты сервера/);
 });
 
 test('Приостановка и возобновление требуют права учётки и владения подпиской', () => {
