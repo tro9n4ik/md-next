@@ -29,7 +29,7 @@ export default function WarpPage() {
   const ipv4 = useMutation({mutationFn: (ipv4_only: boolean) => request('ipv4', 'PUT', {ipv4_only}), onSuccess: () => {setNotice('Режим адресов сохранён для всех нод'); setTestResult(null); refresh();}, onError: (error: Error) => setNotice(error.message)});
   const rotate = useMutation({mutationFn: () => request('rotate-ip', 'POST'), onSuccess: data => {setNotice(data.changed ? `IP изменён: ${data.old_ip} → ${data.new_ip}` : `WARP переподключён, Cloudflare оставил прежний IP: ${data.new_ip}`); setTestResult(null); refresh();}, onError: (error: Error) => setNotice(error.message)});
   const geminiToggle = useMutation({mutationFn: (enabled: boolean) => request('gemini/monitor', 'PUT', {enabled}), onSuccess: data => {client.setQueryData(['warp-gemini-monitor'], data); setNotice('Автопроверка Gemini ' + (data.enabled ? 'включена' : 'выключена'));}, onError: (error: Error) => setNotice(error.message)});
-  const geminiCheck = useMutation({mutationFn: () => request('gemini/check', 'POST'), onSuccess: data => {client.invalidateQueries({queryKey: ['warp-gemini-monitor']}); setNotice(data.message);}, onError: (error: Error) => setNotice(error.message)});
+  const geminiCheck = useMutation({mutationFn: () => request('gemini/check', 'POST'), onSuccess: async () => {setNotice(''); await client.invalidateQueries({queryKey: ['warp-gemini-monitor']});}, onError: (error: Error) => setNotice(error.message)});
   const busy = toggle.isPending || presetMutation.isPending || test.isPending || ipv4.isPending || rotate.isPending || geminiToggle.isPending || geminiCheck.isPending;
   const card = 'ui-card ui-panel';
   return <PageLayout title="WARP" description="Выход через активную ноду для выбранных сервисов" icon={Cloud}>
