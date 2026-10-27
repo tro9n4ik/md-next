@@ -177,3 +177,20 @@ test('У истории приглашений есть отдельная кн�
     assert.equal(/disabled=""/.test(button), !filled);
   }
 });
+
+test('Ноды показывают текущий выход и запрещают выбор недоступного узла', () => {
+  const query = fixture();
+  query.setQueryData(['nodes'], [{id: 1, name: 'Основная', host: '203.0.113.1', port: 443, protocol: 'vless', status: 'healthy', is_enabled: true, priority: 0, ping_ms: 45},
+    {id: 2, name: 'Недоступная', host: '203.0.113.2', port: 443, protocol: 'vless', status: 'unhealthy', is_enabled: true, priority: 1, ping_ms: 0}]);
+  query.setQueryData(['clusterRoute'], {server: {hostname: 'panel', public_ip: '192.0.2.1'}, vpn: {xray: true, awg: false}, active_node: {id: 1, name: 'Основная', ip: '203.0.113.1', ping_ms: 45, status: 'healthy'}, manual_direct: false, failover_mode: 'auto'});
+  query.setQueryData(['nodeInvites'], []);
+  const html = render(NodesManager, admin, query);
+  assert.match(html, /Текущий выход/);
+  assert.match(html, /aria-label="Список нод"/);
+  assert.doesNotMatch(html, /<table|<details[^>]*\bopen/);
+  const buttons = [...html.matchAll(/<button\b[^]*?<\/button>/g)].map(match => match[0]);
+  const unavailable = buttons.find(button => button.includes('Сделать активной: Недоступная'));
+  assert.ok(unavailable);
+  assert.match(unavailable, /disabled=""/);
+  assert.ok(buttons.some(button => button.includes('Проверить внешний IP')));
+});
