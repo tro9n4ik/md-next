@@ -287,6 +287,27 @@ async def test_real_tls13_handshake_and_http_without_external_network(
         .not_valid_after(now + timedelta(days=1))
         .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
         .add_extension(
+            x509.KeyUsage(
+                digital_signature=True,
+                content_commitment=False,
+                key_encipherment=True,
+                data_encipherment=False,
+                key_agreement=False,
+                key_cert_sign=True,
+                crl_sign=True,
+                encipher_only=None,
+                decipher_only=None,
+            ),
+            critical=True,
+        )
+        .add_extension(
+            x509.SubjectKeyIdentifier.from_public_key(key.public_key()), critical=False
+        )
+        .add_extension(
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(key.public_key()),
+            critical=False,
+        )
+        .add_extension(
             x509.SubjectAlternativeName([x509.DNSName("example.com")]), critical=False
         )
         .sign(key, hashes.SHA256())
@@ -322,6 +343,7 @@ async def test_real_tls13_handshake_and_http_without_external_network(
 
     async def local_connect(ip, target_port, **kwargs):
         assert ip == "1.1.1.1" and target_port == 443
+        kwargs["ssl"].verify_flags |= ssl.VERIFY_X509_STRICT
         return await original_connect("127.0.0.1", port, **kwargs)
 
     monkeypatch.setenv("SSL_CERT_FILE", str(cert_path))
