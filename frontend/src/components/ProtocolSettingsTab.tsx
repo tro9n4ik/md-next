@@ -1,4 +1,5 @@
 import Switch from './ui/Switch';
+import SniScanner from './SniScanner';
 import React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Activity, Check, Circle, Network, Radio, Save, Shield, Sparkles } from 'lucide-react';
@@ -53,10 +54,12 @@ const label = 'block text-xs font-semibold text-neutral-600';
 
 const ProtocolSettingsTab: React.FC = () => {
   const client = useQueryClient();
+  const root = React.useRef<HTMLDivElement>(null);
   const [value, setValue] = React.useState<ProtocolSettings | null>(null);
   const [message, setMessage] = React.useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const query = useQuery<ProtocolSettings>({
     queryKey: ['protocolSettings'],
+    refetchOnWindowFocus: false,
     queryFn: async () => {
       const response = await apiFetch('/api/v1/settings/protocols');
       if (!response.ok) throw new Error('Не удалось загрузить параметры протоколов');
@@ -65,6 +68,12 @@ const ProtocolSettingsTab: React.FC = () => {
       return settings;
     },
   });
+  React.useEffect(() => {
+    const scope = root.current;
+    if (!scope) return;
+    window.dispatchEvent(new CustomEvent('ui:unsaved-change', { detail: { scope, dirty: !!value && !!query.data && JSON.stringify(value) !== JSON.stringify(query.data) } }));
+    return () => { window.dispatchEvent(new CustomEvent('ui:unsaved-change', { detail: { scope, dirty: false } })); };
+  }, [value, query.data]);
   const [pendingIdentityChange, setPendingIdentityChange] = React.useState<string | null>(null);
   const save = useMutation<ProtocolSettings, Error, SaveVariables>({
     mutationFn: async ({ confirm_link_identity_change, ...settings }) => {
@@ -88,6 +97,7 @@ const ProtocolSettingsTab: React.FC = () => {
     },
     onSuccess: (settings, variables) => {
       setValue(settings);
+      client.setQueryData(['protocolSettings'], settings);
       setPendingIdentityChange(null);
       setMessage({
         kind: 'success',
@@ -115,7 +125,7 @@ const ProtocolSettingsTab: React.FC = () => {
   if (!value) return <div className={`${card} text-sm text-neutral-500`}>{query.isError ? 'Не удалось загрузить параметры протоколов. Обновите страницу.' : 'Загрузка параметров…'}</div>;
   const isEnabled = (kind: ProfileKind) => value.profiles.find(profile => profile.kind === kind)?.enabled ?? false;
 
-  return <div className="space-y-6">
+  return <div ref={root} data-unsaved-controlled className="space-y-6">
     <section className={card}>
       <div className="mb-5 flex items-start gap-3">
         <div className="rounded-xl bg-emerald-50 p-2.5 text-emerald-700"><Network className="h-5 w-5" /></div>
@@ -143,6 +153,11 @@ const ProtocolSettingsTab: React.FC = () => {
         <label className={label}>Закрытый ключ Reality<input className={`${input} font-mono`} type="password" autoComplete="new-password" value={value.reality.private_key || ''} onChange={event => update('reality', 'private_key', event.target.value)} placeholder={value.reality.private_key_set ? 'Ключ задан, введите новый только для замены' : 'Вставьте закрытый ключ'} /><span className="mt-1 block font-normal text-neutral-400">{value.reality.private_key_set ? 'Ключ задан; API его не возвращает. Пустое поле оставит текущий ключ.' : 'Ключ будет сохранён и скрыт после применения.'}</span></label>
         <label className={label}>Режим XTLS (только Reality TCP)<select className={input} value={value.reality.flow} onChange={event => update('reality', 'flow', event.target.value)}><option value="xtls-rprx-vision">xtls-rprx-vision</option><option value="">Без Vision</option></select></label>
       </div>
+      <SniScanner disabled={save.isPending} onSelect={(domain, target) => {
+        setValue(current => current ? { ...current, reality: { ...current.reality, server_name: domain, target } } : current);
+        setPendingIdentityChange(null);
+        setMessage(null);
+      }} />
     </section>
 
     <div className="grid gap-6 xl:grid-cols-2">
