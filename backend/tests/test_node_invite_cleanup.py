@@ -35,6 +35,11 @@ async def test_cleanup_preserves_live_invites_and_connected_nodes(auth_headers):
         ])
         await db.commit()
     async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as api:
+        before = (await api.get('/api/v1/nodes/invites', headers=auth_headers)).json()
+        for row in before:
+            for field in ('created_at', 'expires_at', 'used_at'):
+                if row[field] is not None:
+                    assert datetime.datetime.fromisoformat(row[field].replace('Z', '+00:00')).tzinfo == datetime.timezone.utc
         with patch('app.api.nodes.ClientService.sync_xray_clients', new=AsyncMock()) as sync:
             response = await api.delete('/api/v1/nodes/invites/history', headers=auth_headers)
             assert response.status_code == 200 and response.json() == {'deleted': 4}

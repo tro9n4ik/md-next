@@ -81,6 +81,14 @@ class NodeInviteItem(BaseModel):
     used_at: Optional[datetime.datetime] = None
     revoked: bool
 
+    @field_validator('created_at', 'expires_at', 'used_at')
+    @classmethod
+    def utc_timestamps(cls, value: Optional[datetime.datetime]) -> Optional[datetime.datetime]:
+        # SQLite возвращает время без зоны; приглашения хранятся в UTC.
+        if value is not None and value.tzinfo is None:
+            return value.replace(tzinfo=datetime.timezone.utc)
+        return value
+
 def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
