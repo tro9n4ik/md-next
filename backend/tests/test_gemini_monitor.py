@@ -1,5 +1,6 @@
 import asyncio
-from unittest.mock import AsyncMock, patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import pytest
@@ -8,6 +9,7 @@ from app.main import app
 from app.models.node import Node
 from app.models.setting import Setting
 from app.services import gemini_monitor as module
+from app.services import warp_node
 from app.services.gemini_monitor import GeminiMonitor, classify_page, monitor_status
 from conftest import TestingSessionLocal
 
@@ -257,3 +259,20 @@ async def test_cancellation_is_not_swallowed_or_used_to_rotate():
             with pytest.raises(asyncio.CancelledError):
                 await GeminiMonitor().check(db, automatic=True)
         rotate.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_temporary_xray_retries_readiness_and_is_killed_on_shutdown_timeout():
+    node = SimpleNamespace(id=1, is_enabled=True, name="Нода", host="203.0.113.5",
+                           port=443, protocol="trojan", secret="not-a-real-secret")
+    writer = Mock(wait_closed=AsyncMock())
+    process = SimpleNamespace(returncode=None, terminate=Mock(), kill=Mock(),
+                              wait=AsyncMock(side_effect=[asyncio.TimeoutError, None]))
+    with patch.object(warp_node, "find_command", return_value="/tmp/xray"), \
+         patch.object(warp_node.asyncio, "create_subprocess_exec", AsyncMock(return_value=process)), \
+         patch.object(warp_node.asyncio, "open_connection", AsyncMock(side_effect=[asyncio.TimeoutError, (None, writer)])):
+        result = await warp_node.test_node_proxy(node, 40000, AsyncMock(return_value=LOADED))
+    assert result == LOADED
+    process.terminate.assert_called_once()
+    process.kill.assert_called_once()
+    assert process.wait.await_count == 2

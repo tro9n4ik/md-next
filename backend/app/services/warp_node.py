@@ -53,7 +53,7 @@ async def test_node_proxy(node, port: int, probe, *, control: bool = False) -> d
                     writer.close()
                     await writer.wait_closed()
                     break
-                except (OSError, TimeoutError):
+                except (OSError, asyncio.TimeoutError):
                     await asyncio.sleep(0.1)
             else:
                 raise RuntimeError("Проверочный прокси Xray не запустился")
@@ -63,6 +63,6 @@ async def test_node_proxy(node, port: int, probe, *, control: bool = False) -> d
                 process.terminate()
                 try:
                     await asyncio.wait_for(process.wait(), 3)
-                except TimeoutError:
+                except asyncio.TimeoutError:
                     process.kill()
                     await process.wait()
