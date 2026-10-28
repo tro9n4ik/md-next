@@ -216,3 +216,21 @@ def test_pause_permission_defaults_off_and_preserves_other_rights(alembic_config
     with sqlite3.connect(db_file) as db:
         assert db.execute("select username,token_version from users where id=2").fetchone() == ('issuer', 7)
     command.upgrade(cfg, "head")
+
+
+def test_client_groups_preserve_credentials_and_seed_defaults(alembic_config):
+    cfg, db_file = alembic_config
+    command.upgrade(cfg, "0017_pause_permission")
+    with sqlite3.connect(db_file) as db:
+        db.execute("insert into clients (id,name,phone,email,sub_token,is_active) values (3,'Existing','','','unchanged-token',1)")
+        db.execute("insert into client_profiles (client_id,kind,uuid,is_enabled) values (3,'vless_reality_tcp','unchanged-uuid',1)")
+    command.upgrade(cfg, "head")
+    with sqlite3.connect(db_file) as db:
+        assert db.execute("select group_id,last_seen_at,sub_token,is_active from clients where id=3").fetchone() == (None, None, 'unchanged-token', 1)
+        assert db.execute("select name from client_groups order by id").fetchall() == [('Друзья',), ('Коллеги',), ('Клиенты',)]
+        db.execute("update clients set group_id=1,last_seen_at='2026-10-28 07:35:00' where id=3")
+        assert not db.execute("pragma foreign_key_check").fetchall()
+    command.downgrade(cfg, "0017_pause_permission")
+    with sqlite3.connect(db_file) as db:
+        assert db.execute("select sub_token,is_active from clients where id=3").fetchone() == ('unchanged-token', 1)
+        assert db.execute("select uuid from client_profiles where client_id=3").fetchone() == ('unchanged-uuid',)

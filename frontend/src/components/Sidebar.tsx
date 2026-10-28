@@ -103,21 +103,21 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
         ))}
       </nav>
 
-      <div className="sidebar-footer p-4 border-t border-white/10 space-y-3">
-        <NavLink to="/account" title={user.username} className={`sidebar-account ${collapsed ? 'lg:justify-center' : ''}`}><span className="account-avatar">{user.username.charAt(0).toUpperCase()}</span><span className={collapsed ? 'lg:hidden' : ''}><b>{user.username}</b><small>{isAdmin ? 'Администратор' : 'Субадминистратор'}</small></span></NavLink>
-        <button onClick={() => setDark(!dark)} title={dark ? 'Светлая тема' : 'Тёмная тема'} aria-label={dark ? 'Светлая тема' : 'Тёмная тема'} className={`flex w-full items-center gap-3 text-neutral-300 text-sm ${collapsed ? 'lg:justify-center lg:gap-0' : ''}`}>{dark ? <Sun size={18} /> : <Moon size={18} />}<span className={collapsed ? 'lg:hidden' : ''}>{dark ? 'Светлая тема' : 'Тёмная тема'}</span></button>
-        {isAdmin && <div className={`flex items-center gap-2 text-xs text-neutral-400 ${collapsed ? 'lg:justify-center lg:gap-0' : ''}`}>
-          <CheckCircle2 className={`w-4 h-4 shrink-0 ${systemState === "error" ? "text-red-500" : systemState === "warning" ? "text-amber-500" : "text-emerald-500"}`} />
-          <span className={collapsed ? 'lg:hidden' : ''}>{systemState === "error" ? "Есть проблемы" : systemState === "warning" ? "Есть замечания" : systemState === "ok" ? "Все системы работают" : "Проверка состояния"}</span>
+      <div className="sidebar-footer">
+        <NavLink to="/account" title={user.username} onClick={() => setMobileOpen(false)} className="sidebar-account sidebar-footer-row"><span className="account-avatar">{user.username.charAt(0).toUpperCase()}</span><span className="sidebar-footer-label"><b>{user.username}</b><small>{isAdmin ? 'Администратор' : 'Субадминистратор'}</small></span></NavLink>
+        <button onClick={() => setDark(!dark)} title={dark ? 'Светлая тема' : 'Тёмная тема'} aria-label={dark ? 'Светлая тема' : 'Тёмная тема'} className="sidebar-footer-row sidebar-footer-action"><span className="sidebar-footer-icon">{dark ? <Sun size={18} /> : <Moon size={18} />}</span><span className="sidebar-footer-label">{dark ? 'Светлая тема' : 'Тёмная тема'}</span></button>
+        {isAdmin && <div className="sidebar-footer-row sidebar-footer-status" title={systemState === "error" ? "Есть проблемы" : systemState === "warning" ? "Есть замечания" : systemState === "ok" ? "Все системы работают" : "Проверка состояния"}>
+          <span className="sidebar-footer-icon"><CheckCircle2 size={17} className={systemState === "error" ? "text-red-500" : systemState === "warning" ? "text-amber-500" : systemState === "ok" ? "text-emerald-500" : "text-neutral-400"} /></span>
+          <span className="sidebar-footer-label">{systemState === "error" ? "Есть проблемы" : systemState === "warning" ? "Есть замечания" : systemState === "ok" ? "Все системы работают" : "Проверка состояния"}</span>
         </div>}
         <button
           onClick={onLogout}
           title="Выйти"
           aria-label="Выйти"
-          className={`flex items-center gap-2 text-neutral-400 hover:text-white transition-colors w-full px-3 py-2 rounded-xl hover:bg-neutral-800 text-sm font-medium ${collapsed ? 'lg:justify-center lg:gap-0 lg:px-0' : ''}`}
+          className="sidebar-footer-row sidebar-footer-action"
         >
-          <LogOut className="w-5 h-5 shrink-0" />
-          <span className={collapsed ? 'lg:hidden' : ''}>Выйти</span>
+          <span className="sidebar-footer-icon"><LogOut size={18} /></span>
+          <span className="sidebar-footer-label">Выйти</span>
         </button>
       </div>
     </div>

@@ -13,6 +13,7 @@ env/
 .pytest_cache/
 .pytest-tmp*/
 pytest-tmp/
+pytest-cache-files-*/
 .coverage
 htmlcov/
 

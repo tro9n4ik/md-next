@@ -2,8 +2,8 @@ import { useEffect, useId, useLayoutEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { X } from 'lucide-react';
 
-export default function Drawer({ title, children, onClose, busy = false, dirty = false }: {
-  title: string; children: ReactNode; onClose: () => void; busy?: boolean; dirty?: boolean;
+export default function Drawer({ title, children, onClose, busy = false, dirty = false, id }: {
+  title: string; children: ReactNode; onClose: () => void; busy?: boolean; dirty?: boolean; id?: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -21,7 +21,7 @@ export default function Drawer({ title, children, onClose, busy = false, dirty =
     notify(dirty);
     return () => { notify(false); };
   }, [dirty]);
-  return <dialog ref={dialog} data-unsaved-controlled aria-labelledby={titleId} className="ui-drawer" onCancel={event => {
+  return <dialog id={id} ref={dialog} data-unsaved-controlled aria-labelledby={titleId} className="ui-drawer" onCancel={event => {
     event.preventDefault(); if (!busy) onClose();
   }} onClick={event => {
     if (busy || event.target !== event.currentTarget) return;

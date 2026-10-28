@@ -95,6 +95,8 @@ async def _collect_client_traffic() -> None:
                 profile.traffic_up = (profile.traffic_up or 0) + up
                 profile.traffic_down = (profile.traffic_down or 0) + down
             record_activity(client.id, profile.kind, up, down)
+            if up > 0 or down > 0:
+                client.last_seen_at = now
             client.monthly_traffic_up = (client.monthly_traffic_up or 0) + up
             client.monthly_traffic_down = (client.monthly_traffic_down or 0) + down
         profs = (await session.execute(select(ClientProfile))).scalars().all()
