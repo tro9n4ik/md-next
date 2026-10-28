@@ -34,7 +34,16 @@ const ClientsTable: React.FC = () => {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const [search, setSearch] = useState(params.get('q') || '');
-  const [createOpen, setCreateOpen] = useState(false);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const createOpen = createModalOpen || params.get('create') === '1';
+  const setCreateOpen = (open: boolean) => {
+    setCreateModalOpen(open);
+    if (!open && params.has('create')) {
+      const next = new URLSearchParams(params);
+      next.delete('create');
+      setParams(next, { replace: true });
+    }
+  };
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -45,6 +54,7 @@ const ClientsTable: React.FC = () => {
   const status = params.get('status') || 'all';
   const sort = (params.get('sort') || 'created') as SortField;
   const order = params.get('order') || 'desc';
+
 
   useEffect(() => {
     const timer = window.setTimeout(() => {

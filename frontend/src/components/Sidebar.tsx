@@ -9,7 +9,7 @@ interface SystemInfo {
   hostname: string;
   version: string;
 }
-interface HealthSummary { checks: Array<{ status: string }> }
+interface HealthSummary { status: string; checks: Array<{ status: string }> }
 
 interface SidebarProps {
   onLogout: () => void;
@@ -37,8 +37,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
     queryFn: async () => { const res = await apiFetch('/api/v1/system/health'); if (!res.ok) throw new Error('Проверка недоступна'); return res.json(); },
     refetchInterval: 15000,
   });
-  const states = healthSummary?.checks.map(check => check.status) || [];
-  const systemState = healthError || states.includes('error') ? 'error' : states.includes('warning') || states.includes('disabled') || states.includes('not_configured') ? 'warning' : states.length ? 'ok' : 'loading';
+  const systemState = healthError ? 'error' : healthSummary?.status || 'loading';
 
   const menuItems = [
     { icon: LayoutDashboard, label: 'Обзор', to: '/' },
@@ -58,11 +57,11 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
   ].filter(item => isAdmin || item.to === '/clients' || item.to === '/account');
 
   const sidebarContent = (
-    <div className={`flex flex-col h-full bg-[#122b29] text-white w-60 transition-[width] ${collapsed ? 'lg:w-20' : ''}`}>
+    <div className={`app-sidebar flex flex-col h-full text-white w-60 transition-[width] ${collapsed ? 'lg:w-20 sidebar-collapsed' : ''}`}>
       <button onClick={toggleCollapsed} aria-label={collapsed ? 'Развернуть меню' : 'Свернуть меню'} title={collapsed ? 'Развернуть меню' : 'Свернуть меню'} aria-expanded={!collapsed} className="hidden lg:flex justify-center items-center gap-2 p-3 text-neutral-300 hover:text-white hover:bg-white/5">
         {collapsed ? <PanelLeftOpen size={20} /> : <><PanelLeftClose size={20} /><span className="text-xs">Свернуть меню</span></>}
       </button>
-      <div className="p-4 border-b border-white/10">
+      <div className="sidebar-brand p-4 border-b border-white/10">
         <div className={`flex items-center justify-between mb-3 ${collapsed ? 'lg:justify-center' : ''}`}>
           <div className="flex items-center gap-2.5"><span className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-500 text-sm font-bold text-white">M</span><span className={`text-lg font-semibold tracking-tight ${collapsed ? 'lg:hidden' : ''}`}>MD-Next</span></div>
           <span className={`bg-emerald-500/10 text-emerald-500 text-xs px-2 py-0.5 rounded-full font-medium ${collapsed ? 'lg:hidden' : ''}`}>
@@ -78,8 +77,10 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
         </div>
       </div>
 
-      <nav className="sidebar-scroll flex-1 p-3 space-y-1 overflow-y-auto">
+      <nav aria-label="Основная навигация" className="sidebar-scroll flex-1 p-3 space-y-1 overflow-y-auto">
         {menuItems.map((item) => (
+          <React.Fragment key={item.to}>
+          {['/', '/protocols', '/diagnostics'].includes(item.to) && <div className={`sidebar-group-label ${collapsed ? 'lg:hidden' : ''}`}>{item.to === '/' ? 'Управление' : item.to === '/protocols' ? 'Сеть' : 'Система'}</div>}
           <NavLink
             key={item.to}
             to={item.to}
@@ -90,7 +91,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
             className={({ isActive }) =>
               `flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-sm font-medium ${collapsed ? 'lg:justify-center lg:gap-0' : ''} ${
                 isActive
-                  ? 'bg-emerald-600 text-white shadow-sm'
+                  ? 'sidebar-item-active text-white'
                   : 'text-neutral-300 hover:bg-white/5 hover:text-white'
               }`
             }
@@ -98,10 +99,12 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
             <item.icon className="w-5 h-5 shrink-0" />
             <span className={collapsed ? 'lg:hidden' : ''}>{item.label}</span>
           </NavLink>
+          </React.Fragment>
         ))}
       </nav>
 
-      <div className="p-4 border-t border-white/10 space-y-3">
+      <div className="sidebar-footer p-4 border-t border-white/10 space-y-3">
+        <NavLink to="/account" title={user.username} className={`sidebar-account ${collapsed ? 'lg:justify-center' : ''}`}><span className="account-avatar">{user.username.charAt(0).toUpperCase()}</span><span className={collapsed ? 'lg:hidden' : ''}><b>{user.username}</b><small>{isAdmin ? 'Администратор' : 'Субадминистратор'}</small></span></NavLink>
         <button onClick={() => setDark(!dark)} title={dark ? 'Светлая тема' : 'Тёмная тема'} aria-label={dark ? 'Светлая тема' : 'Тёмная тема'} className={`flex w-full items-center gap-3 text-neutral-300 text-sm ${collapsed ? 'lg:justify-center lg:gap-0' : ''}`}>{dark ? <Sun size={18} /> : <Moon size={18} />}<span className={collapsed ? 'lg:hidden' : ''}>{dark ? 'Светлая тема' : 'Тёмная тема'}</span></button>
         {isAdmin && <div className={`flex items-center gap-2 text-xs text-neutral-400 ${collapsed ? 'lg:justify-center lg:gap-0' : ''}`}>
           <CheckCircle2 className={`w-4 h-4 shrink-0 ${systemState === "error" ? "text-red-500" : systemState === "warning" ? "text-amber-500" : "text-emerald-500"}`} />
