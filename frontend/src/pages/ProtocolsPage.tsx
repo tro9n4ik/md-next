@@ -1,9 +1,5 @@
-import { Radio } from 'lucide-react';
-import PageLayout from '../components/ui/PageLayout';
 import ProtocolSettingsTab from '../components/ProtocolSettingsTab';
 
 export default function ProtocolsPage() {
-  return <PageLayout title="Протоколы" description="Каналы подключения, параметры Reality и сетевые порты" icon={Radio}>
-      <ProtocolSettingsTab />
-  </PageLayout>;
+  return <div className="page-layout protocols-page"><header className="dashboard-heading"><div><h1>Протоколы</h1><p>Каналы подключения и параметры профилей</p></div></header><ProtocolSettingsTab /></div>;
 }

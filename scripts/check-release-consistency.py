@@ -14,8 +14,16 @@ assert re.search(r'^## (\d+\.\d+\.\d+)', changelog, re.M).group(1) == version, '
 assets = root / 'docs/assets'
 manifest = json.loads((assets / 'screenshots.json').read_text())
 assert manifest['version'] == version, 'Regenerate screenshots for this release'
-assert set(manifest['files']) == {'dashboard-demo.jpg', 'clients-demo.jpg', 'telegram-demo.jpg'}, 'Missing screenshot metadata'
+expected = {
+    'dashboard-demo.jpg', 'clients-demo.jpg', 'telegram-demo.jpg',
+    'nodes-demo.jpg', 'warp-demo.jpg', 'protocols-demo.jpg',
+    'subadmins-demo.jpg', 'dashboard-dark-demo.jpg',
+}
+assert set(manifest['files']) == expected, 'Missing screenshot metadata'
+assert manifest.get('demo') is True, 'Screenshots must use demo data'
+assert set(manifest.get('captures', {})) == expected, 'Missing capture provenance'
 for name, digest in manifest['files'].items():
+    assert (assets / name).read_bytes().startswith(b'\xff\xd8'), f'Not a JPEG: {name}'
     assert hashlib.sha256((assets / name).read_bytes()).hexdigest() == digest, f'Screenshot changed: {name}'
     assert f'docs/assets/{name}' in readme, f'Screenshot missing from README: {name}'
 print(f'Release {version}: documentation and screenshot manifest agree')
