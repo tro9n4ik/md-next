@@ -47,6 +47,10 @@ function AdminOnly({ children }: { children: React.ReactNode }) {
   return useCurrentUser().role === "admin" ? children : <Navigate to="/clients" replace />;
 }
 
+function SettingsIndex() {
+  return useCurrentUser().role === 'admin' ? <GeneralSettingsPage /> : <Navigate to="/settings/account" replace />;
+}
+
 function Shell() {
   return <ConfirmationProvider><ShellContent /></ConfirmationProvider>;
 }
@@ -60,24 +64,31 @@ function ShellContent() {
   }} /><div className="app-workspace"><Topbar /><main className="app-main" id="main-content"><Suspense fallback={<PageSkeleton />}><Outlet /></Suspense></main></div></div>;
 }
 const router = createHashRouter([{ element: <Shell />, children: [
-  { path: '/account', element: <AccountPage /> },
+  { path: '/account', element: <Navigate to="/settings/account" replace /> },
   { path: '/', element: <DashboardPage /> }, { path: '/clients', element: <ClientsPage /> },
   { path: '/clients/:id/access', element: <ClientAccessPage /> }, { path: '/nodes', element: <NodesPage /> },
   { path: '/routing', element: <RoutingPage /> }, { path: '/warp', element: <WarpPage /> },
   { path: '/bypass', element: <BypassPage /> }, { path: '/protocols', element: <ProtocolsPage /> },
   { path: '/dns', element: <DnsPage /> }, { path: '/settings', element: <SettingsPage />, children: [
-    { index: true, element: <GeneralSettingsPage /> },
-    { path: 'users', element: <UsersPage /> },
-    { path: 'telegram', element: <TelegramPage embedded /> },
-    { path: 'backups', element: <BackupsPage embedded /> },
-    { path: 'update', element: <UpdatePage /> },
-    { path: 'placeholder', element: <PlaceholderPage /> },
+    { index: true, element: <SettingsIndex /> },
+    { path: 'account', element: <AccountPage embedded /> },
+    ...[
+      { path: 'users', element: <UsersPage /> },
+      { path: 'telegram', element: <TelegramPage embedded /> },
+      { path: 'backups', element: <BackupsPage embedded /> },
+      { path: 'update', element: <UpdatePage /> },
+      { path: 'placeholder', element: <PlaceholderPage /> },
+      { path: 'diagnostics', element: <DiagnosticsPage embedded /> },
+      { path: 'history', element: <HistoryPage embedded /> },
+      { path: 'events', element: <EventsPage embedded /> },
+    ].map(route => ({...route, element: <AdminOnly>{route.element}</AdminOnly>})),
   ] },
-  { path: '/telegram', element: <Navigate to="/settings/telegram" replace /> }, { path: '/help', element: <HelpPage /> },
-  { path: '/diagnostics', element: <DiagnosticsPage /> }, { path: '/history', element: <HistoryPage /> },
-  { path: '/backups', element: <Navigate to="/settings/backups" replace /> }, { path: '/events', element: <EventsPage /> },
+  { path: '/telegram', element: <Navigate to="/settings/telegram" replace /> }, { path: '/wiki', element: <HelpPage /> },
+  { path: '/help', element: <Navigate to="/wiki" replace /> },
+  { path: '/diagnostics', element: <Navigate to="/settings/diagnostics" replace /> }, { path: '/history', element: <Navigate to="/settings/history" replace /> },
+  { path: '/backups', element: <Navigate to="/settings/backups" replace /> }, { path: '/events', element: <Navigate to="/settings/events" replace /> },
   { path: '*', element: <Navigate to="/" replace /> },
-].map(route => ({ ...route, element: route.path === '/account' || route.path?.startsWith('/clients') ? route.element : <AdminOnly>{route.element}</AdminOnly>, errorElement: <PageError /> })) }]);
+].map(route => ({ ...route, element: route.path === '/account' || route.path === '/settings' || route.path?.startsWith('/clients') ? route.element : <AdminOnly>{route.element}</AdminOnly>, errorElement: <PageError /> })) }]);
 
 const App: React.FC = () => {
   const queryClient = useQueryClient();

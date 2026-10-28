@@ -157,7 +157,7 @@ export const Settings: React.FC = () => {
 
   return (
     <div className="grid items-start gap-6 xl:grid-cols-2">
-        <details className="ui-card ui-panel"><summary className="cursor-pointer text-sm font-semibold">Смена пароля</summary><div className="mt-5 space-y-5"><p className="text-xs text-neutral-500">Не менее 10 символов</p>
+        <section className="ui-card ui-panel"><h3 className="flex items-center gap-2 text-sm font-semibold"><KeyRound size={18} />Смена пароля</h3><div className="mt-5 space-y-5"><p className="text-xs text-neutral-500">Не менее 10 символов</p>
 
           {pwdMessage && (
             <div className={`p-3.5 rounded-xl text-xs flex items-center space-x-2 ${
@@ -212,9 +212,9 @@ export const Settings: React.FC = () => {
             </button>
           </form>
 
-        </div></details>
+        </div></section>
           {/* Двухфакторная аутентификация (2FA) */}
-          <details className="ui-card ui-panel"><summary className="cursor-pointer text-sm font-semibold">Двухфакторная аутентификация <span className="ml-2 text-xs font-normal text-neutral-500">{userMe ? userMe.totp_enabled ? 'Включена' : 'Выключена' : '…'}</span></summary><div className="mt-5 space-y-4">
+          <section className="ui-card ui-panel"><h3 className="flex flex-wrap items-center gap-2 text-sm font-semibold"><ShieldCheck size={18} />Двухфакторная аутентификация <span className="text-xs font-normal text-neutral-500">{userMe ? userMe.totp_enabled ? 'Включена' : 'Выключена' : '…'}</span></h3><div className="mt-5 space-y-4">
 
             {totpMessage && (
               <div className={`p-3.5 rounded-xl text-xs flex items-center space-x-2 ${
@@ -345,7 +345,7 @@ export const Settings: React.FC = () => {
                 )}
               </div>
             )}
-          </div></details>
+          </div></section>
     </div>
   );
 };
