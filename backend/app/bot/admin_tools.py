@@ -21,7 +21,7 @@ diagnostic_running=set()
 
 
 def fingerprint(client):
-    return (bool(client.is_active),str(client.expires_at),int(client.monthly_traffic_limit or 0))
+    return (bool(client.is_active),str(client.expires_at),int(client.monthly_traffic_limit or 0),int(client.cdn_monthly_traffic_limit or 0),client.name,client.phone,client.email)
 
 
 def clean():
@@ -38,10 +38,12 @@ async def client_list(message,actor,page=0):
     now=datetime.now(timezone.utc);q=state.get('q','').casefold();kind=state.get('filter','all')
     clients=[c for c in clients if q in ' '.join([c.name,c.phone or '',c.email or '']).casefold()]
     if kind=='soon': clients=[c for c in clients if c.expires_at and now<utc(c.expires_at)<=now+timedelta(days=7)]
-    elif kind=='quota': clients=[c for c in clients if limit_info(c)['blocked_reason']=='monthly_quota']
+    elif kind=='quota': clients=[c for c in clients if (info:=limit_info(c))['blocked_reason']=='monthly_quota' or info['cdn_quota_exhausted']]
     elif kind=='paused': clients=[c for c in clients if not c.is_active]
     page=max(0,min(page,max(0,(len(clients)-1)//8)))
-    rows=[[('🔎 Поиск','ops:search'),('Все','ops:filter:all')],[('⌛ Скоро истекают','ops:filter:soon')],[('📦 Лимит исчерпан','ops:filter:quota'),('⏸ Приостановлены','ops:filter:paused')]]
+    rows=[[('➕ Создать подписку','sub:new'),('🔎 Найти','ops:search')],
+          [('Все','ops:filter:all'),('⌛ Скоро истекают','ops:filter:soon')],
+          [('📦 Лимит исчерпан','ops:filter:quota'),('⏸ На паузе','ops:filter:paused')]]
     for c in clients[page*8:page*8+8]: rows.append([(('🟢 ' if limit_info(c)['access_allowed'] else '🔴 ')+c.name[:35],f'ops:detail:{c.id}')])
     nav=[]
     if page: nav.append(('← Назад',f'ops:list:{page-1}'))
@@ -53,20 +55,8 @@ async def client_list(message,actor,page=0):
 
 
 async def detail(message,client_id):
-    from .subscriptions import detail as existing
-    from .handlers import keyboard
-    screen=await existing(message,client_id)
-    if isinstance(screen,Message):message=screen
-    async with AsyncSessionLocal() as db: client=await db.get(Client,client_id)
-    if not client:return
-    await message.edit_reply_markup(reply_markup=keyboard(
-        [('🔗 Ссылка и QR',f'sub:link:{client_id}'),('🛡 AWG',f'sub:awg:{client_id}')],
-        [('📅 +30 дней',f'ops:extend:{client_id}'),('📅 Своя дата',f'ops:date:{client_id}')],
-        [('📦 Лимит',f'ops:quota:{client_id}'),('🔄 Сброс расхода',f'ops:reset:{client_id}')],
-        [('⏸ Приостановить подписку' if client.is_active else '▶️ Включить подписку',f'ops:toggle:{client_id}')],
-        [('🔐 Управлять профилями',f'ops:profiles:{client_id}')],
-        [('👤 Код Telegram',f'ops:bind:{client_id}'),('Отозвать привязку',f'ops:unlink:{client_id}')],
-        [('← Подписки','ops:list:0'),('🏠 Меню','md:home')]))
+    from .subscriptions import detail as card
+    return await card(message,client_id)
 
 
 async def prepare(message,actor,client_id,payload,label):
@@ -152,7 +142,9 @@ async def callback(callback):
             saved=diagnostic_reports.get(action.split(':',1)[1])
             if not saved or (saved['actor'],saved['chat'])!=(actor,callback.message.chat.id):
                 raise ValueError('Отчёт устарел. Запустите диагностику снова.')
-            await callback.message.answer_document(BufferedInputFile(json.dumps(saved['report'],ensure_ascii=False,indent=2).encode(),filename='diagnostics.json'))
+            sent=await callback.message.answer_document(BufferedInputFile(json.dumps(saved['report'],ensure_ascii=False,indent=2).encode(),filename='diagnostics.json'),reply_markup=keyboard([('← Меню','md:home')]))
+            from .chat_screen import remember_attachment
+            await remember_attachment(callback.message,sent)
             return
         if action=='templates':
             from app.services.templates import get_templates
@@ -164,9 +156,7 @@ async def callback(callback):
             async with AsyncSessionLocal() as db: templates=await get_templates(db)
             chosen=next((t for t in templates if t.id==action.split(':')[1]),None)
             if not chosen: raise ValueError('Шаблон больше не существует')
-            await subscriptions.start(callback.message,actor,edit=True)
-            draft=subscriptions.get_draft(actor,callback.message.chat.id)
-            draft.values.update(subscription_period=chosen.period,monthly_traffic_limit=chosen.monthly_traffic_limit,_template=True)
+            await subscriptions.start(callback.message,actor,edit=True,values={'subscription_period':chosen.period,'monthly_traffic_limit':chosen.monthly_traffic_limit,'_template':True})
             return
         if action=='search':
             inputs[(actor,callback.message.chat.id)]={'kind':'search','expires':time.monotonic()+300}
@@ -194,9 +184,30 @@ async def callback(callback):
             return
         command,value=action.split(':',1);parts=value.split(':');client_id=int(parts[0])
         if command=='detail': await detail(callback.message,client_id);return
-        if command in ('quota','date'):
+        if command in ('conditions','more'):
+            async with AsyncSessionLocal() as db: client=await db.get(Client,client_id)
+            if not client: raise ValueError('Подписка не найдена')
+            if command=='conditions':
+                rows=[[('📅 Дата окончания',f'ops:date:{client_id}')],
+                      [('📦 Общий трафик',f'ops:quota:{client_id}'),('🛡 Трафик обхода БС',f'ops:cdnquota:{client_id}')],
+                      [('👤 Имя',f'ops:name:{client_id}'),('📞 Телефон',f'ops:phone:{client_id}'),('✉️ Почта',f'ops:email:{client_id}')]]
+                title='Срок и месячные лимиты'
+                hint='Выберите, что изменить. 0 отключает лимит трафика. Общий расход включает обход БС. Любое изменение сначала показывается для подтверждения.'
+            else:
+                rows=[[('🛡 Скачать AmneziaWG',f'sub:awg:{client_id}')],
+                      [('👤 Привязать Telegram',f'ops:bind:{client_id}')],
+                      [('Отозвать привязку',f'ops:unlink:{client_id}')],
+                      [('🔄 Сбросить расход месяца',f'ops:reset:{client_id}')]]
+                title='Дополнительные действия'
+                hint='Сброс расхода и отзыв привязки применяются только после подтверждения.'
+            rows.append([('← Карточка',f'ops:detail:{client_id}')])
+            await show_screen(callback.message,f'<b>{escape(client.name)} · {title}</b>\n\n{hint}',keyboard(*rows),edit=True);return
+        if command in ('quota','cdnquota','date','name','phone','email'):
             inputs[(actor,callback.message.chat.id)]={'kind':command,'id':client_id,'expires':time.monotonic()+300}
-            await show_screen(callback.message,'Отправьте лимит в ГБ (0 = без лимита).' if command=='quota' else 'Отправьте будущую дату ДД.ММ.ГГГГ, до конца дня UTC.',keyboard([('Отмена',f'ops:detail:{client_id}')]),edit=True);return
+            prompt=('Отправьте месячный лимит '+('только обхода БС' if command=='cdnquota' else 'общего трафика')+' в ГБ. 0 — без ограничений. Например: 100 или 25,5.') if command in ('quota','cdnquota') else 'Отправьте будущую дату ДД.ММ.ГГГГ, до конца дня UTC.'
+            if command in ('name','phone','email'):
+                prompt={'name':'Отправьте новое имя владельца (до 64 символов).','phone':'Отправьте номер телефона, например +7 999 123-45-67. Чтобы удалить номер, отправьте «-».','email':'Отправьте почту, например name@example.com. Чтобы удалить почту, отправьте «-».'}[command]
+            await show_screen(callback.message,prompt,keyboard([('Отмена',f'ops:detail:{client_id}')]),edit=True);return
         if command=='profiles':
             await profile_menu(callback.message,client_id);return
         if command=='unavailable':
@@ -214,7 +225,7 @@ async def callback(callback):
         if command=='bind':
             from app.api.operations import telegram_code
             async with AsyncSessionLocal() as db: data=await telegram_code(client_id,db)
-            await callback.message.answer('Код действует 15 минут. Передайте владельцу подписки:\n'+data['instruction'],parse_mode=None);return
+            await show_screen(callback.message,'<b>Привязка Telegram</b>\n\nКод действует 15 минут. Передайте владельцу подписки:\n<code>'+escape(data['instruction'])+'</code>',keyboard([('← Карточка',f'ops:detail:{client_id}')]),edit=True);return
         if command=='toggle':
             async with AsyncSessionLocal() as db: c=await db.get(Client,client_id)
             if not c: raise ValueError('Клиент не найден')
@@ -230,16 +241,26 @@ async def callback(callback):
 
 async def text_input(message):
     clean();v=inputs.pop((message.from_user.id,message.chat.id),None)
-    if not v:return
+    if not v:
+        from .handlers import show_screen,back_menu
+        await show_screen(message,'Время ввода истекло. Откройте карточку подписки и повторите действие.',back_menu());return
     if v['kind']=='search':
         filters[message.from_user.id]={'q':message.text[:100],'filter':'all','expires':time.monotonic()+1800}
         await client_list(message,message.from_user.id);return
     try:
-        if v['kind']=='quota':
+        if v['kind'] in ('quota','cdnquota'):
             from decimal import Decimal
             number=Decimal(message.text.replace(',','.'))
             if not number.is_finite() or number<0 or number>8388607: raise ValueError('Неверный лимит')
-            payload={'monthly_traffic_limit':int(number*1024**3)};label=f'Установить лимит: {number} ГБ (0 = без лимита)'
+            key='cdn_monthly_traffic_limit' if v['kind']=='cdnquota' else 'monthly_traffic_limit'
+            amount=int(number*1024**3)
+            if number>0 and amount<1:raise ValueError('Слишком маленький объём')
+            payload={key:amount};label=f'Установить месячный лимит'+(' обхода БС' if v['kind']=='cdnquota' else ' общего трафика')+f': {number} ГБ (0 = без лимита)'
+        elif v['kind'] in ('name','phone','email'):
+            from .subscriptions import validate_text
+            value='' if v['kind']!='name' and message.text.strip()=='-' else validate_text(v['kind'],message.text)
+            payload={v['kind']:value}
+            label={'name':'Имя','phone':'Телефон','email':'Почта'}[v['kind']]+': '+(value or 'не указан')
         else:
             date=datetime.strptime(message.text.strip(),'%d.%m.%Y').replace(hour=23,minute=59,second=59,tzinfo=timezone.utc)
             if date<=datetime.now(timezone.utc):raise ValueError('Дата должна быть в будущем')
@@ -247,8 +268,11 @@ async def text_input(message):
         screen=message
         await prepare(screen,message.from_user.id,v['id'],payload,label)
     except Exception:
-        from .handlers import show_screen,back_menu
-        await show_screen(message,'Некорректное значение. Откройте карточку и повторите ввод.',back_menu())
+        from .handlers import show_screen,keyboard
+        v['expires']=time.monotonic()+300
+        inputs[(message.from_user.id,message.chat.id)]=v
+        hint={'name':'имя от 1 до 64 символов.','phone':'корректный номер телефона или «-» для удаления.','email':'корректную почту или «-» для удаления.','date':'будущую дату в формате ДД.ММ.ГГГГ.'}.get(v['kind'],'лимит в ГБ, например 100 или 25,5. 0 — без ограничений.')
+        await show_screen(message,'Не удалось принять значение. Отправьте '+hint+'\nИли отмените ввод кнопкой ниже.',keyboard([('Отмена',f"ops:detail:{v['id']}")]))
 
 
 async def cancel(message):

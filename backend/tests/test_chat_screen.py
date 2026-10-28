@@ -75,7 +75,7 @@ async def test_subscription_wizard_keeps_actual_reused_message_id():
             draft=subscriptions.get_draft(42,42)
             assert draft.actor==42 and draft.message==200
             await subscriptions.text_input(message(11,bot=bot).model_copy(update={'text':'Владелец'}))
-            assert draft.message==200 and draft.step=='phone'
+            assert draft.message==200 and draft.step=='review'
             assert send.await_count==1 and edit.await_count==1
     finally:
         subscriptions.drafts.clear()
@@ -83,17 +83,18 @@ async def test_subscription_wizard_keeps_actual_reused_message_id():
 
 
 @pytest.mark.asyncio
-async def test_menu_reuses_pointer_and_does_not_overwrite_notification():
+async def test_menu_reuses_pointer_and_cleans_legacy_notification():
     bot=Bot(token='123456:'+('x'*35))
     try:
-        with patch.object(bot,'send_message',AsyncMock(return_value=message(200,bot=bot,is_bot=True,actor=bot.id))) as send, patch.object(bot,'edit_message_text',AsyncMock(return_value=message(200,bot=bot,is_bot=True,actor=bot.id))) as edit:
+        with patch.object(bot,'send_message',AsyncMock(return_value=message(200,bot=bot,is_bot=True,actor=bot.id))) as send, patch.object(bot,'edit_message_text',AsyncMock(return_value=message(200,bot=bot,is_bot=True,actor=bot.id))) as edit, patch.object(bot,'delete_message',AsyncMock()) as delete:
             await handlers.show_screen(message(10,bot=bot),'Меню',None)
             await handlers.show_screen(message(11,bot=bot),'Статус',None)
             assert send.await_count==1 and edit.await_count==1
             await chat_screen.remember(bot,42,'system',99)
             await handlers.show_screen(message(99,bot=bot,is_bot=True,actor=bot.id),'Подписки',None,edit=True)
             assert edit.call_args.kwargs['message_id']==200
-            assert await chat_screen.message_id(bot,42,'system')==99
+            assert await chat_screen.message_id(bot,42,'system') is None
+            delete.assert_awaited_once_with(42,99)
     finally:await bot.session.close()
 
 
@@ -118,13 +119,14 @@ async def test_command_reopens_menu_after_user_clears_history(command):
         await chat_screen.remember(bot, 42, 'system', 99)
         admin_tools.pending['cleared-history-confirmation'] = {'chat': 42, 'message': 100}
         new_card = message(201, bot=bot, is_bot=True, actor=bot.id)
-        with patch.object(bot, 'send_message', AsyncMock(return_value=new_card)) as send, patch.object(bot, 'edit_message_text', AsyncMock(return_value=True)) as edit, patch.object(Message, 'edit_text', AsyncMock(return_value=new_card)) as callback_edit:
+        with patch.object(bot, 'send_message', AsyncMock(return_value=new_card)) as send, patch.object(bot, 'edit_message_text', AsyncMock(return_value=True)) as edit, patch.object(Message, 'edit_text', AsyncMock(return_value=new_card)) as callback_edit, patch.object(bot,'delete_message',AsyncMock()) as delete:
             incoming = message(200, bot=bot).model_copy(update={'text': command})
             await handlers.show_screen(incoming, 'Главное меню', None)
             send.assert_awaited_once()
             edit.assert_not_awaited()
+            assert {call.args for call in delete.await_args_list}=={(42,99),(42,100)}
             assert await chat_screen.message_id(bot, 42, 'menu') == 201
-            assert await chat_screen.message_id(bot, 42, 'system') == 99
+            assert await chat_screen.message_id(bot, 42, 'system') is None
             assert 'cleared-history-confirmation' not in admin_tools.pending
             await handlers.show_screen(new_card, 'Подписки', None, edit=True)
             assert send.await_count == 1

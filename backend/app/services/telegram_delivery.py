@@ -50,12 +50,14 @@ async def send_notice(bot, admin_id, notice, *, channel=None):
     if bot is None or time.monotonic() < _retry_at:
         return False
     try:
-        if channel:
-            from app.bot.chat_screen import live_message
-            await live_message(bot, admin_id, notice.text, notice.markup(), channel=channel, silent=notice.silent)
-        else:
-            await bot.send_message(admin_id, notice.text, parse_mode="HTML", reply_markup=notice.markup(),
-                                   disable_notification=notice.silent)
+        from app.bot import inbox
+        from app.bot.handlers import keyboard
+        from app.bot.chat_screen import live_message
+        if inbox.editing(admin_id):
+            return False
+        await inbox.save(bot,admin_id,notice,channel or 'test')
+        await live_message(bot,admin_id,notice.text,keyboard([(notice.button,notice.action)],
+                           [('🔔 Все события','md:inbox'),('🏠 Меню','md:home')]),channel='menu',silent=notice.silent)
         return True
     except TelegramRetryAfter as exc:
         _retry_at = time.monotonic() + exc.retry_after

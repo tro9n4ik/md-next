@@ -61,9 +61,9 @@ async def test_code_is_one_time_and_actor_scoped(auth_headers):
 async def test_portal_denies_access_when_subscription_disabled():
     async with AsyncSessionLocal() as db:
         db.add(Client(id=1,name='One',phone='',email='',is_active=False));db.add(TelegramLink(client_id=1,telegram_id='123'));await db.commit()
-    cb=SimpleNamespace(data='mine:access',from_user=SimpleNamespace(id=123),answer=AsyncMock(),message=SimpleNamespace(answer=AsyncMock()))
+    cb=SimpleNamespace(data='mine:access',from_user=SimpleNamespace(id=123),answer=AsyncMock(),message=SimpleNamespace(chat=SimpleNamespace(id=123),edit_text=AsyncMock()))
     await portal.mine(cb)
-    assert 'недоступна' in cb.message.answer.call_args.args[0]
+    assert 'недоступна' in cb.message.edit_text.call_args.args[0]
 
 
 def test_encrypted_backup_tampering_and_instance(tmp_path,monkeypatch):

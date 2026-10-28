@@ -32,10 +32,8 @@ def keyboard(*rows):
 def main_menu():
     return keyboard(
         [("➕ Новая подписка", "sub:new")],
-        [("📋 Подписки", "md:clients"), ("📊 Статус", "md:status")],
-        [("🌐 Ноды", "md:nodes"), ("❔ Помощь", "md:help")],
-        [("🔎 Поиск и фильтры", "ops:list:0"), ("📑 Шаблоны", "ops:templates")],
-        [("🩺 Диагностика", "ops:diagnostics")],
+        [("📋 Подписки", "ops:list:0")],
+        [("⚙️ Система", "md:system"), ("❔ Помощь", "md:help")],
     )
 
 
@@ -62,16 +60,25 @@ async def show_screen(message, text, markup, *, edit=False):
         except RuntimeError:
             bound_bot = None
         if bound_bot is not None:
-            from .chat_screen import live_message, remember, protected_message, message_id
-            # Callback notifications keep their own card; navigation opens the menu.
+            from .chat_screen import live_message, remember, protected_message, message_id, clear_attachment, cleanup_legacy_cards
+            await clear_attachment(bound_bot, message.chat.id)
+            await cleanup_legacy_cards(bound_bot,message.chat.id)
+            # Устаревшая кнопка не должна создавать второе рабочее меню.
             protected = await protected_message(bound_bot, message.chat.id, message.message_id)
-            if edit and message.text is not None and message.from_user and message.from_user.is_bot and not protected:
+            current_menu = await message_id(bound_bot, message.chat.id, 'menu')
+            if edit and message.text is not None and message.from_user and message.from_user.is_bot and not protected and current_menu==message.message_id:
                 try:
                     result = await message.edit_text(text, parse_mode='HTML', reply_markup=markup)
                 except TelegramBadRequest as exc:
-                    if 'message is not modified' not in exc.message.lower():
+                    reason=exc.message.lower()
+                    if 'message is not modified' in reason:
+                        result = message
+                    elif any(value in reason for value in ('message to edit not found',"message can't be edited",'message_id_invalid')):
+                        result,identifier=await live_message(bound_bot,message.chat.id,text,markup,channel='menu',silent=True,new_message=True)
+                        invalidate_screen_actions(message.chat.id,message.message_id,markup)
+                        return result if isinstance(result,Message) else message.model_copy(update={'message_id':identifier,'text':text})
+                    else:
                         raise
-                    result = message
                 await remember(bound_bot, message.chat.id, 'menu', message.message_id)
                 invalidate_screen_actions(message.chat.id,message.message_id,markup)
                 return result
@@ -147,15 +154,33 @@ async def check_admin_middleware(handler, event, data):
     if not isinstance(message, Message) or message.chat.type != "private":
         await event.answer("Откройте личный диалог с ботом.", **({"show_alert": True} if isinstance(event, CallbackQuery) else {}))
         return
-    return await handler(event, data)
+    if isinstance(event,Message) and (event.text or '').startswith('/'):
+        subscriptions.drafts.pop((event.from_user.id,event.chat.id),None)
+        admin_tools.inputs.pop((event.from_user.id,event.chat.id),None)
+    result = await handler(event, data)
+    if isinstance(event, Message):
+        from .chat_screen import clean_input
+        await clean_input(event)
+    return result
 
 
 @router.message(CommandStart())
 @router.message(Command("menu"))
 async def cmd_start(message: Message):
     subscriptions.drafts.pop((message.from_user.id, message.chat.id), None)
-    await show_screen(message, "<b>MD-Next · Панель управления</b>\n\n"
-                      "Подписки, сроки, трафик и выход через ноды.\nВыберите раздел ниже 👇", main_menu())
+    admin_tools.inputs.pop((message.from_user.id, message.chat.id), None)
+    await show_screen(message, await home_text(), main_menu())
+
+
+async def home_text():
+    from app.models.client import Client
+    from app.services.client_limits import limit_info
+    async with AsyncSessionLocal() as db:
+        clients = (await db.execute(select(Client))).scalars().all()
+    active = sum(bool(limit_info(client)['access_allowed']) for client in clients)
+    return ("<b>MD-Next · Управление подписками</b>\n\n"
+            f"Всего подписок: <b>{len(clients)}</b>\nДоступны: <b>{active}</b> · Недоступны: <b>{len(clients)-active}</b>\n\n"
+            "Создайте подписку или выберите существующую. Срок, трафик и подключение — в её карточке.")
 
 
 @router.message(Command("status"))
@@ -198,32 +223,8 @@ async def status_text():
 
 @router.message(Command("failover"))
 async def cmd_failover(message: Message):
-    async with AsyncSessionLocal() as session:
-        setting_result = await session.execute(select(Setting).where(Setting.key == "active_node_id"))
-        setting = setting_result.scalar_one_or_none()
-
-        try:
-            current_node_id = int(setting.value) if setting and setting.value else 0
-        except ValueError:
-            current_node_id = 0
-
-        result = await session.execute(
-            select(Node)
-            .where(Node.is_active == True)
-            .where(Node.is_enabled == True)
-            .where(Node.id != current_node_id)
-            .order_by(Node.id)
-        )
-        next_node = result.scalars().first()
-
-        if next_node:
-            ok, detail = await apply_active_node(session, next_node)
-            if not ok:
-                await message.answer("❌ Не удалось применить переключение. Текущий выход сохранён.")
-                return
-            await message.answer(f"✅ Выход переключён.\nНовая активная нода: <b>{escape(next_node.name)}</b>", parse_mode="HTML", reply_markup=back_menu())
-        else:
-            await message.answer("❌ Ошибка: нет других активных нод для переключения.")
+    # Даже старая команда открывает выбор с подтверждением, а не меняет маршрут сразу.
+    await nodes_screen(message)
 
 
 @router.message(Command("add_vless"))
@@ -290,6 +291,7 @@ async def menu_callback(callback: CallbackQuery):
     action = callback.data
     message = callback.message
     subscriptions.drafts.pop((callback.from_user.id, message.chat.id), None)
+    admin_tools.inputs.pop((callback.from_user.id, message.chat.id), None)
     if action.startswith("md:confirm:"):
         pending = consume_action(callback)
         if not pending:
@@ -321,7 +323,15 @@ async def menu_callback(callback: CallbackQuery):
         if (pending.chat_id, pending.message_id) == (message.chat.id, message.message_id):
             pending_actions.pop(token, None)
     if action == "md:home":
-        await show_screen(message, "<b>MD-Next · Панель управления</b>\n\nВыберите раздел ниже 👇", main_menu(), edit=True)
+        admin_tools.inputs.pop((callback.from_user.id, message.chat.id), None)
+        await show_screen(message, await home_text(), main_menu(), edit=True)
+    elif action == "md:system":
+        await show_screen(message, "<b>⚙️ Система</b>\n\nПроверьте состояние, выберите выход или запустите диагностику. Изменение ноды требует подтверждения.", keyboard(
+            [("📊 Состояние", "md:status"), ("🌐 Выход через ноду", "md:nodes")],
+            [("🩺 Проверить соединение", "ops:diagnostics"),('🔔 События','md:inbox')], [("🏠 Главное меню", "md:home")]), edit=True)
+    elif action.startswith('md:inbox'):
+        from .inbox import screen
+        await screen(message,action.removeprefix('md:inbox').lstrip(':') or None)
     elif action == "md:status":
         await show_screen(message, await status_text(), keyboard([("🔄 Обновить", "md:status")], [("🏠 Главное меню", "md:home")]), edit=True)
     elif action == "md:clients":
@@ -344,10 +354,11 @@ async def menu_callback(callback: CallbackQuery):
             await show_screen(message, f"<b>🌐 Переключить выход на {escape(node.name)}?</b>\n\n"
                               "Маршрут клиентов изменится. Подключения могут кратковременно прерваться.", prepare_action(callback, "node", node.id), edit=True)
     elif action == "md:help":
-        await show_screen(message, "<b>❔ Возможности бота</b>\n\n"
-                          "📋 Список подписок и карточки доступа\n➕ Мастер: имя, телефон, почта, срок и трафик\n🔗 Ссылка подписки и QR-код\n🛡 Файл AmneziaWG\n📊 Состояние и выбор выхода\n🔔 Уведомления о сбоях и лимитах\n\n"
-                          "<b>Команды</b>\n/menu — меню\n/subscriptions — подписки\n/new_subscription — новая подписка\n/status — состояние\n/failover — следующая нода\n\n"
-                          "Телефон и почту можно пропустить. Месячный трафик по умолчанию без ограничений. Создание требует подтверждения; черновик хранится 15 минут. /add_vless и /add_awg открывают мастер подписки.", back_menu(), edit=True)
+        await show_screen(message, "<b>Как пользоваться ботом</b>\n\n"
+                          "<b>Создать подписку</b> — введите имя, проверьте срок и лимит, подтвердите. Контакты добавляются по желанию.\n\n"
+                          "<b>Подписки</b> — найдите клиента по имени, телефону или почте. В карточке можно выдать подключение, продлить срок, изменить лимиты и профили.\n\n"
+                          "<b>Система</b> — состояние, выход через ноду и проверка соединения. Переключение требует подтверждения.\n\n"
+                          "<b>Назад</b> возвращает на предыдущий экран. /menu восстанавливает меню. Обработанный ввод убирается из чата; файлы выдаются только по запросу.", back_menu(), edit=True)
     else:
         await show_screen(message, "Кнопка устарела. Откройте меню заново.", back_menu(), edit=True)
 
@@ -360,3 +371,10 @@ async def notify_admin(bot, text, notification_type: str = "failover", *, sessio
 from . import admin_tools
 admin_tools.register(router)
 subscriptions.register(router)
+
+
+@router.message(F.text)
+async def unknown_text(message: Message):
+    subscriptions.drafts.pop((message.from_user.id,message.chat.id),None)
+    admin_tools.inputs.pop((message.from_user.id,message.chat.id),None)
+    await show_screen(message,await home_text()+'\n\nВыберите действие кнопкой. Для поиска откройте «Подписки → Найти».',main_menu())
