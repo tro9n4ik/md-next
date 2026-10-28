@@ -120,10 +120,14 @@ async def test_complete_wizard_and_edit_back_to_review():
         message=SimpleNamespace(text=value,from_user=SimpleNamespace(id=42),chat=screen.chat,answer=AsyncMock(return_value=next_screen))
         await sub.text_input(message)
     await text('Иван')
-    assert draft.step=='phone'
-    await sub.callback_input(callback(draft,'skip'))
+    assert draft.step=='review' and draft.values['subscription_period']=='month'
+    assert draft.values['phone']=='' and draft.values['email']==''
+    await sub.callback_input(callback(draft,'edit_email'))
     await text('ivan@example.com')
+    assert draft.step=='review' and draft.values['email']=='ivan@example.com'
+    await sub.callback_input(callback(draft,'edit_period'))
     await sub.callback_input(callback(draft,'period_month'))
+    await sub.callback_input(callback(draft,'edit_quota'))
     await sub.callback_input(callback(draft,'quota_0'))
     assert draft.step=='review' and draft.values['monthly_traffic_limit']==0
     await sub.callback_input(callback(draft,'edit_quota'))

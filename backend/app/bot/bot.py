@@ -54,13 +54,8 @@ class BotManager:
             await self.bot.get_me()
             try:
                 await self.bot.set_my_commands([
-                    BotCommand(command="menu", description="Панель управления"),
-                    BotCommand(command="subscriptions", description="Список подписок"),
-                    BotCommand(command="new_subscription", description="Создать подписку"),
-                    BotCommand(command="status", description="Состояние и текущий выход"),
-                    BotCommand(command="me", description="Моя подписка"),
-                    BotCommand(command="bind", description="Привязать подписку по коду"),
-                    BotCommand(command="diagnostics", description="Диагностика для администратора"),
+                    BotCommand(command="menu", description="Открыть меню"),
+                    BotCommand(command="start", description="Вернуться на главный экран"),
                 ])
             except Exception as exc:
                 logger.warning("Не удалось обновить список команд бота: %s", type(exc).__name__)

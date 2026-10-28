@@ -1,13 +1,64 @@
-"""Reuse bot-owned text messages; never delete the user's chat history."""
+"""Один экран бота и очистка обработанного ввода в личном диалоге."""
 import asyncio
 from collections import defaultdict
 
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramAPIError
 from sqlalchemy import select
 from app.db.database import AsyncSessionLocal
 from app.models.setting import Setting
 
 locks = defaultdict(asyncio.Lock)
+
+
+async def discard(bot, chat_id, identifier):
+    """Удаляем только известный ID. Отказ очистки не ломает меню."""
+    if not isinstance(identifier, int) or identifier <= 0:
+        return
+    if not callable(getattr(bot,'delete_message',None)):
+        return
+    try:
+        await asyncio.wait_for(bot.delete_message(chat_id, identifier),5)
+    except (TelegramAPIError,asyncio.TimeoutError):
+        pass
+
+
+async def clean_input(message):
+    if message.chat.type != 'private' or not message.from_user or message.from_user.is_bot:
+        return
+    try:
+        bot = message.bot
+    except (RuntimeError, AttributeError):
+        return
+    await discard(bot, message.chat.id, message.message_id)
+
+
+async def clear_attachment(bot, chat_id):
+    identifier = await message_id(bot, chat_id, 'attachment')
+    if identifier:
+        await discard(bot, chat_id, identifier)
+        await remember(bot,chat_id,'attachment',0)
+
+
+async def cleanup_legacy_cards(bot,chat_id):
+    prefix=screen_key(bot,chat_id,'')
+    current=await message_id(bot,chat_id,'menu')
+    async with AsyncSessionLocal() as db:
+        rows=(await db.execute(select(Setting).where(Setting.key.startswith(prefix),
+              Setting.key.notin_([prefix+'menu',prefix+'attachment'])).limit(40))).scalars().all()
+        identifiers=[int(row.value) for row in rows if row.value.isdigit() and int(row.value)!=current]
+        for row in rows:
+            await db.delete(row)
+        await db.commit()
+    await asyncio.gather(*(discard(bot,chat_id,identifier) for identifier in identifiers))
+
+
+async def remember_attachment(message, sent):
+    try:
+        bot = message.bot
+    except (RuntimeError, AttributeError):
+        return
+    await clear_attachment(bot, message.chat.id)
+    await remember(bot, message.chat.id, 'attachment', getattr(sent, 'message_id', None))
 
 
 def screen_key(bot, chat_id, channel):
@@ -46,8 +97,8 @@ async def live_message(bot, chat_id, text, markup, *, channel, silent=False, new
     async with locks[key]:
         # После очистки истории Telegram может разрешать редактирование старой
         # карточки, которая уже не видна пользователю. Команде нужен новый ответ.
-        previous = None if new_message else await message_id(bot, chat_id, channel)
-        if previous:
+        previous = await message_id(bot, chat_id, channel)
+        if previous and not new_message:
             try:
                 result = await bot.edit_message_text(text, chat_id=chat_id, message_id=previous,
                                                      parse_mode='HTML', reply_markup=markup)
@@ -62,4 +113,6 @@ async def live_message(bot, chat_id, text, markup, *, channel, silent=False, new
                                         disable_notification=silent)
         identifier = getattr(result, 'message_id', None)
         await remember(bot, chat_id, channel, identifier)
+        if channel == 'menu' and previous and identifier != previous:
+            await discard(bot, chat_id, previous)
         return result, identifier

@@ -30,7 +30,7 @@ def reset_pending():
 
 def test_menu_has_four_sections_and_short_callback_data():
     menu=handlers.main_menu()
-    assert {'sub:new','md:status','md:clients','md:nodes','md:help','ops:list:0','ops:templates','ops:diagnostics'} <= {b.callback_data for row in menu.inline_keyboard for b in row}
+    assert {'sub:new','md:system','md:help','ops:list:0'} == {b.callback_data for row in menu.inline_keyboard for b in row}
     assert all(len(b.callback_data.encode()) <= 64 for row in menu.inline_keyboard for b in row)
 
 
@@ -41,7 +41,7 @@ async def test_prepare_creation_does_not_create_client():
         await handlers.menu_callback(cb)
     create.assert_not_awaited()
     markup=cb.message.edit_text.call_args.kwargs['reply_markup']
-    assert markup.inline_keyboard[0][0].callback_data.startswith('sub:w:')
+    assert any(button.callback_data.startswith('sub:w:') for row in markup.inline_keyboard for button in row)
     assert 'Новая подписка' in cb.message.edit_text.call_args.args[0]
 
 

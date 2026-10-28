@@ -1,5 +1,4 @@
 """Подписки администратора: мастер, список и выдача доступа из инлайн-меню."""
-import io
 import logging
 import secrets
 import time
@@ -8,12 +7,10 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from html import escape
 
-import qrcode
-from qrcode.image.pure import PyPNGImage
 from aiogram import F
 from aiogram.filters import Command
 from aiogram.types import BufferedInputFile
-from sqlalchemy import select, func
+from sqlalchemy import select
 
 from app.db.database import AsyncSessionLocal
 from app.models.client import Client
@@ -121,8 +118,10 @@ async def render(draft, message, *, edit=True, error=None):
                    "email": "Отправьте почту или пропустите этот шаг.", "period": "Выберите срок действия.",
                    "date": "Отправьте дату окончания: ДД.ММ.ГГГГ (включительно, по UTC).", "quota": "Выберите месячный лимит трафика.",
                    "quota_custom": "Отправьте объём трафика в ГБ, например 100 или 25,5."}
-        step = {"date": "period", "quota_custom": "quota"}.get(draft.step, draft.step)
-        text = f"<b>➕ Новая подписка · {STEPS.index(step) + 1}/6</b>\n\n{prompts[draft.step]}"
+        text = f"<b>➕ Новая подписка</b>\n\n{prompts[draft.step]}"
+        if draft.step == 'name':
+            text += f"\n\nСрок: {PERIODS[draft.values.get('subscription_period','month')]}. Трафик: {traffic_label(draft.values.get('monthly_traffic_limit',0))}. Перед созданием сможете изменить условия и добавить контакты."
+            rows.append([('📑 Выбрать готовый шаблон','ops:templates')])
         if draft.step in ("phone", "email"):
             rows = [[("Пропустить", prefix + "skip")]]
         elif draft.step == "period":
@@ -142,9 +141,10 @@ async def render(draft, message, *, edit=True, error=None):
         draft.message = screen.message_id
 
 
-async def start(message, actor, *, edit=False):
+async def start(message, actor, *, edit=False, values=None):
     clean_drafts()
-    draft = Draft(actor, message.chat.id, message.message_id)
+    draft = Draft(actor, message.chat.id, message.message_id, values={
+        'subscription_period': 'month', 'monthly_traffic_limit': 0, 'phone': '', 'email': '', **(values or {})})
     drafts[(actor, message.chat.id)] = draft
     await render(draft, message, edit=edit)
 
@@ -175,37 +175,43 @@ async def text_input(message):
     except ValueError as exc:
         await render(draft,message,edit=False,error=exc)
         return
-    mapping = {"name": ("name", "phone"), "phone": ("phone", "email"), "email": ("email", "period"),
+    mapping = {"name": ("name", "review"), "phone": ("phone", "email"), "email": ("email", "period"),
                "date": ("expires_at", "quota"), "quota_custom": ("monthly_traffic_limit", "review")}
     key, following = mapping[draft.step]
     draft.values[key] = value
     next_step(draft, following)
-    # Новое сообщение с меню позволяет не искать карточку выше введённых полей.
+    # Обработанный ввод убирается middleware; экран меню переиспользуется.
     await render(draft, message, edit=False)
 
 
-async def issue_access(message, client_id, *, awg=False):
+async def issue_access(message, client_id, *, awg=False, return_to=None):
     from app.api.clients import get_client_profiles
-    from .handlers import back_menu
+    from .handlers import keyboard, show_screen
+    back = keyboard([('← Назад', return_to or f'ops:detail:{client_id}')])
     async with AsyncSessionLocal() as session:
         data = await get_client_profiles(client_id, db=session)
     if awg:
         profile = next((p for p in data["profiles"] if p["kind"] == "awg" and p["is_enabled"] and p["key_available"]), None)
         if not profile or not profile["data"]:
-            await message.answer("Для этой подписки нет доступного профиля AmneziaWG.", reply_markup=back_menu())
+            await show_screen(message, "Для этой подписки нет доступного профиля AmneziaWG.", back, edit=True)
             return
-        await message.answer_document(BufferedInputFile(profile["data"].encode(), filename=f"subscription-{client_id}.conf"),
-                                      caption="🛡 Конфигурация AmneziaWG", reply_markup=back_menu())
+        from .chat_screen import remember_attachment
+        sent = await message.answer_document(BufferedInputFile(profile["data"].encode(), filename=f"subscription-{client_id}.conf"),
+                                            caption="Сохраните файл и импортируйте его в AmneziaWG. Вернуться к меню — кнопкой ниже.", reply_markup=back)
+        await remember_attachment(message, sent)
         return
-    url = data["subscription_url"]
+    url = data["subscription_url"] or ''
     if not url.startswith("https://"):
-        await message.answer("Адрес панели не настроен. Данные подключения доступны в панели.", reply_markup=back_menu())
+        await show_screen(message, "Адрес панели не настроен. Данные подключения доступны в панели.", back, edit=True)
         return
-    bio = io.BytesIO()
-    qrcode.make(url, image_factory=PyPNGImage).save(bio)
-    await message.answer_photo(BufferedInputFile(bio.getvalue(), filename="subscription.png"), caption="🔗 QR-код подписки")
-    await message.answer(f"<b>Подписка: {escape(data['client']['name'])}</b>\n\n<code>{escape(url)}</code>\n\n"
-                         "Добавьте эту ссылку в VPN-приложение. AmneziaWG выдаётся отдельным файлом.", parse_mode="HTML", reply_markup=back_menu())
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+    buttons = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text='📲 Открыть подключение и QR-код', url=url)],
+        [InlineKeyboardButton(text='← Назад', callback_data=return_to or f'ops:detail:{client_id}')]])
+    await show_screen(message, f"<b>🔗 Подключение · {escape(data['client']['name'])}</b>\n\n"
+                      "Откройте личную страницу: там есть импорт в приложение, QR-код и инструкция.\n\n"
+                      f"Ссылка для копирования:\n<code>{escape(url)}</code>\n\n"
+                      "Не передавайте ссылку посторонним: она содержит ваш доступ.", buttons, edit=True)
 
 
 async def create_subscription(message, draft):
@@ -219,36 +225,19 @@ async def create_subscription(message, draft):
         async with AsyncSessionLocal() as session:
             result = await create_client_record(ClientCreate(**values), db=session)
             created_id = result["client"]["id"]
-        await detail(message, created_id, edit=True)
-        await issue_access(message, created_id)
+        from .admin_tools import detail as client_card
+        await client_card(message, created_id)
     except Exception as exc:
         logging.error("Ошибка подписки Telegram: %s", type(exc).__name__)
         text = (f"Подписка #{created_id} создана. Не удалось выдать все данные; откройте её в списке подписок."
                 if created_id is not None else "Не удалось создать подписку. Проверьте состояние протоколов в панели и попробуйте снова.")
-        await message.answer(text, reply_markup=back_menu())
+        from .handlers import show_screen
+        await show_screen(message, text, back_menu(), edit=True)
 
 
 async def listing(message, page=0, *, edit=True):
-    from .handlers import keyboard, show_screen
-    page = max(0, page)
-    async with AsyncSessionLocal() as session:
-        count = await session.scalar(select(func.count()).select_from(Client))
-        page = min(page, max(0, (count - 1) // 8))
-        clients = (await session.execute(select(Client).order_by(Client.id.desc()).offset(page * 8).limit(8))).scalars().all()
-    rows = [[("➕ Создать подписку", "sub:new")]]
-    for client in clients:
-        active = limit_info(client)["access_allowed"]
-        rows.append([(("🟢 " if active else "🔴 ") + client.name[:40], f"sub:detail:{client.id}")])
-    navigation = []
-    if page:
-        navigation.append(("← Назад", f"sub:list:{page - 1}"))
-    if (page + 1) * 8 < count:
-        navigation.append(("Далее →", f"sub:list:{page + 1}"))
-    if navigation:
-        rows.append(navigation)
-    rows.append([("🏠 Главное меню", "md:home")])
-    await show_screen(message, f"<b>📋 Подписки</b>\n\nВсего: <b>{count}</b> · Страница {page + 1}\n"
-                      "🟢 Доступна · 🔴 Приостановлена, истекла или исчерпан лимит\n\nВыберите подписку или создайте новую.", keyboard(*rows), edit=edit)
+    from .admin_tools import client_list
+    return await client_list(message, message.chat.id, page)
 
 
 async def detail(message, client_id, *, edit=True):
@@ -264,12 +253,14 @@ async def detail(message, client_id, *, edit=True):
                 f"📞 {escape(client.phone or 'Не указан')}\n✉️ {escape(client.email or 'Не указана')}\n"
                 f"📅 До: <b>{date_label(limits['expires_at'])}</b>\n"
                 f"📦 За месяц: <b>{limits['monthly_traffic_used'] / 1024 ** 3:.2f} ГБ / {traffic_label(limits['monthly_traffic_limit'])}</b>\n"
+                f"🛡 Обход БС: <b>{limits['cdn_monthly_traffic_used'] / 1024 ** 3:.2f} ГБ / {traffic_label(limits['cdn_monthly_traffic_limit'])}</b>\n"
                 f"🔄 Новый период: {date_label(limits['traffic_period_end'])}")
     return await show_screen(message, text, keyboard(
-        [("🔗 Ссылка и QR-код", f"sub:link:{client_id}")], [("🛡 Файл AmneziaWG", f"sub:awg:{client_id}")],
+        [("📲 Выдать подключение", f"sub:link:{client_id}"), ("📅 Продлить", f"ops:extend:{client_id}")],
+        [("✏️ Срок и лимиты", f"ops:conditions:{client_id}"), ("🔐 Профили", f"ops:profiles:{client_id}")],
         [("⏸ Приостановить подписку" if client.is_active else "▶️ Включить подписку", f"ops:toggle:{client_id}")],
-        [("🔐 Управлять профилями", f"ops:profiles:{client_id}"), ("✏️ Условия", f"ops:detail:{client_id}")],
-        [("🔄 Обновить", f"sub:detail:{client_id}"), ("← Подписки", "sub:list:0")], [("🏠 Главное меню", "md:home")]), edit=edit)
+        [("⋯ Дополнительно", f"ops:more:{client_id}")],
+        [("← Подписки", "ops:list:0"), ("🏠 Меню", "md:home")]), edit=edit)
 
 
 def matching_draft(callback):
@@ -348,7 +339,8 @@ async def callback_input(callback):
             await listing(callback.message)
         except Exception as exc:
             logging.error("Ошибка выдачи подписки Telegram: %s", type(exc).__name__)
-            await callback.message.answer("Не удалось выдать данные подписки. Обновите список и попробуйте снова.")
+            from .handlers import show_screen,back_menu
+            await show_screen(callback.message,"Не удалось выдать данные подписки. Обновите список и попробуйте снова.",back_menu(),edit=True)
 
 
 def register(router):

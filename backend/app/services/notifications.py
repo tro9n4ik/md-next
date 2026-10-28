@@ -80,6 +80,7 @@ async def send_reminders():
                 batches.append(batch);batch=[];length=0
             batch.append(entry);length+=len(entry[1])+2
         if batch:batches.append(batch)
+        await db.commit()  # Не держим чтение БД во время доставки и записи меню.
         for page,batch in enumerate(batches):
             one=len(batch)==1
             notice=card('📋','Подписки требуют внимания',['\n\n'.join(entry[1] for entry in batch)],
