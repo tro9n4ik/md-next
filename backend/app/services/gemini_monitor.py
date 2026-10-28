@@ -1,7 +1,8 @@
 """Проверка регионального отказа Gemini через WARP, без входа в аккаунт Google.
 
 Открытая страница не доказывает доступ к генерации. Только явный отказ по региону
-разрешает автоматическое переподключение; ошибки сети и входа его не разрешают.
+или повторный сигнал RU от страницы входа Google разрешают переподключение.
+Ошибки сети и неопределённый регион сами по себе его не разрешают.
 """
 import asyncio
 import json
@@ -17,6 +18,7 @@ from app.db import database
 from app.models.node import Node
 from app.models.setting import Setting
 from app.services.events import log_event
+from app.services.google_region import probe_google_region, unknown_region
 from app.services.warp import WarpService, _setup_lock
 from app.services.warp_node import test_node_proxy
 
@@ -56,7 +58,7 @@ class VisibleText(HTMLParser):
 
 
 def classify_page(url: str, status: int, body: str) -> dict:
-    """Не извлекает страну из недокументированных полей Google или базы Cloudflare."""
+    """Оценивает только ответ Gemini; регион страницы входа проверяется отдельно."""
     location = urlsplit(url)
     if location.hostname != "gemini.google.com":
         return {"status": "unknown", "message": "Google требует входа или согласия; регион не определён."}
@@ -86,10 +88,16 @@ async def probe_proxy(port: int, *, timeout: float) -> dict:
     trace = {key: observed.get(key, "") for key in ("ip", "country", "warp")}
     if trace.get("warp") not in {"on", "plus"}:
         return {"status": "unknown", "message": "Проверочный выход работает без WARP.", **trace}
-    try:
-        return await _probe_gemini_page(port, timeout=timeout, trace=trace)
-    except httpx.HTTPError:
-        return {"status": "unknown", "message": "WARP ответил, но ответ Gemini получить не удалось. Доступ не подтверждён.", **trace}
+    async def page_probe():
+        try:
+            return await asyncio.wait_for(_probe_gemini_page(port, timeout=timeout, trace=trace), timeout=timeout)
+        except (httpx.HTTPError, asyncio.TimeoutError):
+            return {"status": "unknown", "message": "WARP ответил, но ответ Gemini получить не удалось. Доступ не подтверждён.", **trace}
+    page, region = await asyncio.gather(page_probe(), probe_google_region(port, timeout=timeout))
+    result = {**page, **region, "gemini_status": page["status"]}
+    if page["status"] != "region_blocked" and region.get("google_country") == "RU":
+        result.update(status="google_region_ru", message="Страница входа Google определила регион выхода как РФ (RU). Это отдельный сигнал о регионе, а не подтверждённый отказ Gemini.")
+    return result
 
 
 async def _probe_gemini_page(port: int, *, timeout: float, trace: dict) -> dict:
@@ -113,6 +121,11 @@ async def _probe_gemini_page(port: int, *, timeout: float, trace: dict) -> dict:
                         return {"status": "unknown", "message": "Ответ Gemini слишком большой; регион не определён.", **trace}
                 return {**classify_page(url, response.status_code, body.decode("utf-8", errors="replace")), **trace}
     return {"status": "unknown", "message": "Слишком много перенаправлений Gemini.", **trace}
+
+
+def result_fields(result: dict) -> dict:
+    return {**{key: result.get(key, "") for key in ("status", "message", "ip", "country", "warp", "gemini_status")},
+            **{key: result.get(key, value) for key, value in unknown_region("Регион Google не проверен.").items()}}
 
 
 async def _load_state(db, node_id: int) -> dict:
@@ -166,10 +179,10 @@ class GeminiMonitor:
             result = await asyncio.wait_for(test_node_proxy(node, target["port"], probe_proxy), 45)
         except Exception:
             result = {"status": "unknown", "message": "Не удалось проверить Gemini через WARP. Проверьте соединение ноды."}
-        blocked = state.get("blocked_checks", 0) + 1 if result["status"] == "region_blocked" else 0
-        state.update({"status": result["status"], "message": result["message"],
-                      "ip": result.get("ip", ""), "country": result.get("country", ""),
-                      "warp": result.get("warp", ""),
+        block_reason = result["status"] if result["status"] in {"region_blocked", "google_region_ru"} else ""
+        previous_reason = state.get("block_reason", "region_blocked")
+        blocked = (state.get("blocked_checks", 0) + 1 if previous_reason == block_reason else 1) if block_reason else 0
+        state.update({**result_fields(result), "block_reason": block_reason,
                       "checked_at": now, "next_check_at": now + CHECK_INTERVAL,
                       "blocked_checks": blocked, "rotation_attempts": attempts})
         state.pop("rotation_note", None)
@@ -208,16 +221,12 @@ class GeminiMonitor:
                 state["last_rotation_changed"] = rotated["changed"]
                 # Повторная проверка идёт через тот же выход, а не локальный интернет панели.
                 result = await asyncio.wait_for(test_node_proxy(node, target["port"], probe_proxy), 45)
-                state.update({"status": result["status"], "message": result["message"],
-                              "ip": result.get("ip", ""), "country": result.get("country", ""),
-                              "warp": result.get("warp", ""),
+                state.update({**result_fields(result),
                               "checked_at": time.time()})
                 log_event("warning", "warp", "Автопереподключение WARP для Gemini", {
                     "node_id": node.id, "changed": rotated["changed"], "status": result["status"]})
             except Exception:
-                state["status"] = "unknown"
-                state.update({"ip": "", "country": "", "warp": ""})
-                state["message"] = "Переподключение WARP или повторная проверка не завершились."
+                state.update(result_fields({"status": "unknown", "message": "Переподключение WARP или повторная проверка не завершились."}))
                 log_event("error", "warp", "Не удалось восстановить доступ Gemini через WARP", {"node_id": node.id})
         await _save_state(db, node.id, state)
         return state

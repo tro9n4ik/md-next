@@ -7,7 +7,7 @@ import { apiFetch } from '../utils/api';
 interface WarpPreset { key: string; title: string; description: string; domains: string[]; state: {total: number; missing: number; extra: number} }
 interface GeminiMonitorState {
   enabled: boolean; node_id: number | null; node_name: string;
-  result: {status?: string; message?: string; checked_at?: number; ip?: string; country?: string; warp?: string; rotation_note?: string};
+  result: {status?: string; message?: string; checked_at?: number; ip?: string; country?: string; warp?: string; google_country?: string; google_country_source?: string; google_region_message?: string; gemini_status?: string; rotation_note?: string};
 }
 async function request(path: string, method = 'GET', body?: unknown) {
   const res = await apiFetch('/api/v1/warp/' + path, {method, ...(body ? {headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)} : {})});
@@ -38,7 +38,9 @@ export default function WarpPage() {
   const countryCode = result?.country?.toUpperCase();
   const countryName = countryCode && /^[A-Z]{2}$/.test(countryCode)
     ? new Intl.DisplayNames(['ru'], {type: 'region'}).of(countryCode) : undefined;
-  const resultTitle = result?.status === 'region_blocked' ? 'Региональный отказ Gemini'
+  const googleCode = result?.google_country?.toUpperCase();
+  const googleName = googleCode && /^[A-Z]{2}$/.test(googleCode) ? new Intl.DisplayNames(['ru'], {type: 'region'}).of(googleCode) : undefined;
+  const resultTitle = result?.status === 'google_region_ru' ? 'Google определяет выход как РФ' : result?.status === 'region_blocked' ? 'Региональный отказ Gemini'
     : result?.status === 'page_loaded' ? 'Доступ к Gemini не подтверждён' : 'Результат проверки не определён';
   const resultBorder = result?.status === 'region_blocked' ? 'border-red-600' : 'border-amber-500';
   return <div className="page-layout warp-page">
@@ -97,6 +99,8 @@ export default function WarpPage() {
           <div className="warp-result-summary"><p className="warp-result-title">{resultTitle}</p>{gemini.data.result.checked_at && <span className="warp-result-caption">{new Date(gemini.data.result.checked_at * 1000).toLocaleString('ru-RU')} · {gemini.data.node_name}</span>}</div>
           <details className="warp-result-details"><summary>Подробности результата <ChevronRight size={14} /></summary>
           <p>{gemini.data.result.message}</p>
+          <p>Регион по странице входа Google: <b>{googleName ? `${googleName} (${googleCode})` : 'не определён'}</b></p>
+          {result?.google_region_message && <p className="warp-result-caption">{result.google_region_message}</p>}
           <p>Страна IP по Cloudflare: <b>{countryName ? `${countryName} (${countryCode})` : 'не определена'}</b></p>
           {result?.ip && <p>IP выхода: {result.ip}</p>}
           <p>WARP: {result?.warp === 'on' || result?.warp === 'plus' ? 'подтверждён' : result?.warp === 'off' ? 'выключен на проверочном выходе' : 'не проверен'}</p>
@@ -105,8 +109,8 @@ export default function WarpPage() {
           </details>
         </div> : <p className="warp-gemini-no-result">Результатов пока нет. Запустите проверку вручную или включите автоматическую.</p>}
       <details className="warp-monitor-details"><summary><CircleHelp size={16} />Как работает проверка<ChevronRight size={16} /></summary>
-        <p>После двух региональных отказов подряд переподключаю WARP. Между попытками — не менее 30 минут, не более 3 попыток за 6 часов для каждой ноды. Соединения через WARP могут прерваться; новый IP не гарантируется.</p>
-        <p>Для трафика Gemini включите соответствующий пресет. CAPTCHA, запрос входа и ошибки сети не вызывают смену IP. Проверка без аккаунта Google не подтверждает доступ к генерации и не определяет страну аккаунта.</p>
+        <p>После двух региональных отказов Gemini подряд или двух сигналов RU от страницы входа Google переподключаю WARP. Между попытками — не менее 30 минут, не более 3 попыток за 6 часов для каждой ноды. Соединения через WARP могут прерваться; новый IP не гарантируется.</p>
+        <p>Для трафика Gemini включите соответствующий пресет. CAPTCHA, отсутствие поля региона и ошибки сети сами по себе не вызывают смену IP. Поле региона Google — недокументированный сигнал выхода, а не регион аккаунта Google. Проверка без аккаунта Google не подтверждает доступ к генерации и не определяет страну аккаунта.</p>
         <p>Ручная проверка показывает результат и не переподключает WARP.</p>
       </details>
     </section>
