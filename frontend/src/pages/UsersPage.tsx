@@ -1,3 +1,4 @@
+import { useConfirm } from '../contexts/ConfirmationContext';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Settings2 } from 'lucide-react';
@@ -17,6 +18,7 @@ async function request(path = '', method = 'GET', body?: unknown) {
 }
 
 export function AccountEditor({ account, refresh, onClose }: { account: Account; refresh: () => void; onClose: () => void }) {
+  const confirm = useConfirm();
   const cache = useQueryClient();
   const [password, setPassword] = useState('');
   const [notice, setNotice] = useState('');
@@ -25,7 +27,7 @@ export function AccountEditor({ account, refresh, onClose }: { account: Account;
     onSuccess: (data, variables) => { if (variables.password !== undefined) setPassword(''); cache.setQueryData<Account[]>(['subadmins'], previous => previous?.map(item => item.id === data.id ? data : item)); setNotice('Сохранено. Субадминистратору потребуется войти заново.'); refresh(); },
     onError: (error: Error) => setNotice(error.message),
   });
-  return <Drawer title={account.username} busy={update.isPending} dirty={!!password} onClose={() => { if (!password || window.confirm('Закрыть форму и не сохранять новый пароль?')) onClose(); }}><article className="space-y-4">
+  return <Drawer title={account.username} busy={update.isPending} dirty={!!password} onClose={async () => { if (!password || await confirm({ title: 'Закрыть без сохранения?', description: 'Новый пароль не будет сохранён.', confirmText: 'Закрыть без сохранения', cancelText: 'Продолжить редактирование', tone: 'warning' })) onClose(); }}><article className="space-y-4">
     <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-semibold">Доступ в панель</h3><p className="text-xs text-neutral-500">Субадминистратор · 2FA {account.totp_enabled ? 'включена' : 'выключена'}</p></div>
       <Switch label={`Доступ в панель: ${account.username}`} checked={account.is_active} disabled={update.isPending} onChange={is_active => update.mutate({ is_active })} />
     </div>
@@ -50,6 +52,7 @@ export function AccountEditor({ account, refresh, onClose }: { account: Account;
 }
 
 export default function UsersPage() {
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -71,7 +74,7 @@ export default function UsersPage() {
   const createDirty = !!(username || password || viewAll || !canIssue || canDelete || canPause);
   return <>
     <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="ui-card-title">Субадминистраторы</h2><p className="mt-1 text-sm text-neutral-500">Учётные записи и права на работу с клиентами</p></div><button className="ui-button ui-button-primary" onClick={() => { setNotice(''); setCreating(true); }}><Plus size={17} />Добавить субадминистратора</button></div>
-    {creating && <Drawer title="Новый субадминистратор" busy={create.isPending} dirty={createDirty} onClose={() => { if (!createDirty || window.confirm('Закрыть форму без создания учётной записи?')) { setCreating(false); setUsername(''); setPassword(''); setViewAll(false); setCanIssue(true); setCanDelete(false); setCanPause(false); } }}><section className="space-y-4">
+    {creating && <Drawer title="Новый субадминистратор" busy={create.isPending} dirty={createDirty} onClose={async () => { if (!createDirty || await confirm({ title: 'Закрыть форму?', description: 'Учётная запись не будет создана. Введённые данные будут потеряны.', confirmText: 'Закрыть форму', cancelText: 'Продолжить заполнение', tone: 'warning' })) { setCreating(false); setUsername(''); setPassword(''); setViewAll(false); setCanIssue(true); setCanDelete(false); setCanPause(false); } }}><section className="space-y-4">
       <p className="mt-4 text-sm text-neutral-500">Права на выдачу, удаление и приостановку подписок задаются отдельно. Настройки панели и изменение условий клиентов доступны только администратору. Отзыв выдачи не отключает уже полученные клиентами ссылки.</p>
       <form className="mt-4 space-y-4" onSubmit={event => { event.preventDefault(); create.mutate(); }}>
         <fieldset disabled={create.isPending} className="space-y-4">

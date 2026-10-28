@@ -1,3 +1,4 @@
+import { useConfirm } from '../contexts/ConfirmationContext';
 import Switch from './ui/Switch';
 import React, { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -88,6 +89,7 @@ const NumberField: React.FC<{ label: string; value: number; onChange: (value: nu
 );
 
 export const NodesManager: React.FC = () => {
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState('');
@@ -304,7 +306,7 @@ export const NodesManager: React.FC = () => {
   const activeCountry = nodes.find(node => node.id === route?.active_node?.id)?.country_code;
   const activeInvites = invites.filter(invite => !invite.revoked && !invite.used_at && new Date(invite.expires_at).getTime() > now).length;
   const draftInvite = !generatedInvite && (inviteName !== 'Новый узел' || ttlHours !== 24);
-  const closeInvite = () => { if (!draftInvite || window.confirm('Закрыть форму без создания приглашения?')) handleCloseModal(); };
+  const closeInvite = async () => { if (!draftInvite || await confirm({ title: 'Закрыть приглашение?', description: 'Приглашение не будет создано. Заполненные параметры будут потеряны.', confirmText: 'Закрыть форму', cancelText: 'Продолжить заполнение', tone: 'warning' })) handleCloseModal(); };
 
   return <div className="nodes-workspace">
     <header className="dashboard-heading"><div><div className="dashboard-eyebrow">ВАША СЕТЬ БЕЗ ПЕРЕРЫВОВ</div><h1>Узлы</h1><p>Серверы, активный выход и резервирование</p></div><div className="page-actions"><button className="ui-button ui-button-secondary" onClick={() => { void reloadNodes(); void reloadRoute(); void reloadFailover(); }} disabled={nodesLoading}><RefreshCw size={16} />Обновить</button><button onClick={() => { createInviteMutation.reset(); setCreateModalOpen(true); }} className="ui-button ui-button-primary"><Plus size={17} />Добавить ноду</button></div></header>
@@ -385,7 +387,7 @@ export const NodesManager: React.FC = () => {
       <ul className="mt-4 divide-y divide-neutral-100">{invites.map(invite => <li key={invite.id} className="flex flex-wrap items-center justify-between gap-3 py-3"><div className="min-w-0"><p className="break-words text-sm font-medium">{invite.name}</p><p className="mt-1 text-xs text-neutral-500">{invite.revoked ? 'Отозван' : invite.used_at ? 'Использован' : new Date(invite.expires_at).getTime() <= now ? 'Истёк' : 'Активен'} · До {new Date(invite.expires_at).toLocaleString('ru-RU')}</p></div>{!invite.revoked && !invite.used_at && <button aria-label={`Отозвать приглашение: ${invite.name}`} disabled={revokeInviteMutation.isPending} onClick={() => revokeInviteMutation.mutate(invite.id)} className="ui-button ui-button-secondary !min-h-9 !p-2"><Trash2 size={16} /></button>}</li>)}</ul>
       {!invitesLoading && !invitesError && !invites.length && <p className="text-sm text-neutral-500">Нет созданных приглашений</p>}
       {revokeInviteMutation.isError && <p role="alert" className="mt-3 text-sm text-red-700">{revokeInviteMutation.error.message}</p>}
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-neutral-200 pt-4"><p role={clearInviteHistoryMutation.isError ? 'alert' : 'status'} className={`text-xs ${clearInviteHistoryMutation.isError ? 'text-red-700' : 'text-neutral-500'}`}>{inviteCleanupNotice || 'Действующие приглашения и ноды сохраняются. Очистка удаляет использованные, отозванные и истёкшие приглашения.'}</p><button type="button" disabled={!invites.length || clearInviteHistoryMutation.isPending || createInviteMutation.isPending || revokeInviteMutation.isPending} onClick={() => { if (window.confirm('Очистить историю использованных, отозванных и истёкших приглашений? Действующие приглашения и подключённые ноды сохранятся.')) clearInviteHistoryMutation.mutate(); }} className="ui-button ui-button-secondary"><Trash2 size={16} />{clearInviteHistoryMutation.isPending ? 'Очищаем…' : 'Очистить историю'}</button></div>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-neutral-200 pt-4"><p role={clearInviteHistoryMutation.isError ? 'alert' : 'status'} className={`text-xs ${clearInviteHistoryMutation.isError ? 'text-red-700' : 'text-neutral-500'}`}>{inviteCleanupNotice || 'Действующие приглашения и ноды сохраняются. Очистка удаляет использованные, отозванные и истёкшие приглашения.'}</p><button type="button" disabled={!invites.length || clearInviteHistoryMutation.isPending || createInviteMutation.isPending || revokeInviteMutation.isPending} onClick={async () => { if (await confirm({ title: 'Очистить историю приглашений?', description: 'Использованные, отозванные и истёкшие приглашения будут удалены. Действующие приглашения и подключённые ноды сохранятся.', confirmText: 'Очистить историю', tone: 'danger' })) clearInviteHistoryMutation.mutate(); }} className="ui-button ui-button-secondary"><Trash2 size={16} />{clearInviteHistoryMutation.isPending ? 'Очищаем…' : 'Очистить историю'}</button></div>
     </details>
 
     {nodeToDelete && <Drawer title="Удаление ноды" busy={deleteNodeMutation.isPending} onClose={() => { setNodeToDelete(null); setDeleteError(null); }}>

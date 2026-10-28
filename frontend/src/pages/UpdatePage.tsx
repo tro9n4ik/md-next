@@ -1,3 +1,4 @@
+import { useConfirm } from '../contexts/ConfirmationContext';
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Copy, Download, RefreshCw, Network, ShieldCheck, Globe, Cable, Cloud, Shield, KeyRound, Braces, Code, CheckCircle2, CirclePause, CircleAlert, CircleHelp } from 'lucide-react';
@@ -12,6 +13,7 @@ const componentIcons = { xray: Network, adguard: ShieldCheck, nginx: Globe, awg:
 const busyPhases = ['queued', 'preparing', 'backup', 'installing', 'checking', 'rolling_back'];
 
 export default function UpdatePage() {
+  const confirm = useConfirm();
   const [candidate, setCandidate] = useState<Candidate | null>(null);
   const [notice, setNotice] = useState('');
   const [startedHere, setStartedHere] = useState(false);
@@ -30,7 +32,7 @@ export default function UpdatePage() {
       <details className="border-t border-neutral-200 pt-4 text-sm text-neutral-500"><summary className="cursor-pointer">Как проходит обновление</summary>
       <p className="mt-3 leading-6">Сначала будут подготовлены зависимости и интерфейс, затем сохранены файлы панели, база, .env и конфигурации VPN. Если миграция или запуск новой панели завершатся ошибкой, предыдущее состояние восстановится автоматически. Копия остаётся на сервере; сохраните важные данные также на другом устройстве.</p></details>
       <p className="text-xs text-neutral-500">Перед установкой будет создана резервная копия. Панель кратковременно перезапустится.</p>
-      <button className="ui-button ui-button-primary" disabled={busy || install.isPending || !status.data?.can_install || !candidate?.available || !candidate.ready} onClick={() => { if (window.confirm('Обновить панель? Будет создана резервная копия. Панель кратковременно перезапустится; при ошибке будет выполнен откат.')) install.mutate(); }}><Download size={16} />{busy || install.isPending ? 'Обновление выполняется…' : 'Обновить панель'}</button>
+      <button className="ui-button ui-button-primary" disabled={busy || install.isPending || !status.data?.can_install || !candidate?.available || !candidate.ready} onClick={async () => { if (await confirm({ title: 'Обновить панель?', description: 'Будет создана резервная копия. Панель кратковременно перезапустится; при ошибке будет выполнен откат.', confirmText: 'Обновить панель', tone: 'warning' })) install.mutate(); }}><Download size={16} />{busy || install.isPending ? 'Обновление выполняется…' : 'Обновить панель'}</button>
       {status.data && !status.data.can_install && <p className="text-sm text-neutral-500">Установка обновлений доступна на серверной панели.</p>}
       <div role="status" aria-live="polite" className="text-sm text-neutral-600">{notice || (busy || startedHere ? status.data?.job.message : '')}</div>
       {status.error && <p className="text-sm text-amber-700">{busy ? 'Ожидаем возвращения панели после перезапуска…' : status.error.message}</p>}

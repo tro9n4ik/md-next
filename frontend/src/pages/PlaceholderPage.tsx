@@ -1,3 +1,4 @@
+import { useConfirm } from '../contexts/ConfirmationContext';
 import { useEffect, useState } from 'react';
 import { FileCode2, RotateCcw, Shuffle, Upload } from 'lucide-react';
 import { apiFetch } from '../utils/api';
@@ -6,6 +7,7 @@ type Site = { mode: string; filename: string; size: number; updated_at: string |
 const scope = 'placeholder-settings';
 
 export default function PlaceholderPage() {
+  const confirm = useConfirm();
   const [site, setSite] = useState<Site | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState('');
@@ -71,7 +73,7 @@ export default function PlaceholderPage() {
     <div><h3 className="mb-3 font-medium">{file ? 'Предпросмотр выбранного файла' : 'Предпросмотр текущей страницы'}</h3><iframe title="Предпросмотр сайта-заглушки" sandbox="" referrerPolicy="no-referrer" srcDoc={safePreview} className="h-[440px] w-full rounded-xl border border-neutral-200 bg-white" /></div>
     <div className="ui-actionbar flex flex-wrap gap-3">
       <button className="ui-button ui-button-primary" disabled={busy || !file} onClick={() => action('upload')}><Upload className="h-4 w-4" />{busy ? 'Подождите…' : 'Сохранить HTML'}</button>
-      <button className="ui-button ui-button-secondary" disabled={busy} onClick={() => { if (window.confirm('Заменить текущую страницу новой библиотекой? Предыдущую можно будет восстановить.')) action('generate'); }}><Shuffle className="h-4 w-4" />Создать новую заглушку</button>
+      <button className="ui-button ui-button-secondary" disabled={busy} onClick={async () => { if (await confirm({ title: 'Создать новую заглушку?', description: 'Текущая страница будет заменена новой библиотекой. Предыдущую можно будет восстановить.', confirmText: 'Создать заглушку' })) action('generate'); }}><Shuffle className="h-4 w-4" />Создать новую заглушку</button>
       <button className="ui-button ui-button-secondary" disabled={busy || !site?.can_restore} onClick={() => action('restore')}><RotateCcw className="h-4 w-4" />Вернуть предыдущую</button>
     </div>
   </section>;

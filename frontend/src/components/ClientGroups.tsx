@@ -1,3 +1,4 @@
+import { useConfirm } from '../contexts/ConfirmationContext';
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Check, Trash2 } from 'lucide-react';
@@ -10,12 +11,13 @@ const groupColors = ['emerald', 'blue', 'violet', 'amber', 'rose', 'slate'] as c
 const colorNames = ['Зелёный', 'Синий', 'Фиолетовый', 'Жёлтый', 'Розовый', 'Серый'];
 
 export function GroupEditor({ group, onClose }: { group: ClientGroup | null; onClose: () => void }) {
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
   const [name, setName] = useState(group?.name || '');
   const [color, setColor] = useState(group?.color || 'emerald');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const dirty = name !== (group?.name || '') || color !== (group?.color || 'emerald');
-  const close = () => { if (!dirty || window.confirm('Закрыть форму без сохранения изменений?')) onClose(); };
+  const close = async () => { if (!dirty || await confirm({ title: 'Закрыть без сохранения?', description: 'Изменения названия и цвета группы не будут сохранены.', confirmText: 'Закрыть без сохранения', cancelText: 'Продолжить редактирование', tone: 'warning' })) onClose(); };
   const save = useMutation({
     mutationFn: () => groupRequest('/api/v1/client-groups' + (group ? `/${group.id}` : ''), { method: group ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name.trim(), color }) }),
     onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['clientGroups'] }); void queryClient.invalidateQueries({ queryKey: ['clients'] }); onClose(); },

@@ -1,3 +1,4 @@
+import { useConfirm } from '../contexts/ConfirmationContext';
 import React, { useEffect, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -32,6 +33,7 @@ async function responseError(response: Response, fallback: string) {
 const formatTraffic = formatBytes;
 
 const ClientsTable: React.FC<{ description?: string }> = ({ description = 'Пользователи, условия подписки и профили подключения' }) => {
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
   const user = useCurrentUser();
   const isAdmin = user.role === 'admin';
@@ -144,7 +146,7 @@ const ClientsTable: React.FC<{ description?: string }> = ({ description = 'По�
   const selectedGroup = groups.data?.groups.find(item => String(item.id) === groupFilter);
   const rows = clientsQuery.data || [];
   const createDirty = !!(name || phone || email || newGroupId !== null || subscription.date || subscription.quotaGB || subscription.cdnQuotaGB || subscription.period !== 'month');
-  const closeCreate = () => { if (!createDirty || window.confirm('Закрыть форму без создания клиента?')) { setError(''); setCreateOpen(false); } };
+  const closeCreate = async () => { if (!createDirty || await confirm({ title: 'Закрыть форму клиента?', description: 'Клиент не будет создан. Заполненные данные останутся в черновике до ухода со страницы.', confirmText: 'Закрыть форму', cancelText: 'Продолжить заполнение', tone: 'warning' })) { setError(''); setCreateOpen(false); } };
 
   return <div className="clients-workspace">
     <header className="dashboard-heading"><div><div className="dashboard-eyebrow">ЛЮДИ И ПОДКЛЮЧЕНИЯ</div><h1>Клиенты</h1><p>{description}</p></div><div className="page-actions">
@@ -209,8 +211,8 @@ const ClientsTable: React.FC<{ description?: string }> = ({ description = 'По�
           <td data-label="Протоколы"><div className="client-protocols">{client.profiles.filter(profile => profile.is_enabled).map(profile => <span key={profile.id}>{translateProfile(profile.kind)}</span>)}</div><p className="client-traffic-detail">Активность: {client.connected_protocols?.length ? client.connected_protocols.map(translateProfile).join(', ') : '—'}</p></td>
           <td data-label="Действия"><div className="client-row-actions">
             {canIssue && <button onClick={() => navigate(`/clients/${client.id}/access`)} title={isAdmin ? 'Настроить доступ' : 'Выдать подключение'} aria-label={isAdmin ? 'Настроить доступ' : 'Выдать подключение'} className="ui-button ui-button-secondary"><KeyRound size={16} /></button>}
-            {(isAdmin || (user.can_pause_subscriptions && client.can_pause)) && <button disabled={pauseMutation.isPending} onClick={() => { setError(''); if (window.confirm(client.is_active ? `Приостановить доступ «${client.name}»? Профили и ссылки сохранятся.` : `Возобновить доступ «${client.name}»? Срок и лимиты подписки сохранятся.`)) pauseMutation.mutate(client); }} title={client.is_active ? 'Приостановить' : 'Возобновить'} aria-label={client.is_active ? 'Приостановить' : 'Возобновить'} className="ui-button ui-button-secondary">{client.is_active ? <Pause size={16} /> : <Play size={16} />}</button>}
-            {(isAdmin || (user.can_delete_subscriptions && client.can_delete)) && <button disabled={deleteMutation.isPending} title="Удалить клиента" aria-label={`Удалить клиента ${client.name}`} onClick={() => { if (window.confirm(`Удалить клиента «${client.name}» и его профили? Это действие нельзя отменить.`)) deleteMutation.mutate(client.id); }} className="ui-button client-delete-action"><Trash2 size={16} /></button>}
+            {(isAdmin || (user.can_pause_subscriptions && client.can_pause)) && <button disabled={pauseMutation.isPending} onClick={async () => { setError(''); if (await confirm({ title: client.is_active ? 'Приостановить доступ?' : 'Возобновить доступ?', description: client.is_active ? `Доступ клиента «${client.name}» будет приостановлен. Профили и ссылки сохранятся.` : `Доступ клиента «${client.name}» будет возобновлён. Срок и лимиты подписки сохранятся.`, confirmText: client.is_active ? 'Приостановить' : 'Возобновить', tone: client.is_active ? 'warning' : 'default' })) pauseMutation.mutate(client); }} title={client.is_active ? 'Приостановить' : 'Возобновить'} aria-label={client.is_active ? 'Приостановить' : 'Возобновить'} className="ui-button ui-button-secondary">{client.is_active ? <Pause size={16} /> : <Play size={16} />}</button>}
+            {(isAdmin || (user.can_delete_subscriptions && client.can_delete)) && <button disabled={deleteMutation.isPending} title="Удалить клиента" aria-label={`Удалить клиента ${client.name}`} onClick={async () => { if (await confirm({ title: 'Удалить клиента?', description: `Клиент «${client.name}» и его профили будут удалены. Это действие нельзя отменить.`, confirmText: 'Удалить клиента', tone: 'danger' })) deleteMutation.mutate(client.id); }} className="ui-button client-delete-action"><Trash2 size={16} /></button>}
           </div></td>
         </tr>)}
         {clientsQuery.isLoading && <tr><td colSpan={5} className="client-list-empty">Загрузка клиентов…</td></tr>}
