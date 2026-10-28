@@ -132,3 +132,5 @@ html[data-theme=dark] .warp-inline-error { color: #efb4a8; background: #3c2725; 
 .warp-result-details[open] summary > svg { transform: rotate(90deg); }
 .warp-gemini-no-result { font-size: 11px; color: var(--muted); padding: 12px 16px; line-height: 1.8; background: var(--soft); border-radius: 13px; }
 @media (max-width:767px) { .warp-gemini .warp-section-heading { flex-wrap: wrap; } .warp-section-heading > .warp-gemini-actions { flex-basis: 100%; width: 100%; justify-content: space-between; padding-left: 48px; gap: 12px; } .warp-result-summary { flex-direction: column; align-items: flex-start; gap: 3px; } }
+
+.warp-gemini-result.warp-region-checked { background: var(--surface); border-color: var(--muted); }
