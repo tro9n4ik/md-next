@@ -90,24 +90,20 @@ export default function WarpPage() {
     </div>
 
     <section data-autosave className="ui-card warp-gemini">
-      <div className="warp-section-heading"><span className="warp-section-icon warp-gemini-icon"><Sparkles size={21} /></span><div><h2>Автопроверка Gemini</h2><p>Контроль региональных ограничений через WARP</p></div><Switch label="Автопроверка Gemini" checked={!!gemini.data?.enabled} disabled={busy || !gemini.data || (!gemini.data.enabled && !status.data?.controls_ready)} onChange={enabled => geminiToggle.mutate(enabled)} /></div>
-      <div className="warp-gemini-columns">
-        <div className="warp-gemini-controls"><span className="warp-small-label">РЕЖИМ ПРОВЕРКИ</span><h3>{gemini.isError ? 'Нет данных' : !gemini.data ? 'Загрузка…' : gemini.data.enabled ? status.data?.enabled ? 'Каждые 5 минут' : 'Ожидает включения WARP' : 'Только вручную'}</h3><p>Проверяю региональный отказ через WARP активной ноды. При региональном отказе WARP переподключается. Соединения через него могут прерваться.</p>
-          {status.data && !status.data.enabled && <p className="warp-inline-notice">Пока WARP выключен, автопроверка приостановлена.</p>}
-          {gemini.isError && <p role="alert" className="warp-inline-error">Не удалось загрузить состояние автопроверки Gemini. <button onClick={() => gemini.refetch()}>Повторить</button></p>}
-          <button className="ui-button ui-button-secondary" disabled={busy || !status.data?.enabled || !status.data?.node_id} onClick={() => geminiCheck.mutate()}>{geminiCheck.isPending ? 'Проверяем Gemini…' : 'Проверить Gemini'}</button>
-        </div>
+      <div className="warp-section-heading"><span className="warp-section-icon warp-gemini-icon"><Sparkles size={21} /></span><div><h2>Автопроверка Gemini</h2><p>{gemini.isError ? 'Нет данных' : !gemini.data ? 'Загрузка…' : gemini.data.enabled ? status.data?.enabled ? 'Каждые 5 минут' : 'Ожидает включения WARP' : 'Только вручную'}</p></div><div className="warp-gemini-actions"><button className="ui-button ui-button-secondary" disabled={busy || !status.data?.enabled || !status.data?.node_id} onClick={() => geminiCheck.mutate()}>{geminiCheck.isPending ? 'Проверяем Gemini…' : 'Проверить Gemini'}</button><Switch label="Автопроверка Gemini" checked={!!gemini.data?.enabled} disabled={busy || !gemini.data || (!gemini.data.enabled && !status.data?.controls_ready)} onChange={enabled => geminiToggle.mutate(enabled)} /></div></div>
+      {status.data && !status.data.enabled && <p className="warp-inline-notice">Пока WARP выключен, автопроверка приостановлена.</p>}
+      {gemini.isError && <p role="alert" className="warp-inline-error">Не удалось загрузить состояние автопроверки Gemini. <button onClick={() => gemini.refetch()}>Повторить</button></p>}
         {gemini.data?.result.message ? <div role="status" className={`warp-gemini-result border-l-2 ${resultBorder}`}>
-          <span className="warp-small-label">ПОСЛЕДНИЙ РЕЗУЛЬТАТ</span><p className="warp-result-title">{resultTitle}</p>
+          <div className="warp-result-summary"><p className="warp-result-title">{resultTitle}</p>{gemini.data.result.checked_at && <span className="warp-result-caption">{new Date(gemini.data.result.checked_at * 1000).toLocaleString('ru-RU')} · {gemini.data.node_name}</span>}</div>
+          <details className="warp-result-details"><summary>Подробности результата <ChevronRight size={14} /></summary>
           <p>{gemini.data.result.message}</p>
           <p>Страна IP по Cloudflare: <b>{countryName ? `${countryName} (${countryCode})` : 'не определена'}</b></p>
           {result?.ip && <p>IP выхода: {result.ip}</p>}
           <p>WARP: {result?.warp === 'on' || result?.warp === 'plus' ? 'подтверждён' : result?.warp === 'off' ? 'выключен на проверочном выходе' : 'не проверен'}</p>
           <p className="warp-result-caption">Это страна IP по данным Cloudflare, а не регион аккаунта Google. Доступ к генерации проверяется в Gemini под вашим аккаунтом.</p>
-          {gemini.data.result.checked_at && <p className="warp-result-caption">{new Date(gemini.data.result.checked_at * 1000).toLocaleString('ru-RU')} · {gemini.data.node_name}</p>}
           {gemini.data.result.rotation_note && <p>{gemini.data.result.rotation_note}</p>}
-        </div> : <div className="warp-gemini-empty"><CircleHelp size={26} /><h3>Результатов пока нет</h3><p>Запустите проверку вручную или включите автоматическую.</p></div>}
-      </div>
+          </details>
+        </div> : <p className="warp-gemini-no-result">Результатов пока нет. Запустите проверку вручную или включите автоматическую.</p>}
       <details className="warp-monitor-details"><summary><CircleHelp size={16} />Как работает проверка<ChevronRight size={16} /></summary>
         <p>После двух региональных отказов подряд переподключаю WARP. Между попытками — не менее 30 минут, не более 3 попыток за 6 часов для каждой ноды. Соединения через WARP могут прерваться; новый IP не гарантируется.</p>
         <p>Для трафика Gemini включите соответствующий пресет. CAPTCHA, запрос входа и ошибки сети не вызывают смену IP. Проверка без аккаунта Google не подтверждает доступ к генерации и не определяет страну аккаунта.</p>
