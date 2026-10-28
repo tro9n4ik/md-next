@@ -1,7 +1,7 @@
 import Switch from './ui/Switch';
 import React, { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Copy, Check, Plus, Trash2, AlertTriangle, ArrowRight, ArrowUp, ArrowDown } from 'lucide-react';
+import { Copy, Check, Plus, Trash2, AlertTriangle, ArrowRight, ArrowUp, ArrowDown, RefreshCw, Server, ShieldCheck, Users, Globe, ChevronRight, KeyRound } from 'lucide-react';
 import CountryFlag from './ui/CountryFlag';
 import Drawer from './ui/Drawer';
 import { apiFetch } from '../utils/api';
@@ -74,7 +74,7 @@ const RouteStep: React.FC<{ title: string; detail: string; state: 'ok' | 'warn' 
     bad: 'border-red-200 bg-red-50 text-red-700',
     wait: 'border-neutral-200 bg-neutral-50 text-neutral-500',
   };
-  return <div className={`min-w-0 flex-1 rounded-xl border px-3 py-3 ${colors[state]}`}>
+  return <div className={`node-route-step min-w-0 flex-1 rounded-xl border px-3 py-3 ${colors[state]}`}>
     <div className="flex items-center gap-2 text-xs font-bold"><span className="h-2 w-2 shrink-0 rounded-full bg-current" />{title}</div>
     <div className="mt-1 break-words text-[11px] opacity-80">{detail}</div>
   </div>;
@@ -306,17 +306,21 @@ export const NodesManager: React.FC = () => {
   const draftInvite = !generatedInvite && (inviteName !== 'Новый узел' || ttlHours !== 24);
   const closeInvite = () => { if (!draftInvite || window.confirm('Закрыть форму без создания приглашения?')) handleCloseModal(); };
 
-  return <div className="space-y-6">
-    <section className="ui-card ui-panel">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div><h2 className="text-xs font-medium text-neutral-500">Текущий выход</h2>
-          <div className="mt-2 flex flex-wrap items-center gap-2"><span className="text-lg font-semibold">{route ? route.active_node?.name || 'Прямой выход' : 'Загрузка…'}</span>{route?.active_node && <CountryFlag code={activeCountry} />}
-            {route?.active_node && <span className={`text-xs ${route.active_node.status === 'healthy' ? 'text-emerald-700' : 'text-red-700'}`}>{route.active_node.status === 'healthy' ? 'Доступна' : 'Недоступна'}</span>}
-          </div>
-          {route && <p className="mt-1 break-all text-sm text-neutral-500">{route.active_node ? `${route.active_node.ip} · ${route.active_node.ping_ms} мс` : `Через сервер ${route.server.public_ip || route.server.hostname}`}</p>}
-        </div>
-        <div className="flex flex-wrap items-center gap-3"><span className="text-xs text-neutral-500">{route ? route.failover_mode === 'auto' ? 'Автопереключение включено' : 'Ручной режим' : 'Получаю маршрут'}</span><button className="ui-button ui-button-secondary" disabled={!route || routeCheckMutation.isPending} onClick={() => routeCheckMutation.mutate()}>{routeCheckMutation.isPending ? 'Проверка…' : 'Проверить внешний IP'}</button></div>
+  return <div className="nodes-workspace">
+    <header className="dashboard-heading"><div><div className="dashboard-eyebrow">ВАША СЕТЬ БЕЗ ПЕРЕРЫВОВ</div><h1>Узлы</h1><p>Серверы, активный выход и резервирование</p></div><div className="page-actions"><button className="ui-button ui-button-secondary" onClick={() => { void reloadNodes(); void reloadRoute(); void reloadFailover(); }} disabled={nodesLoading}><RefreshCw size={16} />Обновить</button><button onClick={() => { createInviteMutation.reset(); setCreateModalOpen(true); }} className="ui-button ui-button-primary"><Plus size={17} />Добавить ноду</button></div></header>
+    <div className="nodes-summary">
+      <section className="node-summary-card"><span className="node-summary-icon"><Server size={21} /></span><div><h2>Всего узлов</h2><b>{nodesError || nodesLoading ? '—' : nodes.length}</b><p>Подключённые серверы</p></div></section>
+      <section className="node-summary-card"><span className="node-summary-icon"><Globe size={21} /></span><div><h2>Доступны</h2><b>{nodesError || nodesLoading ? '—' : <>{nodes.filter(node => node.is_enabled && node.is_active && node.status === 'healthy').length}<span> / {nodes.length}</span></>}</b><p>{nodesError ? 'Данные недоступны' : 'По последней проверке'}</p></div></section>
+      <section className="node-summary-card"><span className="node-summary-icon"><ShieldCheck size={21} /></span><div><h2>Автопереключение</h2><b className="node-mode-label">{failoverError ? 'Нет данных' : failoverSettings ? failoverSettings.mode === 'auto' ? 'Включено' : 'Ручной режим' : 'Загрузка…'}</b><p>{route?.next_candidate ? `Резерв: ${route.next_candidate.name}` : 'Резерв не выбран'}</p></div></section>
+    </div>
+    <section className="ui-card ui-panel node-route-card">
+      <div className="node-section-heading"><div><span className="node-section-icon"><ArrowRight size={20} /></span><h2>Текущий маршрут</h2></div><button className="ui-button ui-button-secondary" disabled={!route || routeCheckMutation.isPending} onClick={() => routeCheckMutation.mutate()}>{routeCheckMutation.isPending ? 'Проверка…' : 'Проверить внешний IP'}</button></div>
+      <div className="node-current-route">
+        <div className="node-route-stop"><span className="node-stop-icon"><Users size={22} /></span><div><b>Клиенты</b><small>VPN-подключения</small></div></div><ArrowRight className="node-flow-arrow" size={20} />
+        <div className="node-route-stop"><span className="node-stop-icon"><Server size={22} /></span><div><b>Основной сервер</b><small>{route?.server.hostname || 'Нет данных'}</small></div></div><ArrowRight className="node-flow-arrow" size={20} />
+        <div className="node-route-stop node-route-stop-active"><span className="node-stop-icon">{route?.active_node && activeCountry ? <CountryFlag code={activeCountry} /> : <Globe size={22} />}</span><div><small>Текущий выход</small><b>{route ? route.active_node?.name || 'Прямой выход' : routeError ? 'Нет данных' : 'Загрузка…'}</b><small>{route?.active_node ? `${route.active_node.status === 'healthy' ? 'Доступна' : 'Недоступна'} · ${route.active_node.ping_ms > 0 ? `${route.active_node.ping_ms} мс` : 'Задержка неизвестна'}` : route ? 'Через сервер панели' : 'Получаем маршрут'}</small></div></div>
       </div>
+      <div className="node-route-caption"><span>{route?.active_node ? route.active_node.ip : route ? route.server.public_ip || route.server.hostname : 'Ожидание данных'}</span><span>{route ? route.failover_mode === 'auto' ? 'Автопереключение включено' : 'Ручной режим' : 'Получаем маршрут'}</span></div>
       {routeError && <p role="alert" className="mt-3 text-sm text-red-700">Не удалось загрузить маршрут. <button className="underline" onClick={() => reloadRoute()}>Повторить</button></p>}
       {route && !route.vpn.xray && <p role="alert" className="mt-3 text-sm text-red-700">Xray не работает. Проверьте состояние сервиса.</p>}
       {route?.manual_direct && <p className="mt-3 text-xs text-amber-700">Прямой выход выбран вручную. Автоматика не заменит его нодой.</p>}
@@ -337,25 +341,26 @@ export const NodesManager: React.FC = () => {
 
     {clusterError && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{clusterError}</p>}
 
-    <section className="ui-card ui-panel">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h2 className="ui-card-title">Ноды</h2><p className="mt-1 text-xs text-neutral-500">Порядок в списке определяет приоритет резервирования.</p></div><button onClick={() => { createInviteMutation.reset(); setCreateModalOpen(true); }} className="ui-button ui-button-primary"><Plus size={16} />Добавить ноду</button></div>
+    <section className="ui-card ui-panel node-list-card">
+      <div className="node-section-heading"><div><span className="node-section-icon"><Server size={20} /></span><h2>Подключённые узлы <span className="node-count">{nodes.length}</span></h2></div><span className="node-priority-hint">Порядок определяет приоритет резервирования</span></div>
       {nodesError && <p role="alert" className="mb-3 text-sm text-red-700">Не удалось загрузить узлы. <button className="underline" onClick={() => reloadNodes()}>Повторить</button></p>}
       {nodesLoading && <p className="text-sm text-neutral-500">Загрузка нод…</p>}
       {!nodesLoading && !nodesError && !nodes.length && <p className="py-5 text-sm text-neutral-500">Узлы ещё не подключены. Добавьте ноду по одноразовому приглашению.</p>}
-      <ul aria-label="Список нод" className="divide-y divide-neutral-100 md:grid md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_60px_max-content] md:gap-x-3">{nodes.map((node, index) => <li key={node.id} className="grid grid-cols-2 items-center gap-3 py-4 md:col-span-4 md:grid-cols-subgrid">
+      <div className="node-list-columns" aria-hidden="true"><span>Узел и состояние</span><span>Адрес</span><span>Задержка</span><span>Приоритет и действия</span></div>
+      <ul aria-label="Список нод" className="node-list">{nodes.map((node, index) => <li key={node.id} className={`node-list-row ${route?.active_node?.id === node.id ? 'node-list-row-active' : ''}`}>
         <div className="col-span-2 min-w-0 md:col-span-1"><div className="flex flex-wrap items-center gap-2"><CountryFlag code={node.country_code} /><h3 className="break-all text-sm font-semibold">{node.name}</h3>{route?.active_node?.id === node.id && <span className="text-xs font-medium text-emerald-700">Активная</span>}</div><p className={`mt-1 text-xs ${node.status === 'healthy' ? 'text-emerald-700' : node.status === 'disabled' ? 'text-neutral-500' : 'text-red-700'}`}>{node.status === 'healthy' ? 'Доступна' : node.status === 'disabled' ? 'Выключена' : 'Недоступна'}</p></div>
         <div className="min-w-0"><p className="break-all font-mono text-xs text-neutral-700">{node.host}</p><p className="mt-1 text-xs text-neutral-500">{node.port} · {node.protocol.toUpperCase()}</p></div>
         <p className="text-right text-xs text-neutral-500">{node.ping_ms ? `${node.ping_ms} мс` : '—'}</p>
         <div className="col-span-2 flex flex-wrap items-center gap-1.5 md:col-span-1 md:grid md:grid-cols-[2rem_2.25rem_2.25rem_9rem_2.25rem] md:items-center"><span className="mr-1 text-xs text-neutral-400">#{node.priority + 1}</span>
           <button aria-label={`Поднять приоритет: ${node.name}`} disabled={index === 0 || reorderMutation.isPending} onClick={() => { const ids = nodes.map(item => item.id); [ids[index - 1], ids[index]] = [ids[index], ids[index - 1]]; reorderMutation.mutate(ids); }} className="ui-button ui-button-secondary !min-h-9 !p-2"><ArrowUp size={16} /></button>
           <button aria-label={`Опустить приоритет: ${node.name}`} disabled={index === nodes.length - 1 || reorderMutation.isPending} onClick={() => { const ids = nodes.map(item => item.id); [ids[index + 1], ids[index]] = [ids[index], ids[index + 1]]; reorderMutation.mutate(ids); }} className="ui-button ui-button-secondary !min-h-9 !p-2"><ArrowDown size={16} /></button>
-          {route?.active_node?.id === node.id ? <span aria-hidden="true" className="hidden md:block" /> : <button aria-label={`Сделать активной: ${node.name}`} onClick={() => activeNodeMutation.mutate(node.id)} disabled={!node.is_enabled || node.status !== 'healthy' || activeNodeMutation.isPending || !route} className="ui-button ui-button-secondary !min-h-9 !px-3 !py-1 text-xs">Сделать активной</button>}
+          {route?.active_node?.id === node.id ? <span className="node-active-pill">Активная</span> : <button aria-label={`Сделать активной: ${node.name}`} onClick={() => activeNodeMutation.mutate(node.id)} disabled={!node.is_enabled || node.status !== 'healthy' || activeNodeMutation.isPending || !route} className="ui-button ui-button-secondary !min-h-9 !px-3 !py-1 text-xs">Сделать активной</button>}
           <button aria-label={`Удалить ноду: ${node.name}`} onClick={() => { setNodeToDelete(node); setDeleteError(null); }} className="ui-button ui-button-secondary !min-h-9 !p-2 text-neutral-500"><Trash2 size={16} /></button>
         </div>
       </li>)}</ul>
     </section>
 
-    <details className="ui-card ui-panel"><summary className="cursor-pointer text-sm font-medium">Автопереключение <span className="ml-2 text-xs font-normal text-neutral-500">{failoverError ? 'Ошибка загрузки' : failoverSettings ? failoverSettings.mode === 'auto' ? 'Включено' : 'Ручной режим' : 'Нет данных'}</span></summary>
+    <details className="ui-card ui-panel node-accordion"><summary><span className="node-section-icon"><ShieldCheck size={20} /></span><span className="node-accordion-title">Автопереключение <small>{failoverError ? 'Ошибка загрузки' : failoverSettings ? failoverSettings.mode === 'auto' ? 'Включено' : 'Ручной режим' : 'Нет данных'}</small></span><ChevronRight size={18} className="node-accordion-chevron" /></summary>
       {failoverError && <p role="alert" className="mt-4 text-sm text-red-700">Не удалось загрузить настройки. <button className="underline" onClick={() => reloadFailover()}>Повторить</button></p>}
       {failoverForm && <form id="nodes-failover-form" data-editable className="mt-5 space-y-4" onSubmit={event => { event.preventDefault(); failoverMutation.mutate(failoverForm); }}>
         <fieldset disabled={failoverMutation.isPending} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -374,7 +379,7 @@ export const NodesManager: React.FC = () => {
       </form>}
     </details>
 
-    <details className="ui-card ui-panel"><summary className="cursor-pointer text-sm font-medium">Одноразовые приглашения <span className="ml-2 text-xs font-normal text-neutral-500">{invitesError ? 'Ошибка загрузки' : invitesLoading ? 'Загрузка…' : activeInvites ? `Активных: ${activeInvites}` : 'Нет активных'}</span></summary>
+    <details className="ui-card ui-panel node-accordion"><summary><span className="node-section-icon"><KeyRound size={20} /></span><span className="node-accordion-title">Одноразовые приглашения <small>{invitesError ? 'Ошибка загрузки' : invitesLoading ? 'Загрузка…' : activeInvites ? `Активных: ${activeInvites}` : 'Нет активных'}</small></span><ChevronRight size={18} className="node-accordion-chevron" /></summary>
       {invitesError && <p role="alert" className="mt-4 text-sm text-red-700">Не удалось загрузить приглашения. <button className="underline" onClick={() => reloadInvites()}>Повторить</button></p>}
       {invitesLoading && <p className="mt-4 text-sm text-neutral-500">Загрузка приглашений…</p>}
       <ul className="mt-4 divide-y divide-neutral-100">{invites.map(invite => <li key={invite.id} className="flex flex-wrap items-center justify-between gap-3 py-3"><div className="min-w-0"><p className="break-words text-sm font-medium">{invite.name}</p><p className="mt-1 text-xs text-neutral-500">{invite.revoked ? 'Отозван' : invite.used_at ? 'Использован' : new Date(invite.expires_at).getTime() <= now ? 'Истёк' : 'Активен'} · До {new Date(invite.expires_at).toLocaleString('ru-RU')}</p></div>{!invite.revoked && !invite.used_at && <button aria-label={`Отозвать приглашение: ${invite.name}`} disabled={revokeInviteMutation.isPending} onClick={() => revokeInviteMutation.mutate(invite.id)} className="ui-button ui-button-secondary !min-h-9 !p-2"><Trash2 size={16} /></button>}</li>)}</ul>

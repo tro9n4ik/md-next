@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.auth import get_current_user, require_admin, require_subscription_issuer, require_subscription_deleter, require_subscription_pauser
 from app.models.user import User
 from app.db.database import get_db
-from app.models.client import Client, ClientProfile
+from app.models.client import Client, ClientProfile, ClientGroup
 from app.services.awg import AWGService
 from app.services.client_service import ClientService
 from app.services.crypto import decrypt_secret, encrypt_secret
@@ -40,6 +40,7 @@ SUBSCRIPTION_WINDOW = 60
 
 class ClientCreate(BaseModel):
     name: str
+    group_id: int | None = Field(default=None, gt=0)
     phone: str | None = None
     email: str | None = None
     protocol: str | None = None
@@ -85,6 +86,11 @@ class ClientStatusUpdate(BaseModel):
     is_active: bool = Field(strict=True)
 
 
+class ClientGroupUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    group_id: int | None = Field(gt=0)
+
+
 class ClientAccessUpdate(BaseModel):
     profiles: dict[str, bool] = Field(default_factory=dict)
     adblock_enabled: bool | None = None
@@ -116,12 +122,15 @@ async def get_clients(
     q: str = "", status_filter: Literal["all", "active", "disabled"] | None = None,
     sort: Literal["name", "status", "traffic", "protocol", "created"] = "created",
     order: Literal["asc", "desc"] = "desc", status: Literal["all", "active", "disabled"] | None = None,
+    group_id: int | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     query = select(Client)
     if current_user.role != "admin" and not current_user.view_all_clients:
         query = query.where(Client.created_by_id == current_user.id)
+    if group_id is not None:
+        query = query.where(Client.group_id.is_(None) if group_id == 0 else Client.group_id == group_id)
     if q.strip():
         pattern = f"%{q.strip()}%"
         query = query.where(or_(Client.name.ilike(pattern), Client.phone.ilike(pattern), Client.email.ilike(pattern)))
@@ -137,9 +146,14 @@ async def get_clients(
         if profile.kind in globally_enabled:
             profiles_by_client.setdefault(profile.client_id, []).append(profile)
     clients.sort(key=lambda c: _client_sort_key(c, sort, profiles_by_client.get(c.id, [])), reverse=order == "desc")
+    groups = {group.id: group for group in (await db.execute(select(ClientGroup))).scalars().all()}
     return [
         {
             "id": c.id, "name": c.name, "phone": c.phone, "email": c.email,
+            "group_id": c.group_id,
+            "group": {"id": groups[c.group_id].id, "name": groups[c.group_id].name, "color": groups[c.group_id].color} if c.group_id in groups else None,
+            "last_seen_at": utc(c.last_seen_at).isoformat() if c.last_seen_at else None,
+            "can_change_group": current_user.role == "admin" or (current_user.can_issue_subscriptions and c.created_by_id == current_user.id),
             "protocol": c.protocol, "traffic_used": c.traffic_total or c.traffic_used or 0,
             "traffic_total": c.traffic_total or c.traffic_used or 0, "traffic_limit": c.traffic_limit or 0,
             "traffic_up": sum(p.traffic_up or 0 for p in profiles_by_client.get(c.id, [])),
@@ -162,6 +176,8 @@ async def create_client(client_data: ClientCreate, db: AsyncSession = Depends(ge
 
 async def create_client_record(client_data: ClientCreate, db: AsyncSession, *, created_by_id: int | None = None, is_admin: bool = True):
     """Shared transaction for the authenticated panel and administrator Telegram bot."""
+    if client_data.group_id is not None and await db.get(ClientGroup, client_data.group_id) is None:
+        raise HTTPException(status_code=404, detail="Группа не найдена")
     enabled = await enabled_profile_kinds(db)
     protocol_settings = await get_profile_settings(db)
     if client_data.protocol == "vless" and any(kind.startswith("vless_") for kind in enabled) and not all(protocol_settings.get(key) for key in ("protocol.reality.server_address", "protocol.reality.public_key", "protocol.reality.server_name")):
@@ -172,7 +188,7 @@ async def create_client_record(client_data: ClientCreate, db: AsyncSession, *, c
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     client = Client(name=client_data.name.strip(), phone=client_data.phone or "", email=client_data.email or "", protocol=None,
-                    created_at=now, expires_at=expires, monthly_traffic_limit=client_data.monthly_traffic_limit,
+                    created_at=now, expires_at=expires, group_id=client_data.group_id, monthly_traffic_limit=client_data.monthly_traffic_limit,
                     cdn_monthly_traffic_limit=client_data.cdn_monthly_traffic_limit, traffic_period_start=now, created_by_id=created_by_id)
     db.add(client)
     try:
@@ -186,7 +202,7 @@ async def create_client_record(client_data: ClientCreate, db: AsyncSession, *, c
         await db.commit()
         log_event("info", "client", "Клиент создан", {"client_id": client.id, "name": client.name, "actor_id": created_by_id})
         return {
-            "client": {"id": client.id, "name": client.name, "phone": client.phone, "email": client.email, "protocol": legacy_protocol,
+            "client": {"id": client.id, "name": client.name, "phone": client.phone, "email": client.email, "protocol": legacy_protocol, "group_id": client.group_id,
                        **limit_info(client),
                        "uuid": next((p.uuid for p in profiles if p.kind == "vless_reality_tcp"), None)},
             "profiles": [{"id": p.id, "kind": p.kind} for p in profiles],
@@ -198,6 +214,19 @@ async def create_client_record(client_data: ClientCreate, db: AsyncSession, *, c
         logger.exception("Не удалось создать клиента")
         detail = (str(exc) or exc.__class__.__name__) if is_admin else "Ошибка применения профилей; обратитесь к администратору"
         raise HTTPException(status_code=502, detail=f"Не удалось создать и применить профили клиента: {detail}") from exc
+
+
+@router.put("/{client_id}/group")
+async def assign_client_group(client_id: int, data: ClientGroupUpdate, db: AsyncSession = Depends(get_db), user: User = Depends(require_subscription_issuer)):
+    client = await db.get(Client, client_id)
+    if client is None or (user.role != "admin" and client.created_by_id != user.id):
+        raise HTTPException(status_code=404, detail="Клиент не найден")
+    if data.group_id is not None and await db.get(ClientGroup, data.group_id) is None:
+        raise HTTPException(status_code=404, detail="Группа не найдена")
+    client.group_id = data.group_id
+    await db.commit()
+    log_event("info", "client", "Группа клиента изменена", {"client_id": client_id, "group_id": data.group_id, "actor_id": user.id})
+    return {"id": client_id, "group_id": client.group_id}
 
 
 @router.get("/{client_id}/profiles")

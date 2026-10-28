@@ -10,6 +10,7 @@ from sqlalchemy.sql import text
 
 from app.db.database import engine, AsyncSessionLocal
 from app.api.clients import router as clients_router, subscription_router
+from app.api.client_groups import router as client_groups_router
 from app.api.nodes import router as nodes_router
 from app.api.cluster import router as cluster_router
 from app.api.warp import router as warp_router
@@ -181,6 +182,7 @@ app.include_router(operations_router)
 app.include_router(protocols_router)
 app.include_router(dns_router)
 app.include_router(clients_router)
+app.include_router(client_groups_router)
 app.include_router(subscription_router)
 app.include_router(nodes_router)
 app.include_router(cluster_router)

@@ -5,10 +5,21 @@ from sqlalchemy.sql import func
 from app.db.database import Base
 
 
+class ClientGroup(Base):
+    __tablename__ = "client_groups"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(48), nullable=False)
+    name_key = Column(String(48), nullable=False, unique=True)
+    color = Column(String(16), nullable=False, default="emerald", server_default="emerald")
+
+
 class Client(Base):
     __tablename__ = "clients"
 
     id = Column(Integer, primary_key=True, index=True)
+    group_id = Column(Integer, ForeignKey("client_groups.id", ondelete="SET NULL"), nullable=True, index=True)
+    last_seen_at = Column(DateTime(timezone=True), nullable=True)
     created_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     name = Column(String, index=True, nullable=False)
     phone = Column(String, nullable=False)

@@ -114,6 +114,8 @@ async def test_subadmin_cannot_call_any_panel_administration_endpoint(auth_heade
             continue
         if path in {"/api/v1/nodes/register", "/api/v1/nodes/join", "/api/v1/clients"}:
             continue
+        if (path == "/api/v1/client-groups" and "get" in operations):
+            operations = {method: value for method, value in operations.items() if method != "get"}
         for method in operations:
             if method not in {"get", "post", "put", "delete", "patch"}:
                 continue
@@ -123,6 +125,8 @@ async def test_subadmin_cannot_call_any_panel_administration_endpoint(auth_heade
                 and method == "get"
             ):
                 continue
+            if path == "/api/v1/clients/{client_id}/group" and method == "put":
+                continue  # Назначение группы своим клиентам проверяется отдельными тестами.
             routes.append((method.upper(), re.sub(r"\{[^}]+\}", "1", path)))
     assert len(routes) > 50
     for method, path in routes:
