@@ -192,7 +192,7 @@ test('Прогресс обновления виден без раскрытия
   const html = render(UpdatePage, admin, query);
   assert.match(html, /Обновление выполняется/);
   assert.match(html, /role="status"[^>]*>Проверяю запуск новой панели/);
-  assert.doesNotMatch(html, /<details[^>]*\bopen/);
+  assert.doesNotMatch(html, /<details|<summary/);
   assert.match(html, /Компоненты сервера/);
 });
 

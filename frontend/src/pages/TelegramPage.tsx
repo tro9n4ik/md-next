@@ -8,7 +8,7 @@ export default function TelegramPage({ embedded = false }: { embedded?: boolean 
     <section className="ui-card ui-panel grid gap-5 md:grid-cols-2">
       <div><h2 className="ui-card-title mb-3">Управление из Telegram</h2>
         <p className="text-sm leading-6 text-neutral-600">Подписки с контактами, сроком и месячным трафиком. Перед созданием — итоговая карточка. В списке — состояние, расход и данные подключения.</p>
-        <details className="mt-3 text-sm"><summary className="cursor-pointer font-medium text-emerald-700">Команды и возможности</summary>
+        <section className="mt-4 text-sm"><h3 className="font-medium text-emerald-700">Команды и возможности</h3>
           <dl className="mt-3 space-y-2 text-neutral-600">
             <div><dt className="font-mono text-neutral-800">/menu</dt><dd>Главное меню.</dd></div>
             <div><dt className="font-mono text-neutral-800">/new_subscription</dt><dd>Имя, телефон, почта, срок и лимит. Контакты можно пропустить.</dd></div>
@@ -16,7 +16,7 @@ export default function TelegramPage({ embedded = false }: { embedded?: boolean 
             <div><dt className="font-mono text-neutral-800">/status · /failover</dt><dd>Состояние и переключение выхода.</dd></div>
           </dl>
           <p className="mt-3 text-xs text-neutral-500">Трафик по умолчанию без ограничений. Месячный период — от даты создания. /add_vless и /add_awg также открывают мастер.</p>
-        </details>
+        </section>
       </div>
       <div aria-label="Предпросмотр меню бота" className="grid grid-cols-2 gap-2 rounded-xl bg-neutral-50 p-4 text-center text-sm text-emerald-900">
         <span className="col-span-2 rounded-lg bg-emerald-100 p-3">➕ Новая подписка</span>
@@ -27,5 +27,5 @@ export default function TelegramPage({ embedded = false }: { embedded?: boolean 
     <section className="ui-card ui-panel"><h2 className="ui-card-title">Новые возможности бота</h2><p className="mt-3 text-sm text-neutral-600">Поиск клиентов и фильтры, продление на 30 дней, изменение срока и лимита, управление профилями. /diagnostics выполняет серверную проверку. Напоминания о сроках и 80–100% лимита включаются настройкой уведомлений о подписках.</p><p className="mt-3 text-sm text-neutral-600">В карточке клиента создайте код Telegram. Клиент отправляет /bind КОД и открывает /me — доступна только его подписка. Код одноразовый, действует 15 минут. Привязку можно отозвать.</p></section>
     <TemplateSettings />
   </>;
-  return embedded ? content : <PageLayout title="Telegram-бот" description="Подписки, инлайн-меню, выход через ноду и уведомления" icon={Send}>{content}</PageLayout>;
+  return <PageLayout embedded={embedded} title="Telegram-бот" description="Подписки, инлайн-меню, выход через ноду и уведомления" icon={Send}>{content}</PageLayout>;
 }
