@@ -224,3 +224,32 @@ test('Ноды показывают текущий выход и запреща�
   assert.match(unavailable, /disabled=""/);
   assert.ok(buttons.some(button => button.includes('Проверить внешний IP')));
 });
+
+
+test('Google RU показывается отдельно от страны Cloudflare и отказа Gemini', () => {
+  const query = fixture();
+  query.setQueryData(['warp-status'], {enabled: true, node_id: 1, name: 'Нода NL'});
+  query.setQueryData(['warp-presets'], {presets: []});
+  query.setQueryData(['warp-gemini-monitor'], {enabled: true, node_id: 1, node_name: 'Нода NL', result: {
+    status: 'google_region_ru', message: 'Сигнал региона Google.', country: 'NL', google_country: 'RU', warp: 'on', checked_at: 10000,
+  }});
+  const html = render(WarpPage, admin, query);
+  assert.match(html, /Google определяет выход как РФ/);
+  assert.match(html, /Регион по странице входа Google: <b>Россия \(RU\)/);
+  assert.match(html, /Страна IP по Cloudflare: <b>Нидерланды \(NL\)/);
+  assert.doesNotMatch(html, /Региональный отказ Gemini/);
+  assert.doesNotMatch(html, /border-emerald-600/);
+});
+
+test('Отсутствующий регион Google не подменяется страной Cloudflare', () => {
+  const query = fixture();
+  query.setQueryData(['warp-status'], {enabled: true, node_id: 1, name: 'Нода DE'});
+  query.setQueryData(['warp-presets'], {presets: []});
+  query.setQueryData(['warp-gemini-monitor'], {enabled: true, node_id: 1, node_name: 'Нода DE', result: {
+    status: 'page_loaded', message: 'Страница открылась.', country: 'DE', google_country: '', warp: 'on', checked_at: 10000,
+  }});
+  const html = render(WarpPage, admin, query);
+  assert.match(html, /Регион по странице входа Google: <b>не определён/);
+  assert.match(html, /Доступ к Gemini не подтверждён/);
+  assert.match(html, /Страна IP по Cloudflare: <b>Германия \(DE\)/);
+});

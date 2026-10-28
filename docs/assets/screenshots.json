@@ -1,8 +1,83 @@
 {
-  "version": "2.4.18",
+  "version": "2.5.0",
+  "source_base_commit": "722ef728c0d36f8b573e995d47531219afb78784",
+  "demo": true,
+  "generated_from_worktree": true,
+  "captured_at": "2026-10-28T07:30:00.000Z",
   "files": {
-    "dashboard-demo.jpg": "bd69e8b98ebc155d370a4d63e439d80d5ca872662624ac1e3555320d62b1d8b1",
-    "clients-demo.jpg": "c81f8e46cdd9f478a74e6a3c94ff41f848e9205a3d3c75a75c5f3500f95881d4",
-    "telegram-demo.jpg": "03924cbdb26ac4d568136e21e662fc59cf7734db65c75f99e69e089341807044"
+    "clients-demo.jpg": "5c69dee952ef51f30d525f6ad0c679343abb189f866ae76e3f428a7a921fe8c0",
+    "dashboard-dark-demo.jpg": "9992deb09caa0265e4ee5177fc47c2311cdd4f53894e8c5548c1086918905d5b",
+    "dashboard-demo.jpg": "6a8939b2e55a4a3d24c0e9177eb98c2e01c9855684f1e0d34c0b7de41e39fec1",
+    "nodes-demo.jpg": "7a9e1ea782d4edeb490ba20a803306061cb6caccbe9f4a5436d249b702f5a1bb",
+    "protocols-demo.jpg": "9c463aa100be6c0ae9328779bffed837d2b254129c9b8d295df3841cb045c6b2",
+    "subadmins-demo.jpg": "b0d3a0f6278a47c571cd2da43658421731419683e9edd5f37de87170b8b9d477",
+    "telegram-demo.jpg": "11dc6ab5f0db6494bd9e588f6ab144fac7dab243d95e7b463a649b643c6233be",
+    "warp-demo.jpg": "b6362f9a401cbb849999bbadd3608fb14f529ac1def3a373f7975656f9486a08"
+  },
+  "captures": {
+    "dashboard-demo.jpg": {
+      "route": "/",
+      "theme": "light",
+      "viewport": {
+        "width": 1600,
+        "height": 1100
+      }
+    },
+    "dashboard-dark-demo.jpg": {
+      "route": "/",
+      "theme": "dark",
+      "viewport": {
+        "width": 1600,
+        "height": 1100
+      }
+    },
+    "clients-demo.jpg": {
+      "route": "/clients",
+      "theme": "light",
+      "viewport": {
+        "width": 1600,
+        "height": 1100
+      }
+    },
+    "nodes-demo.jpg": {
+      "route": "/nodes",
+      "theme": "light",
+      "viewport": {
+        "width": 1600,
+        "height": 1100
+      }
+    },
+    "warp-demo.jpg": {
+      "route": "/warp",
+      "theme": "light",
+      "viewport": {
+        "width": 1600,
+        "height": 1100
+      }
+    },
+    "protocols-demo.jpg": {
+      "route": "/protocols",
+      "theme": "light",
+      "viewport": {
+        "width": 1600,
+        "height": 1100
+      }
+    },
+    "subadmins-demo.jpg": {
+      "route": "/settings/users",
+      "theme": "light",
+      "viewport": {
+        "width": 1600,
+        "height": 1100
+      }
+    },
+    "telegram-demo.jpg": {
+      "route": "/settings/telegram",
+      "theme": "light",
+      "viewport": {
+        "width": 1600,
+        "height": 1100
+      }
+    }
   }
 }

@@ -10,6 +10,7 @@ from app.models.node import Node
 from app.models.setting import Setting
 from app.services import gemini_monitor as module
 from app.services import warp_node
+from app.services.google_region import GOOGLE_REGION_URL
 from app.services.gemini_monitor import GeminiMonitor, classify_page, monitor_status
 from conftest import TestingSessionLocal
 
@@ -249,7 +250,7 @@ async def test_probe_uses_socks_and_refuses_non_gemini_redirect():
          patch.object(module.httpx, "AsyncClient", client):
         result = await module.probe_proxy(23456, timeout=1)
     assert result["status"] == "unknown"
-    assert calls == [module.GEMINI_URL]
+    assert sorted(calls) == sorted([module.GEMINI_URL, GOOGLE_REGION_URL])
 
 
 @pytest.mark.asyncio
