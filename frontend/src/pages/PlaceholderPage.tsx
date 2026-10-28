@@ -2,6 +2,7 @@ import { useConfirm } from '../contexts/ConfirmationContext';
 import { useEffect, useState } from 'react';
 import { FileCode2, RotateCcw, Shuffle, Upload } from 'lucide-react';
 import { apiFetch } from '../utils/api';
+import PageLayout from '../components/ui/PageLayout';
 
 type Site = { mode: string; filename: string; size: number; updated_at: string | null; can_restore: boolean };
 const scope = 'placeholder-settings';
@@ -55,26 +56,31 @@ export default function PlaceholderPage() {
   }
   // Изоляция HTML пользователя: без скриптов, сети, форм и доступа к панели.
   const safePreview = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'">${preview}`;
-  return <section id={scope} data-unsaved-controlled className="ui-card space-y-6">
-    <div><h2 className="flex items-center gap-2 text-xl font-semibold"><FileCode2 className="h-5 w-5" />Сайт-заглушка</h2>
-      <p className="mt-2 text-sm text-neutral-500">Публичная страница основного домена. Адрес панели и профили VPN сохраняются. При новой установке создаётся библиотека файлов со случайным оформлением.</p></div>
+  return <PageLayout embedded title="Сайт-заглушка" description="Публичная страница основного домена и загрузка собственного HTML" icon={FileCode2}><div id={scope} data-unsaved-controlled className="page-content placeholder-settings">
     {error && <p role="alert" className="rounded-xl bg-red-50 p-4 text-red-700">{error}</p>}
     {message && <p role="status" className="rounded-xl bg-emerald-50 p-4 text-emerald-700">{message}</p>}
-    {site && <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4 text-sm"><strong>{site.mode === 'custom' ? 'Свой HTML-файл' : site.mode === 'generated' ? 'Сгенерированная библиотека' : 'Текущая страница'}</strong><p className="mt-1 text-neutral-500">{site.filename} · {(site.size / 1024).toFixed(1)} КБ{site.updated_at && ` · ${new Date(site.updated_at).toLocaleString('ru-RU')}`}</p></div>}
-    <div><label htmlFor="placeholder-file" className="mb-2 block font-medium">Заменить своей страницей</label>
-      <input key={inputKey} id="placeholder-file" type="file" accept=".html,.htm,text/html" disabled={busy} className="block w-full text-sm file:mr-4 file:rounded-lg file:border-0 file:bg-emerald-50 file:px-4 file:py-2 file:text-emerald-800" onChange={async event => {
+    <section className="ui-card ui-panel space-y-4"><h3 className="ui-card-title">Текущая страница</h3>
+      <p className="text-sm leading-6 text-neutral-500">Заглушка открывается на основном домене. Адрес панели и профили VPN сохраняются. При новой установке создаётся библиотека файлов со случайным оформлением.</p>
+      {site && <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4 text-sm"><strong>{site.mode === 'custom' ? 'Свой HTML-файл' : site.mode === 'generated' ? 'Сгенерированная библиотека' : 'Текущая страница'}</strong><p className="mt-1 break-all text-neutral-500">{site.filename} · {(site.size / 1024).toFixed(1)} КБ{site.updated_at && ` · ${new Date(site.updated_at).toLocaleString('ru-RU')}`}</p></div>}
+    </section>
+    <section className="ui-card ui-panel space-y-4"><h3 className="ui-card-title">Загрузить свою страницу</h3>
+      <label htmlFor="placeholder-file" className="block text-sm font-medium">HTML-файл</label>
+      <input key={inputKey} id="placeholder-file" type="file" accept=".html,.htm,text/html" disabled={busy} className="ui-file-input" aria-describedby="placeholder-file-help" onChange={async event => {
         const selected = event.target.files?.[0] || null;
         setError(''); setMessage('');
         if (selected && selected.size > 1024 * 1024) { setError('Размер файла не должен превышать 1 МБ'); event.target.value = ''; return; }
         setFile(selected);
         if (selected) setPreview(await selected.text()); else await load().catch(e => setError(e.message));
       }} />
-      <p className="mt-2 text-sm text-neutral-500">Один полный HTML-документ в UTF-8, до 1 МБ. Включите стили и изображения в файл. Скрипты и внешние ресурсы в предпросмотре отключены. Файл сохраняется при обновлении панели.</p></div>
-    <div><h3 className="mb-3 font-medium">{file ? 'Предпросмотр выбранного файла' : 'Предпросмотр текущей страницы'}</h3><iframe title="Предпросмотр сайта-заглушки" sandbox="" referrerPolicy="no-referrer" srcDoc={safePreview} className="h-[440px] w-full rounded-xl border border-neutral-200 bg-white" /></div>
-    <div className="ui-actionbar flex flex-wrap gap-3">
+      <p id="placeholder-file-help" className="text-sm leading-6 text-neutral-500">Один полный HTML-документ в UTF-8, до 1 МБ. Включите стили и изображения в файл. Файл сохраняется при обновлении панели.</p>
+      <div className="placeholder-actions border-t border-neutral-200 pt-4">
       <button className="ui-button ui-button-primary" disabled={busy || !file} onClick={() => action('upload')}><Upload className="h-4 w-4" />{busy ? 'Подождите…' : 'Сохранить HTML'}</button>
-      <button className="ui-button ui-button-secondary" disabled={busy} onClick={async () => { if (await confirm({ title: 'Создать новую заглушку?', description: 'Текущая страница будет заменена новой библиотекой. Предыдущую можно будет восстановить.', confirmText: 'Создать заглушку' })) action('generate'); }}><Shuffle className="h-4 w-4" />Создать новую заглушку</button>
-      <button className="ui-button ui-button-secondary" disabled={busy || !site?.can_restore} onClick={() => action('restore')}><RotateCcw className="h-4 w-4" />Вернуть предыдущую</button>
-    </div>
-  </section>;
+      </div>
+    </section>
+    <section className="ui-card ui-panel space-y-4"><h3 className="ui-card-title">{file ? 'Предпросмотр выбранного файла' : 'Предпросмотр текущей страницы'}</h3><p className="text-sm leading-6 text-neutral-500">Скрипты, формы и внешние ресурсы в предпросмотре отключены.</p><iframe title="Предпросмотр сайта-заглушки" sandbox="" referrerPolicy="no-referrer" srcDoc={safePreview} className="block h-[360px] w-full rounded-xl border border-neutral-200 bg-white sm:h-[440px]" /></section>
+    <section className="ui-card ui-panel space-y-5"><h3 className="ui-card-title">Другие способы замены</h3>
+      <div className="placeholder-alternative"><div><h4>Создать библиотеку файлов</h4><p>Новое оформление и описание будут сгенерированы автоматически. Перед заменой потребуется подтверждение.</p></div><button className="ui-button ui-button-secondary" disabled={busy} onClick={async () => { if (await confirm({ title: 'Создать новую заглушку?', description: 'Текущая страница будет заменена новой библиотекой. Предыдущую можно будет восстановить.', confirmText: 'Создать заглушку' })) action('generate'); }}><Shuffle className="h-4 w-4" />Создать заглушку</button></div>
+      <div className="placeholder-alternative"><div><h4>Восстановить предыдущую страницу</h4><p>{site?.can_restore ? 'Заменит текущую заглушку последней сохранённой версией.' : 'Действие станет доступно после первой замены страницы.'}</p></div><button className="ui-button ui-button-secondary" disabled={busy || !site?.can_restore} onClick={() => action('restore')}><RotateCcw className="h-4 w-4" />Восстановить страницу</button></div>
+    </section>
+  </div></PageLayout>;
 }

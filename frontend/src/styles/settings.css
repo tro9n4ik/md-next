@@ -15,6 +15,14 @@
 .settings-content-heading p { font-size: 12px; line-height: 1.8; margin-top: 6px; color: var(--muted); }
 .settings-layout :is(a, button):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 html[data-theme=dark] .settings-layout { --accent: #83dbb1; }
+.placeholder-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.placeholder-settings .ui-button { min-height: 42px; gap: 8px; }
+.placeholder-alternative { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 20px; align-items: center; }
+.placeholder-alternative + .placeholder-alternative { padding-top: 20px; border-top: 1px solid var(--line); }
+.placeholder-alternative h4 { color: var(--ink); font-size: 13px; font-weight: 600; }
+.placeholder-alternative p { margin-top: 7px; font-size: 12px; line-height: 1.8; color: var(--muted); }
+.placeholder-alternative .ui-button { width: 100%; }
+@media (max-width: 800px) { .placeholder-alternative { grid-template-columns: minmax(0, 1fr); gap: 14px; } }
 @media (max-width: 1100px) {
   .settings-layout { grid-template-columns: minmax(0, 1fr); gap: 22px; }
   .settings-nav { position: static; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
