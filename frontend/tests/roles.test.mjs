@@ -75,7 +75,7 @@ test('Открытая страница Gemini не становится зел�
     status: 'page_loaded', message: 'Публичная страница открылась.', country: 'DE', warp: 'on', checked_at: 10000,
   }});
   const html = render(WarpPage, admin, query);
-  assert.match(html, /Доступ к Gemini не подтверждён/);
+  assert.match(html, /Страница Gemini открылась · регион Google не определён/);
   assert.match(html, /Германия \(DE\)/);
   assert.match(html, /border-amber-500/);
   assert.doesNotMatch(html, /border-emerald-600/);
@@ -250,6 +250,21 @@ test('Отсутствующий регион Google не подменяется
   }});
   const html = render(WarpPage, admin, query);
   assert.match(html, /Регион по странице входа Google: <b>не определён/);
-  assert.match(html, /Доступ к Gemini не подтверждён/);
+  assert.match(html, /Страница Gemini открылась · регион Google не определён/);
   assert.match(html, /Страна IP по Cloudflare: <b>Германия \(DE\)/);
+});
+
+
+test('Определённый регион Google и открытая страница показываются без предупреждения о сбое', () => {
+  const query = fixture();
+  query.setQueryData(['warp-status'], {enabled: true, node_id: 1, name: 'Нода NL'});
+  query.setQueryData(['warp-presets'], {presets: []});
+  query.setQueryData(['warp-gemini-monitor'], {enabled: true, node_id: 1, node_name: 'Нода NL', result: {
+    status: 'page_loaded', message: 'Доступ к генерации не подтверждён.', country: 'DE', google_country: 'NL', warp: 'on',
+  }});
+  const html = render(WarpPage, admin, query);
+  assert.match(html, /Регион Google: NL · регионального отказа Gemini нет/);
+  assert.match(html, /warp-region-checked/);
+  assert.doesNotMatch(html, /border-amber-500|border-red-600/);
+  assert.match(html, /Доступ к генерации не подтверждён/);
 });

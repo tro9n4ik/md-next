@@ -83,19 +83,31 @@ def classify_page(url: str, status: int, body: str) -> dict:
 
 
 async def probe_proxy(port: int, *, timeout: float) -> dict:
-    # Проверяем WARP именно на этом временном прокси, без прямого fallback.
-    observed = await WarpService.test_proxy(port, timeout=timeout)
-    trace = {key: observed.get(key, "") for key in ("ip", "country", "warp")}
-    if trace.get("warp") not in {"on", "plus"}:
-        return {"status": "unknown", "message": "Проверочный выход работает без WARP.", **trace}
+    # Все запросы используют один временный выход ноды. Ошибка Cloudflare
+    # не должна отменять независимую проверку региона Google.
+    async def trace_probe():
+        try:
+            observed = await asyncio.wait_for(WarpService.test_proxy(port, timeout=timeout), timeout=timeout)
+            return {key: observed.get(key, "") for key in ("ip", "country", "warp")}, ""
+        except (httpx.HTTPError, asyncio.TimeoutError, ValueError) as exc:
+            return {"ip": "", "country": "", "warp": ""}, type(exc).__name__
+
     async def page_probe():
         try:
-            return await asyncio.wait_for(_probe_gemini_page(port, timeout=timeout, trace=trace), timeout=timeout)
+            return await asyncio.wait_for(_probe_gemini_page(port, timeout=timeout, trace={}), timeout=timeout)
         except (httpx.HTTPError, asyncio.TimeoutError):
-            return {"status": "unknown", "message": "WARP ответил, но ответ Gemini получить не удалось. Доступ не подтверждён.", **trace}
+            return {"status": "unknown", "message": "Ответ Gemini получить не удалось. Доступ не подтверждён."}
+
+    trace, trace_error = await trace_probe()
+    if not trace_error and trace.get("warp") not in {"on", "plus"}:
+        return {"status": "unknown", "message": "Проверочный выход работает без WARP.", **trace}
     page, region = await asyncio.gather(page_probe(), probe_google_region(port, timeout=timeout))
-    result = {**page, **region, "gemini_status": page["status"]}
-    if page["status"] != "region_blocked" and region.get("google_country") == "RU":
+    result = {**page, **region, **trace, "gemini_status": page["status"]}
+    if trace_error:
+        result.update(status="unknown", message=(
+            "Не удалось подтвердить WARP через Cloudflare (" + trace_error + "). "
+            "Результаты Google и Gemini показаны отдельно; автосмена IP пропущена."))
+    elif page["status"] != "region_blocked" and region.get("google_country") == "RU":
         result.update(status="google_region_ru", message="Страница входа Google определила регион выхода как РФ (RU). Это отдельный сигнал о регионе, а не подтверждённый отказ Gemini.")
     return result
 
@@ -177,8 +189,11 @@ class GeminiMonitor:
         attempts = [stamp for stamp in state.get("rotation_attempts", []) if stamp > now - ROTATE_WINDOW]
         try:
             result = await asyncio.wait_for(test_node_proxy(node, target["port"], probe_proxy), 45)
-        except Exception:
-            result = {"status": "unknown", "message": "Не удалось проверить Gemini через WARP. Проверьте соединение ноды."}
+        except Exception as exc:
+            logger.warning("Проверка Gemini через ноду %s не завершилась (%s)", node.id, type(exc).__name__)
+            result = {"status": "unknown", "message": (
+                "Не удалось запустить или завершить проверку через ноду (" + type(exc).__name__ + "). "
+                "Проверьте диагностику WARP и соединение ноды.")}
         block_reason = result["status"] if result["status"] in {"region_blocked", "google_region_ru"} else ""
         previous_reason = state.get("block_reason", "region_blocked")
         blocked = (state.get("blocked_checks", 0) + 1 if previous_reason == block_reason else 1) if block_reason else 0

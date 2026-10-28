@@ -40,9 +40,10 @@ export default function WarpPage() {
     ? new Intl.DisplayNames(['ru'], {type: 'region'}).of(countryCode) : undefined;
   const googleCode = result?.google_country?.toUpperCase();
   const googleName = googleCode && /^[A-Z]{2}$/.test(googleCode) ? new Intl.DisplayNames(['ru'], {type: 'region'}).of(googleCode) : undefined;
+  const regionChecked = result?.status === 'page_loaded' && !!googleName && googleCode !== 'RU' && ['on', 'plus'].includes(result?.warp || '');
   const resultTitle = result?.status === 'google_region_ru' ? 'Google определяет выход как РФ' : result?.status === 'region_blocked' ? 'Региональный отказ Gemini'
-    : result?.status === 'page_loaded' ? 'Доступ к Gemini не подтверждён' : 'Результат проверки не определён';
-  const resultBorder = result?.status === 'region_blocked' ? 'border-red-600' : 'border-amber-500';
+    : result?.status === 'page_loaded' ? regionChecked ? `Регион Google: ${googleCode} · регионального отказа Gemini нет` : 'Страница Gemini открылась · регион Google не определён' : 'Результат проверки не определён';
+  const resultBorder = result?.status === 'region_blocked' ? 'border-red-600' : regionChecked ? 'warp-region-checked' : 'border-amber-500';
   return <div className="page-layout warp-page">
     <header className="dashboard-heading"><div><div className="dashboard-eyebrow">ОТДЕЛЬНЫЙ ВЫХОД ДЛЯ ВАШИХ СЕРВИСОВ</div><h1>WARP</h1><p>Управляйте выходом через Cloudflare на активной ноде</p></div><div className="page-actions"><button className="ui-button ui-button-secondary" disabled={busy || status.isFetching || presets.isFetching || gemini.isFetching} onClick={() => { setTestResult(null); refresh(); }}><RefreshCw size={16} />Обновить</button></div></header>
 
