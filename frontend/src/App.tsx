@@ -3,6 +3,7 @@ import { createHashRouter, RouterProvider, Outlet, Navigate } from 'react-router
 import UnsavedGuard from './components/UnsavedGuard';
 import PageError from './components/ui/PageError';
 import Sidebar from './components/Sidebar';
+import Topbar from './components/Topbar';
 import { LoginModal } from './components/LoginModal';
 import './index.css';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -49,7 +50,7 @@ function Shell() {
     const detail = { cancelled: false }; window.dispatchEvent(new CustomEvent('ui:before-logout', { detail }));
     if (detail.cancelled) return;
     localStorage.removeItem('token'); window.dispatchEvent(new Event('auth:unauthorized'));
-  }} /><main className="app-main" id="main-content"><Suspense fallback={<PageSkeleton />}><Outlet /></Suspense></main></div>;
+  }} /><div className="app-workspace"><Topbar /><main className="app-main" id="main-content"><Suspense fallback={<PageSkeleton />}><Outlet /></Suspense></main></div></div>;
 }
 const router = createHashRouter([{ element: <Shell />, children: [
   { path: '/account', element: <AccountPage /> },
