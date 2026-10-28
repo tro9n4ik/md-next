@@ -7,6 +7,7 @@ import pytest
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.methods import DeleteMessage,EditMessageText
+from aiogram.dispatcher.event.bases import UNHANDLED
 from aiogram.types import Message,Chat,User
 
 from app.bot import chat_screen,handlers,subscriptions,admin_tools,portal,inbox
@@ -44,6 +45,20 @@ async def test_processed_input_is_removed_after_successful_handler_only():
             delete.reset_mock()
             callback.side_effect=RuntimeError('network')
             with pytest.raises(RuntimeError):await handlers.check_admin_middleware(callback,event,{})
+            delete.assert_not_awaited()
+    finally:await bot.session.close()
+
+
+@pytest.mark.asyncio
+async def test_unhandled_input_is_not_deleted_by_either_router():
+    bot=Bot(token='123456:'+('x'*35))
+    try:
+        with patch.object(bot,'delete_message',AsyncMock()) as delete, \
+             patch.object(handlers,'get_telegram_settings_from_db',AsyncMock(return_value={'admin_id':42})):
+            callback=AsyncMock(return_value=UNHANDLED)
+            event=message(bot=bot)
+            assert await portal.private_client(callback,event,{}) is UNHANDLED
+            assert await handlers.check_admin_middleware(callback,event,{}) is UNHANDLED
             delete.assert_not_awaited()
     finally:await bot.session.close()
 

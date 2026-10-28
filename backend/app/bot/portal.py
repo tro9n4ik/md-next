@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from html import escape
 from aiogram import Router,F
 from aiogram.filters import Command,CommandStart
+from aiogram.dispatcher.event.bases import UNHANDLED
 from sqlalchemy import select,update
 from app.db.database import AsyncSessionLocal
 from app.models.operations import TelegramLink
@@ -34,7 +35,7 @@ async def private_client(handler,event,data):
         await event.answer('Откройте личный диалог с ботом.');return
     result=await handler(event,data)
     from aiogram.types import Message
-    if isinstance(event,Message):
+    if result is not UNHANDLED and isinstance(event,Message):
         from .chat_screen import clean_input
         await clean_input(event)
     return result

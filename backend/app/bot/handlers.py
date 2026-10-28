@@ -8,6 +8,7 @@ import qrcode
 from qrcode.image.pure import PyPNGImage
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
+from aiogram.dispatcher.event.bases import UNHANDLED
 from aiogram.types import Message, BufferedInputFile, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.exceptions import TelegramBadRequest
 from sqlalchemy.future import select
@@ -158,7 +159,7 @@ async def check_admin_middleware(handler, event, data):
         subscriptions.drafts.pop((event.from_user.id,event.chat.id),None)
         admin_tools.inputs.pop((event.from_user.id,event.chat.id),None)
     result = await handler(event, data)
-    if isinstance(event, Message):
+    if result is not UNHANDLED and isinstance(event, Message):
         from .chat_screen import clean_input
         await clean_input(event)
     return result

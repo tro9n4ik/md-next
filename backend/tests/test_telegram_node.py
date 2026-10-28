@@ -100,14 +100,14 @@ async def test_aiogram_socks_session_uses_remote_dns():
 
 
 @pytest.mark.asyncio
-async def test_failover_command_applies_config_before_success():
+async def test_failover_command_opens_choice_without_changing_route():
     from app.bot.handlers import cmd_failover
     await seed(active=False)
     message = AsyncMock()
     with patch('app.bot.handlers.apply_active_node', new_callable=AsyncMock, return_value=(False,'ошибка')) as apply:
         await cmd_failover(message)
-    assert apply.await_count == 1
-    assert 'Текущий выход сохранён' in message.answer.call_args.args[0]
+    apply.assert_not_awaited()
+    assert 'Выбор выхода' in message.edit_text.call_args.args[0]
     async with AsyncSessionLocal() as db:
         assert await db.get(Setting, 'active_node_id') is None
 
