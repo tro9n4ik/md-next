@@ -18,7 +18,7 @@ export default function TelegramPage({ embedded = false }: { embedded?: boolean 
           <p className="mt-3 text-xs text-neutral-500">Быстрое создание предлагает месяц и трафик без ограничений; перед сохранением условия видны целиком. Настроенные шаблоны также доступны в мастере.</p>
         </section>
       </div>
-      <div aria-label="Предпросмотр меню бота" className="grid grid-cols-2 gap-2 rounded-xl bg-neutral-50 p-4 text-center text-sm text-emerald-900">
+      <div aria-label="Предпросмотр меню бота" className="grid self-center grid-cols-2 gap-2 rounded-xl bg-neutral-50 p-4 text-center text-sm text-emerald-900">
         <span className="col-span-2 rounded-lg bg-emerald-100 p-3">➕ Новая подписка</span>
         <span className="col-span-2 rounded-lg bg-emerald-100 p-3">📋 Подписки</span>
         {['⚙️ Система', '❔ Помощь'].map(item => <span key={item} className="rounded-lg bg-emerald-100 p-3">{item}</span>)}

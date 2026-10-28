@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock,patch
 import pytest
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.methods import DeleteMessage
+from aiogram.methods import DeleteMessage,EditMessageText
 from aiogram.types import Message,Chat,User
 
 from app.bot import chat_screen,handlers,subscriptions,admin_tools,portal,inbox
@@ -168,3 +168,19 @@ async def test_contact_change_requires_confirmation_and_supports_removal():
         await admin_tools.text_input(screen)
     prepare.assert_not_awaited()
     assert (42,42) in admin_tools.inputs
+
+
+@pytest.mark.asyncio
+async def test_missing_callback_menu_is_recreated_without_extra_screen():
+    bot=Bot(token='123456:'+('x'*35))
+    try:
+        await chat_screen.remember(bot,42,'menu',100)
+        missing=TelegramBadRequest(method=EditMessageText(text='Меню',chat_id=42,message_id=100),message='message to edit not found')
+        with patch.object(Message,'edit_text',AsyncMock(side_effect=missing)), \
+             patch.object(bot,'send_message',AsyncMock(return_value=message(201,bot=bot,is_bot=True))) as send, \
+             patch.object(bot,'delete_message',AsyncMock()):
+            result=await handlers.show_screen(message(100,bot=bot,is_bot=True),'Меню',handlers.main_menu(),edit=True)
+        assert result.message_id==201
+        assert await chat_screen.message_id(bot,42,'menu')==201
+        send.assert_awaited_once()
+    finally:await bot.session.close()
