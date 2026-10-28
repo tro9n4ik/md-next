@@ -8,10 +8,15 @@ type PageLayoutProps = {
   icon: LucideIcon;
   children: ReactNode;
   actions?: ReactNode;
+  embedded?: boolean;
 };
 
 /** Общая ширина, заголовок и вертикальный ритм всех страниц панели. */
-export default function PageLayout({ title, description, icon: Icon, children, actions }: PageLayoutProps) {
+export default function PageLayout({ title, description, icon: Icon, children, actions, embedded }: PageLayoutProps) {
+  if (embedded) return <section className="settings-content">
+    <header className="settings-content-heading"><div><h2><Icon size={20} aria-hidden="true" />{title}</h2><p>{description}</p></div>{actions}</header>
+    <div className="page-content">{children}</div>
+  </section>;
   return <div className="page-layout">
     <header className="page-header">
       <div className="page-breadcrumb" aria-label="Текущий раздел">

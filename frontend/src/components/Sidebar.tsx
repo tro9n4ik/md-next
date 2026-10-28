@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { LayoutDashboard, Users, Server, Route, Settings, LogOut, CheckCircle2, Menu, X, Cloud, Radio, Network, ShieldCheck, PanelLeftClose, PanelLeftOpen, CircleHelp, Stethoscope, Activity, ScrollText, Moon, Sun } from 'lucide-react';
+import { LayoutDashboard, Users, Server, Route, Settings, LogOut, CheckCircle2, Menu, X, Cloud, Radio, Network, ShieldCheck, PanelLeftClose, PanelLeftOpen, BookOpen, Moon, Sun } from 'lucide-react';
 import { useCurrentUser } from '../contexts/AuthContext';
 import { apiFetch } from '../utils/api';
 
@@ -48,13 +48,9 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
     { icon: Route, label: 'Маршрутизация', to: '/routing' },
     { icon: Cloud, label: 'WARP', to: '/warp' },
     { icon: ShieldCheck, label: 'Обход БС', to: '/bypass' },
-    { icon: Stethoscope, label: 'Диагностика', to: '/diagnostics' },
-    { icon: Activity, label: 'История нод', to: '/history' },
-    { icon: ScrollText, label: 'Журнал событий', to: '/events' },
     { icon: Settings, label: 'Настройки', to: '/settings' },
-    { icon: ShieldCheck, label: 'Моя учётная запись', to: '/account' },
-    { icon: CircleHelp, label: 'Помощь', to: '/help' },
-  ].filter(item => isAdmin || item.to === '/clients' || item.to === '/account');
+    { icon: BookOpen, label: 'Wiki', to: '/wiki' },
+  ].filter(item => isAdmin || item.to === '/clients' || item.to === '/settings');
 
   const sidebarContent = (
     <div className={`app-sidebar flex flex-col h-full text-white w-60 transition-[width] ${collapsed ? 'lg:w-20 sidebar-collapsed' : ''}`}>
@@ -80,7 +76,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
       <nav aria-label="Основная навигация" className="sidebar-scroll flex-1 p-3 space-y-1 overflow-y-auto">
         {menuItems.map((item) => (
           <React.Fragment key={item.to}>
-          {['/', '/protocols', '/diagnostics'].includes(item.to) && <div className={`sidebar-group-label ${collapsed ? 'lg:hidden' : ''}`}>{item.to === '/' ? 'Управление' : item.to === '/protocols' ? 'Сеть' : 'Система'}</div>}
+          {['/', '/protocols', '/settings'].includes(item.to) && <div className={`sidebar-group-label ${collapsed ? 'lg:hidden' : ''}`}>{item.to === '/' ? 'Управление' : item.to === '/protocols' ? 'Сеть' : 'Система'}</div>}
           <NavLink
             key={item.to}
             to={item.to}
@@ -104,7 +100,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
       </nav>
 
       <div className="sidebar-footer">
-        <NavLink to="/account" title={user.username} onClick={() => setMobileOpen(false)} className="sidebar-account sidebar-footer-row"><span className="account-avatar">{user.username.charAt(0).toUpperCase()}</span><span className="sidebar-footer-label"><b>{user.username}</b><small>{isAdmin ? 'Администратор' : 'Субадминистратор'}</small></span></NavLink>
+        <NavLink to="/settings/account" title={user.username} onClick={() => setMobileOpen(false)} className="sidebar-account sidebar-footer-row"><span className="account-avatar">{user.username.charAt(0).toUpperCase()}</span><span className="sidebar-footer-label"><b>{user.username}</b><small>{isAdmin ? 'Администратор' : 'Субадминистратор'}</small></span></NavLink>
         <button onClick={() => setDark(!dark)} title={dark ? 'Светлая тема' : 'Тёмная тема'} aria-label={dark ? 'Светлая тема' : 'Тёмная тема'} className="sidebar-footer-row sidebar-footer-action"><span className="sidebar-footer-icon">{dark ? <Sun size={18} /> : <Moon size={18} />}</span><span className="sidebar-footer-label">{dark ? 'Светлая тема' : 'Тёмная тема'}</span></button>
         {isAdmin && <div className="sidebar-footer-row sidebar-footer-status" title={systemState === "error" ? "Есть проблемы" : systemState === "warning" ? "Есть замечания" : systemState === "ok" ? "Все системы работают" : "Проверка состояния"}>
           <span className="sidebar-footer-icon"><CheckCircle2 size={17} className={systemState === "error" ? "text-red-500" : systemState === "warning" ? "text-amber-500" : systemState === "ok" ? "text-emerald-500" : "text-neutral-400"} /></span>

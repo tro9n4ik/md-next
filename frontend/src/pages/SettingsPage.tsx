@@ -1,20 +1,38 @@
-import { Archive, Globe, RefreshCw, Send, Settings2, Users } from 'lucide-react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { Activity, Archive, Globe, RefreshCw, Send, Settings2, ShieldCheck, Stethoscope, ScrollText, Users, BookOpen, ArrowUpRight } from 'lucide-react';
+import { Link, NavLink, Outlet } from 'react-router-dom';
 import PageLayout from '../components/ui/PageLayout';
-const sections = [
+import { useCurrentUser } from '../contexts/AuthContext';
+const groups = [
+  { title: 'Панель', admin: true, sections: [
   { path: '/settings', title: 'Основные', icon: Settings2, end: true },
   { path: '/settings/users', title: 'Субадминистраторы', icon: Users },
   { path: '/settings/telegram', title: 'Telegram-бот', icon: Send },
   { path: '/settings/placeholder', title: 'Сайт-заглушка', icon: Globe },
-  { path: '/settings/backups', title: 'Резервные копии', icon: Archive },
-  { path: '/settings/update', title: 'Обновление панели', icon: RefreshCw },
+  ] },
+  { title: 'Обслуживание', admin: true, sections: [
+    { path: '/settings/diagnostics', title: 'Диагностика', icon: Stethoscope },
+    { path: '/settings/history', title: 'История нод', icon: Activity },
+    { path: '/settings/events', title: 'Журнал событий', icon: ScrollText },
+    { path: '/settings/backups', title: 'Резервные копии', icon: Archive },
+    { path: '/settings/update', title: 'Обновление панели', icon: RefreshCw },
+  ] },
+  { title: 'Личное', admin: false, sections: [
+    { path: '/settings/account', title: 'Моя учётная запись', icon: ShieldCheck },
+  ] },
 ];
 
 export default function SettingsPage() {
-  return <PageLayout title="Настройки" description="Доступ, безопасность и обслуживание панели" icon={Settings2}>
-    <nav aria-label="Разделы настроек" className="flex gap-1 overflow-x-auto border-b border-neutral-200">
-      {sections.map(({ path, title, icon: Icon, end }) => <NavLink key={path} to={path} end={end} className={({ isActive }) => `flex shrink-0 items-center gap-2 whitespace-nowrap border-b-2 px-3 py-3 text-sm font-medium transition-colors ${isActive ? 'border-emerald-600 text-emerald-700' : 'border-transparent text-neutral-500 hover:text-neutral-800'}`}><Icon size={16} /><span>{title}</span></NavLink>)}
-    </nav>
-    <Outlet />
+  const isAdmin = useCurrentUser().role === 'admin';
+  return <PageLayout title="Настройки" description="Управление панелью, обслуживание и безопасность аккаунта" icon={Settings2}>
+    <div className="settings-layout">
+      <nav aria-label="Разделы настроек" className="settings-nav ui-card">
+        {groups.filter(group => isAdmin || !group.admin).map(group => <div className="settings-nav-group" key={group.title}>
+          <p>{group.title}</p>
+          {group.sections.map(({ path, title, icon: Icon, ...options }) => <NavLink key={path} to={path} end={'end' in options && options.end} className={({ isActive }) => `settings-nav-link ${isActive ? 'is-active' : ''}`}><Icon size={17} /><span>{title}</span></NavLink>)}
+        </div>)}
+        {isAdmin && <Link to="/wiki" className="settings-wiki-link"><BookOpen size={17} /><span>Нужна подсказка? Открыть Wiki</span><ArrowUpRight size={15} /></Link>}
+      </nav>
+      <div className="settings-body"><Outlet /></div>
+    </div>
   </PageLayout>;
 }

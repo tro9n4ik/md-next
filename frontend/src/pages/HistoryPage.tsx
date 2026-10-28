@@ -6,14 +6,14 @@ import QueryError from '../components/ui/QueryError';
 import { request } from '../utils/operations';
 
 type History = { points: { ts: string; healthy: boolean; ping_ms: number; reason: string }[]; sample_count: number; availability: number | null; last_failure: string | null; events: { ts: string; message: string; reason: string | null }[] };
-export default function HistoryPage() {
+export default function HistoryPage({ embedded = false }: { embedded?: boolean }) {
   const [node, setNode] = useState(''); const [hours, setHours] = useState('24');
   const nodes = useQuery({ queryKey: ['history-nodes'], queryFn: () => request<{ id: number; name: string }[]>('/api/v1/nodes') });
   const id = node || String(nodes.data?.[0]?.id || '');
   const history = useQuery({ queryKey: ['node-history', id, hours], queryFn: () => request<History>(`/api/v1/operations/history/${id}?hours=${hours}`), enabled: !!id, refetchInterval: 60000 });
   const data = history.data; const max = Math.max(1, ...(data?.points.map(p => p.ping_ms) || []));
   const reasons: Record<string, string> = { port: 'Порт недоступен', egress: 'Нет выхода в интернет', latency: 'Высокая задержка', ok: 'Доступна' };
-  return <PageLayout title="История нод" description="Доступность, задержка и причины переключений за последние 30 дней" icon={Activity}>
+  return <PageLayout embedded={embedded} title="История нод" description="Доступность, задержка и причины переключений за последние 30 дней" icon={Activity}>
     <div className="ui-card ui-panel flex flex-wrap gap-4"><label>Нода<select className="ml-3 border p-2" value={id} onChange={e => setNode(e.target.value)}>{nodes.data?.map(n => <option key={n.id} value={n.id}>{n.name}</option>)}</select></label><label>Период<select className="ml-3 border p-2" value={hours} onChange={e => setHours(e.target.value)}><option value="1">Час</option><option value="24">Сутки</option><option value="168">Неделя</option><option value="720">30 дней</option></select></label></div>
     {nodes.error && <QueryError error={nodes.error} retry={() => nodes.refetch()} />}{history.error && <QueryError error={history.error} retry={() => history.refetch()} />}
     {history.isFetching && <p className="text-sm text-neutral-500">Обновляем историю…</p>}

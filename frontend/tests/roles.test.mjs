@@ -22,6 +22,10 @@ const UsersPage = require('../src/pages/UsersPage.tsx').default;
 const { AccountEditor } = require('../src/pages/UsersPage.tsx');
 const UpdatePage = require('../src/pages/UpdatePage.tsx').default;
 const WarpPage = require('../src/pages/WarpPage.tsx').default;
+const SettingsPage = require('../src/pages/SettingsPage.tsx').default;
+const AccountPage = require('../src/pages/AccountPage.tsx').default;
+const HelpPage = require('../src/pages/HelpPage.tsx').default;
+const { wikiArticles, wikiCategories, findWikiArticles } = require('../src/data/wiki.ts');
 const { NodesManager } = require('../src/components/NodesManager.tsx');
 const subadmin = { id: 2, username: 'issuer', role: 'subadmin', view_all_clients: false, can_issue_subscriptions: true, can_delete_subscriptions: false, can_pause_subscriptions: false };
 const admin = { ...subadmin, id: 1, username: 'admin', role: 'admin' };
@@ -103,15 +107,46 @@ test('Неизвестный ответ Gemini не подменяет стра�
   assert.match(html, /WARP: не проверен/);
   assert.doesNotMatch(html, /Нидерланды/);
 });
-test('Меню субадминистратора скрывает инфраструктуру и настройки', () => {
+test('Настройки в меню доступны всем, служебные разделы переехали внутрь', () => {
   const html = render(Sidebar, subadmin);
   assert.match(html, /href="\/clients"/);
-  assert.match(html, /href="\/account"/);
+  assert.match(html, /href="\/settings\/account"/);
+  assert.match(html, /href="\/settings"/);
   const full = render(Sidebar, admin);
-  for (const path of ['settings', 'nodes', 'warp', 'routing', 'events', 'diagnostics']) {
+  for (const path of ['nodes', 'warp', 'routing', 'wiki']) {
     assert.doesNotMatch(html, new RegExp('href="/' + path));
     assert.match(full, new RegExp('href="/' + path));
   }
+  for (const path of ['account', 'events', 'diagnostics', 'history', 'help']) assert.doesNotMatch(full, new RegExp(`href="/${path}"`));
+});
+test('Субадминистратор видит только личные настройки, администратор — все разделы', () => {
+  const limited = render(SettingsPage, subadmin);
+  const full = render(SettingsPage, admin);
+  assert.match(limited, /href="\/settings\/account"/);
+  for (const path of ['users', 'telegram', 'placeholder', 'diagnostics', 'history', 'events', 'backups', 'update']) {
+    assert.doesNotMatch(limited, new RegExp(`href="/settings/${path}"`));
+    assert.match(full, new RegExp(`href="/settings/${path}"`));
+  }
+});
+test('Пароль и 2FA в личной учётной записи всегда раскрыты', () => {
+  const query = fixture(); query.setQueryData(['me'], {id: 1, username: 'admin', totp_enabled: false});
+  const html = render(AccountPage, admin, query);
+  assert.match(html, /Текущий пароль/);
+  assert.match(html, /Двухфакторная аутентификация/);
+  assert.doesNotMatch(html, /<details|<summary/);
+});
+test('Wiki ищет по всем словам и содержимому, учитывает категории и букву ё', () => {
+  assert.ok(findWikiArticles('трафика обхода').some(article => article.id === 'limits'));
+  assert.ok(findWikiArticles('учетная').some(article => article.id === 'account'));
+  assert.deepEqual(findWikiArticles('слова-которого-нет'), []);
+  assert.ok(findWikiArticles('Gemini', 'network').length > 0);
+  assert.ok(findWikiArticles('Gemini', 'network').every(article => article.category === 'network'));
+  assert.equal(new Set(wikiArticles.map(article => article.id)).size, wikiArticles.length);
+  assert.ok(wikiArticles.every(article => wikiCategories.some(category => category.id === article.category)));
+  const html = render(HelpPage, admin);
+  assert.match(html, /Поиск по Wiki/);
+  assert.match(html, /В этой статье/);
+  assert.match(html, /article=quickstart/);
 });
 test('Видимость всех клиентов не даёт кнопок удаления или приостановки', () => {
   for (const view_all_clients of [false, true]) {

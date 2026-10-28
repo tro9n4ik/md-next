@@ -1,0 +1,30 @@
+.settings-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 28px; align-items: start; }
+.settings-nav { padding: 10px; position: sticky; top: 20px; }
+.settings-nav-group + .settings-nav-group { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 8px; }
+.settings-nav-group > p { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding: 10px 12px 6px; font-weight: 600; }
+.settings-nav-link { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 9px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.settings-nav-link svg { flex-shrink: 0; }
+.settings-nav-link:hover { color: var(--ink); background: var(--soft); }
+.settings-nav-link.is-active { background: var(--soft); color: var(--accent); font-weight: 600; box-shadow: inset 3px 0 var(--accent); }
+.settings-wiki-link { display: flex; gap: 8px; align-items: center; font-size: 11px; color: var(--accent); padding: 15px 12px 8px; margin-top: 12px; border-top: 1px solid var(--line); }
+.settings-wiki-link svg { flex-shrink: 0; }
+.settings-body { min-width: 0; }
+.settings-content-heading { margin: 0 0 22px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.settings-content-heading h2 { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 600; color: var(--ink); }
+.settings-content-heading h2 svg { color: var(--accent); }
+.settings-content-heading p { font-size: 12px; line-height: 1.8; margin-top: 6px; color: var(--muted); }
+.settings-layout :is(a, button):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+html[data-theme=dark] .settings-layout { --accent: #83dbb1; }
+@media (max-width: 1100px) {
+  .settings-layout { grid-template-columns: minmax(0, 1fr); gap: 22px; }
+  .settings-nav { position: static; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .settings-nav-group + .settings-nav-group { border-top: 0; margin-top: 0; padding-top: 0; }
+  .settings-wiki-link { grid-column: 1 / -1; margin-top: 0; }
+}
+@media (max-width: 600px) {
+  .settings-nav { grid-template-columns: minmax(0, 1fr); }
+  .settings-nav-group { display: flex; flex-wrap: wrap; gap: 4px; }
+  .settings-nav-group > p { width: 100%; }
+  .settings-nav-link { padding: 8px 10px; }
+  .settings-nav-group + .settings-nav-group { border-top: 1px solid var(--line); padding-top: 8px; }
+}

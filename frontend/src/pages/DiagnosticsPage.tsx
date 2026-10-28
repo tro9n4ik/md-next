@@ -5,10 +5,10 @@ import PageLayout from '../components/ui/PageLayout';
 import { request, saveFile } from '../utils/operations';
 
 type Report = { checked_at: string; notice: string; checks: { key: string; name: string; ok: boolean | null; detail: string; elapsed_ms: number | null }[] };
-export default function DiagnosticsPage() {
+export default function DiagnosticsPage({ embedded = false }: { embedded?: boolean }) {
   const [report, setReport] = useState<Report | null>(null);
   const run = useMutation({ mutationFn: () => request<Report>('/api/v1/operations/diagnostics', {}), onSuccess: setReport });
-  return <PageLayout title="Диагностика" description="Проверки DNS, выхода через Xray, WARP и CDN" icon={Stethoscope}>
+  return <PageLayout embedded={embedded} title="Диагностика" description="Проверки DNS, выхода через Xray, WARP и CDN" icon={Stethoscope}>
     <section className="ui-card ui-panel space-y-4"><p className="text-sm text-neutral-600">Проверка выполняется на сервере. Для подтверждения работы в сети с белыми списками нужен отдельный тест с телефона.</p>
       <button disabled={run.isPending} onClick={() => run.mutate()} className="ui-button ui-button-primary">{run.isPending ? 'Проверяем сервер…' : 'Запустить проверку'}</button>
       {run.error && <p role="alert" className="text-red-700">{run.error.message}</p>}

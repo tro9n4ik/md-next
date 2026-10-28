@@ -4,6 +4,8 @@
 @import "./styles/warp.css";
 @import "./styles/protocols.css";
 @import "./styles/confirmation.css";
+@import "./styles/settings.css";
+@import "./styles/wiki.css";
 
 /* Оболочка панели и обзор инфраструктуры. */
 :root { --surface: #fff; --canvas: #f5f6f4; --ink: #172322; --muted: #74807e; --line: #e5e9e6; --soft: #f3f6f4; --accent: #07966c; }
