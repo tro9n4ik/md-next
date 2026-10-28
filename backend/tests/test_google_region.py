@@ -303,3 +303,27 @@ async def test_probe_deadline_is_bounded():
         result = await google.probe_google_region(23456, timeout=0.01)
     assert not result["google_country"]
     assert result["google_region_status"] == "unknown"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [httpx.ReadTimeout("trace timeout"), ValueError("no IPv4")])
+@pytest.mark.parametrize("country", ["DE", "RU"])
+async def test_cloudflare_failure_keeps_google_result_without_rotation_signal(failure, country):
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.host)
+        if request.url.host == "accounts.google.com":
+            return httpx.Response(200, headers={"content-type": "text/html"},
+                                  text=f'<input type="hidden" name="region" value="{country}">')
+        return httpx.Response(302, headers={"location": "/unsupportedcountry"})
+
+    with patch.object(monitor.WarpService, "test_proxy", AsyncMock(side_effect=failure)), \
+         patch.object(google.httpx, "AsyncClient", transport_client(handler)):
+        result = await monitor.probe_proxy(23456, timeout=1)
+    assert sorted(calls) == ["accounts.google.com", "gemini.google.com"]
+    assert result["google_country"] == country
+    assert result["gemini_status"] == "region_blocked"
+    assert result["status"] == "unknown"
+    assert result["warp"] == ""
+    assert type(failure).__name__ in result["message"]
