@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useBlocker, useLocation } from 'react-router-dom';
+import { useConfirm } from '../contexts/ConfirmationContext';
 
 export default function UnsavedGuard() {
   const location = useLocation();
@@ -7,6 +8,7 @@ export default function UnsavedGuard() {
 }
 
 function PageUnsavedGuard({ pathname }: { pathname: string }) {
+  const confirm = useConfirm();
   const [dirty, setDirty] = useState(false);
   const sections = useRef(new Set<Element>()); const lastSection = useRef<Element | null>(null);
   const blocker = useBlocker(dirty);
@@ -31,7 +33,7 @@ function PageUnsavedGuard({ pathname }: { pathname: string }) {
     function saved(event: Event) { const scope = (event as CustomEvent).detail.scope; if (scope) sections.current.delete(scope); setDirty(sections.current.size > 0); }
     function controlled(event: Event) { const { scope, dirty } = (event as CustomEvent).detail; if (dirty) sections.current.add(scope); else sections.current.delete(scope); setDirty(sections.current.size > 0); }
     function unload(event: BeforeUnloadEvent) { if (sections.current.size) { event.preventDefault(); event.returnValue = ''; } }
-    function logout(event: Event) { if (sections.current.size && !window.confirm('Есть несохранённые изменения. Выйти из панели?')) (event as CustomEvent).detail.cancelled = true; }
+    function logout(event: Event) { if (sections.current.size) (event as CustomEvent).detail.hasUnsavedChanges = true; }
     document.addEventListener('input', change, true); document.addEventListener('change', change, true); document.addEventListener('click', click, true); document.addEventListener('submit', remember, true);
     window.addEventListener('api:mutation-start', start); window.addEventListener('api:mutation-saved', saved); window.addEventListener('beforeunload', unload);
     window.addEventListener('ui:before-logout', logout);
@@ -40,9 +42,13 @@ function PageUnsavedGuard({ pathname }: { pathname: string }) {
   }, [pathname]);
   useEffect(() => {
     if (blocker.state === 'blocked') {
-      if (window.confirm('Есть несохранённые изменения. Уйти со страницы?')) { sections.current.clear(); blocker.proceed(); }
-      else blocker.reset();
+      let active = true;
+      void confirm({ title: 'Уйти без сохранения?', description: 'На странице есть несохранённые изменения. При переходе они будут потеряны.', confirmText: 'Уйти со страницы', cancelText: 'Остаться', tone: 'warning' }).then(accepted => {
+        if (!active) return;
+        if (accepted) { sections.current.clear(); blocker.proceed(); } else blocker.reset();
+      });
+      return () => { active = false; };
     }
-  }, [blocker]);
+  }, [blocker, confirm]);
   return null;
 }

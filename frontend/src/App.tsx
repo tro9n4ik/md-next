@@ -4,6 +4,8 @@ import UnsavedGuard from './components/UnsavedGuard';
 import PageError from './components/ui/PageError';
 import Sidebar from './components/Sidebar';
 import Topbar from './components/Topbar';
+import ConfirmationProvider from './components/ui/ConfirmationProvider';
+import { useConfirm } from './contexts/ConfirmationContext';
 import { LoginModal } from './components/LoginModal';
 import './index.css';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -46,9 +48,14 @@ function AdminOnly({ children }: { children: React.ReactNode }) {
 }
 
 function Shell() {
-  return <div className="app-shell"><UnsavedGuard /><Sidebar onLogout={() => {
-    const detail = { cancelled: false }; window.dispatchEvent(new CustomEvent('ui:before-logout', { detail }));
+  return <ConfirmationProvider><ShellContent /></ConfirmationProvider>;
+}
+function ShellContent() {
+  const confirm = useConfirm();
+  return <div className="app-shell"><UnsavedGuard /><Sidebar onLogout={async () => {
+    const detail = { cancelled: false, hasUnsavedChanges: false }; window.dispatchEvent(new CustomEvent('ui:before-logout', { detail }));
     if (detail.cancelled) return;
+    if (detail.hasUnsavedChanges && !await confirm({ title: 'Выйти из панели?', description: 'Есть несохранённые изменения. При выходе они будут потеряны.', confirmText: 'Выйти без сохранения', cancelText: 'Остаться', tone: 'warning' })) return;
     localStorage.removeItem('token'); window.dispatchEvent(new Event('auth:unauthorized'));
   }} /><div className="app-workspace"><Topbar /><main className="app-main" id="main-content"><Suspense fallback={<PageSkeleton />}><Outlet /></Suspense></main></div></div>;
 }
