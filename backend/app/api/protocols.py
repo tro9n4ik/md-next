@@ -32,6 +32,7 @@ class ProtocolSettingsRequest(BaseModel):
     paths: dict[str, str] = Field(default_factory=dict)
     reality: dict[str, str] = Field(default_factory=dict)
     modes: dict[str, str] = Field(default_factory=dict)
+    mtproto: dict[str, str] = Field(default_factory=dict)
     confirm_link_identity_change: bool = False
 
 
@@ -68,7 +69,9 @@ async def get_protocol_settings(db: AsyncSession = Depends(get_db)):
         "ports": {
             "vless_xhttp_reality": int(values.get("profiles.port.vless_xhttp_reality", "2053")),
             "hysteria2": int(values.get("profiles.port.hysteria2", "443")),
+            "mtproto": int(values.get("profiles.port.mtproto", "8445")),
         },
+        "mtproto": {"domain": values["mtproto.domain"]},
         "paths": {
             "vless_xhttp_reality": values.get("profiles.path.vless_xhttp_reality", "/"),
             "vless_xhttp_tls": values.get("profiles.path.vless_xhttp_tls", "/md-next-xhttp"),
@@ -94,8 +97,25 @@ async def get_protocol_settings(db: AsyncSession = Depends(get_db)):
 async def update_protocol_settings(req: ProtocolSettingsRequest, db: AsyncSession = Depends(get_db)):
     if set(req.enabled) - set(PROFILE_KINDS):
         raise HTTPException(status_code=422, detail="Неизвестный тип профиля")
-    if any(kind not in ("vless_xhttp_reality", "hysteria2") or not 1 <= port <= 65535 for kind, port in req.ports.items()):
+    if any(kind not in ("vless_xhttp_reality", "hysteria2", "mtproto") or not 1 <= port <= 65535 for kind, port in req.ports.items()):
         raise HTTPException(status_code=422, detail="Некорректный порт")
+    from app.services.mtproto import PORT
+    import importlib.util
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location("mtproto_validation", Path(__file__).resolve().parents[3] / "scripts/mtproto-runtime.py")
+    validator = importlib.util.module_from_spec(spec); spec.loader.exec_module(validator)
+    if set(req.mtproto) - {"domain"}:
+        raise HTTPException(422, detail="Неизвестный параметр MTProto")
+    current_mt = await get_profile_settings(db)
+    domain = req.mtproto.get("domain", current_mt["mtproto.domain"]).strip().lower()
+    port = req.ports.get("mtproto", int(current_mt.get("profiles.port.mtproto", PORT)))
+    mt_enabled = req.enabled.get("mtproto", "mtproto" in await enabled_profile_kinds(db))
+    try:
+        validator.validate({"port": port, "domain": domain, "users": {"p1": "0" * 32} if mt_enabled else {}})
+        if mt_enabled and port == req.ports.get("vless_xhttp_reality", int(current_mt["profiles.port.vless_xhttp_reality"])):
+            raise ValueError()
+    except ValueError:
+        raise HTTPException(422, detail="MTProto: укажите домен FakeTLS и свободный TCP-порт (например, 8445), не занятый служебными портами или XHTTP") from None
     allowed_paths = {"vless_xhttp_reality", "vless_xhttp_tls"}
     if set(req.paths) - allowed_paths:
         raise HTTPException(status_code=422, detail="Неизвестный тип пути")
@@ -145,7 +165,14 @@ async def update_protocol_settings(req: ProtocolSettingsRequest, db: AsyncSessio
     if "flow" in reality and reality["flow"] not in {"", "xtls-rprx-vision"}:
         raise HTTPException(status_code=422, detail="Поддерживаются только пустой Flow или xtls-rprx-vision")
     old_enabled = await enabled_profile_kinds(db)
+    if mt_enabled:
+        from app.services.xray import XrayService
+        if not await XrayService.get_active_node(db):
+            raise HTTPException(422, detail="Выберите активную ноду перед включением Telegram MTProto")
+    if "mtproto" in old_enabled and not req.confirm_link_identity_change and (domain != current_mt["mtproto.domain"] or port != int(current_mt["profiles.port.mtproto"])):
+        raise HTTPException(409, detail="Смена порта или домена MTProto изменит ссылки Telegram всех клиентов. Подтвердите изменение и выдайте новые ссылки.")
     updates = {f"profiles.enabled.{kind}": str(value).lower() for kind, value in req.enabled.items()}
+    updates["mtproto.domain"] = domain
     updates.update({f"profiles.port.{kind}": str(value) for kind, value in req.ports.items()})
     updates.update({f"profiles.path.{kind}": value for kind, value in paths.items()})
     updates.update({f"protocol.reality.{key}": value for key, value in reality.items() if key != "private_key" or value})
@@ -169,6 +196,7 @@ async def update_protocol_settings(req: ProtocolSettingsRequest, db: AsyncSessio
             values = await get_profile_settings(db)
             await apply_xhttp_tls_path(values["profiles.path.vless_xhttp_tls"])
             nginx_path_applied = True
+        xray_applied = True
         ok, reason = await ClientService.sync_xray_clients(db)
         if not ok:
             raise RuntimeError(reason)

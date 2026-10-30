@@ -118,6 +118,12 @@ def execute(args):
 
 def dispatch(request):
     operation = request.get('operation')
+    if operation == 'mtproto-apply':
+        data = read_stage(str(STAGE/'mtproto.json'), 'mtproto.json')
+        spec = importlib.util.spec_from_file_location('trusted_mtproto', LIB/'mtproto-runtime.py')
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        module.apply(json.loads(data))
+        return [0, '', '']
     if operation == 'certificate-days':
         env = {}
         for line in Path('/opt/md-next/backend/.env').read_text().splitlines():

@@ -147,6 +147,9 @@ class ClientService:
             "nodes": [{"id": node.id, "host": node.host, "port": node.port, "protocol": node.protocol, "secret": node.secret, "public_key": node.public_key, "short_id": node.short_id} for node in node_rows if node.secret],
         }
         success, message = await XrayService.apply_config(clients=tcp_clients, active_node=active_node, profile_options=options)
+        if success and use_stored_node:
+            from app.services.mtproto import sync_config
+            success, message = await sync_config(db)
         log_event("info" if success else "error", "xray", "Конфигурация Xray успешно применена" if success else "Ошибка применения конфигурации Xray", {} if success else {"reason": message[:400]})
         return success, message
 

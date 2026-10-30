@@ -254,8 +254,8 @@ async def get_client_profiles(client_id: int, db: AsyncSession = Depends(get_db)
     return {
         "client": {"id": client.id, "name": client.name, "is_active": client.is_active, **limit_info(client)},
         "profiles": [
-            {"id": p.id, "kind": p.kind, "label": p.kind.replace("_", " ").upper(), "is_enabled": p.is_enabled,
-             "data": make_profile_data(client, p, settings), "key_available": bool(decrypt_secret(p.private_key_enc or "")) if p.kind == "awg" else True}
+            {"id": p.id, "kind": p.kind, "label": PROFILE_LABELS.get(p.kind, p.kind.replace("_", " ").upper()), "is_enabled": p.is_enabled,
+             "data": make_profile_data(client, p, settings), "key_available": bool(decrypt_secret(p.private_key_enc or "")) if p.kind in {"awg", "mtproto"} else True}
             for p in profiles if p.kind in globally_enabled
         ] + ([{"id": tls.id, "kind": "cdn", "label": "Обход БС", "is_enabled": cdn_access_allowed(client, tls, settings),
                 "data": make_cdn_link(client, tls, settings, preview=True), "key_available": True}] if tls and cdn_available else []),
@@ -337,6 +337,9 @@ async def regenerate_profile(client_id: int, profile_id: int, db: AsyncSession =
         profile.uuid = str(uuid.uuid4())
     elif profile.kind == "hysteria2":
         profile.auth = secrets.token_urlsafe(24)
+    elif profile.kind == "mtproto":
+        from app.services.mtproto import new_secret
+        profile.private_key_enc = encrypt_secret(new_secret())
     elif profile.kind == "awg":
         private_key, profile.public_key = AWGService.generate_keypair()
         profile.private_key_enc = encrypt_secret(private_key)
@@ -425,7 +428,7 @@ async def get_subscription(token: str, request: Request, format: Literal["raw", 
         for profile in profiles:
             if profile.kind not in globally_enabled:
                 continue
-            if profile.kind == "awg":
+            if profile.kind in {"awg", "mtproto"}:
                 continue
             link = make_profile_data(client, profile, settings) if profile.is_enabled else ""
             if link:
@@ -465,7 +468,7 @@ async def get_subscription(token: str, request: Request, format: Literal["raw", 
     cdn_available = any(p.kind == "vless_xhttp_tls" and p.kind in globally_enabled
                         and settings.get("cdn.enabled") == "true" and cdn_access_allowed(client, p, settings)
                         for p in profiles)
-    normal_available = any(p.kind != "awg" and p.kind in globally_enabled and p.is_enabled for p in profiles)
+    normal_available = any(p.kind not in {"awg", "mtproto"} and p.kind in globally_enabled and p.is_enabled for p in profiles)
     if cdn_available and not normal_available and not total:
         upload, download = limits["cdn_monthly_traffic_up"], limits["cdn_monthly_traffic_down"]
         total = limits["cdn_monthly_traffic_limit"]

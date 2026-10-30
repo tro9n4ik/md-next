@@ -357,7 +357,9 @@ remove_installation() {
     exit 0
   fi
 
-  systemctl disable --now md-next-backend 2>/dev/null || true
+  systemctl disable --now md-next-backend md-next-mtproto.service 2>/dev/null || true
+  rm -f /etc/systemd/system/md-next-mtproto.service /usr/local/bin/md-next-mtg
+  rm -rf /etc/md-next-mtproto
   local owns_xray=0
   local owns_awg=0
   if [ -f /var/lib/md-next/awg-config-owned ] || [ -f /var/lib/md-next/awg-routing-owned ]; then

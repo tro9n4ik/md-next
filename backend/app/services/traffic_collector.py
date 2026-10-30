@@ -73,10 +73,24 @@ async def _collect_client_traffic() -> None:
         clients = (await session.execute(select(Client))).scalars().all()
         for client in clients:
             refresh_period(client, now)
+        mtproto_deltas = {}
+        from app.models.setting import Setting
+        mtproto_enabled = await session.get(Setting, "profiles.enabled.mtproto")
+        if mtproto_enabled and mtproto_enabled.value.lower() in {"true", "1", "yes"}:
+            try:
+                from app.services.mtproto import collect_deltas
+                mtproto_deltas = await collect_deltas(session)
+                source_checked("mtproto")
+            except Exception:
+                logger.warning("Не удалось собрать статистику MTProto")
         result = await session.execute(select(ClientProfile, Client).join(Client, Client.id == ClientProfile.client_id))
         for profile, client in result.all():
             up = down = 0
-            if profile.kind == "awg" and profile.public_key in awg_deltas:
+            if profile.kind == "mtproto":
+                up, down = mtproto_deltas.get(profile.id, (0, 0))
+                profile.traffic_up = (profile.traffic_up or 0) + up
+                profile.traffic_down = (profile.traffic_down or 0) + down
+            elif profile.kind == "awg" and profile.public_key in awg_deltas:
                 up, down = awg_deltas[profile.public_key]
                 profile.traffic_up = (profile.traffic_up or 0) + up
                 profile.traffic_down = (profile.traffic_down or 0) + down

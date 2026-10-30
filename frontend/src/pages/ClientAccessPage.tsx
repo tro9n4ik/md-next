@@ -35,7 +35,7 @@ const ProfileAccessEditor: React.FC<{ data: AccessData; refresh: () => Promise<v
   });
   return <section className="ui-card ui-panel">
     <h2 className="font-semibold text-neutral-800">Доступные профили подписки</h2>
-    <p className="mt-1 text-sm text-neutral-500">Выберите, какие подключения доступны клиенту. Отключение закрывает доступ на сервере. AmneziaWG выдаётся отдельным файлом.</p>
+    <p className="mt-1 text-sm text-neutral-500">Выберите, какие подключения доступны клиенту. Отключение закрывает доступ на сервере. AmneziaWG выдаётся отдельным файлом, Telegram MTProto — отдельной ссылкой.</p>
     <div className="mt-5 grid gap-3 sm:grid-cols-2">
       {data.access.map(item => <div key={item.kind} className="flex items-center justify-between gap-3 rounded-xl border border-neutral-200 p-4">
         <div><p className="text-sm font-semibold text-neutral-800">{item.label}</p><p className="mt-1 text-xs text-neutral-500">{item.available ? selected[item.kind] ? 'Доступ разрешён' : 'Доступ закрыт' : 'Выключен в настройках панели'}</p></div>
@@ -156,6 +156,7 @@ const ClientAccessPage: React.FC = () => {
       const size = new TextEncoder().encode(profile.data).length;
       const canQr = Boolean(profile.data) && size <= 2900;
       const isAwg = profile.kind === 'awg';
+      const isTelegram = profile.kind === 'mtproto';
       return <article key={profile.kind} className="grid gap-5 ui-card ui-panel md:grid-cols-[190px_1fr]">
         <div className="flex flex-col items-center justify-center rounded-xl bg-neutral-50 p-4">
           {canQr ? <QRCodeSVG value={profile.data} size={160} level="L" includeMargin /> : <div className="flex h-40 items-center text-center text-xs text-neutral-500">{isAwg && !profile.key_available ? 'Ключ недоступен, нажмите «Перевыпустить»' : profile.data ? 'Конфигурация слишком длинная для QR, скачайте файл' : 'Нет данных профиля'}</div>}
@@ -166,7 +167,7 @@ const ClientAccessPage: React.FC = () => {
 
           </div>
           {!profile.key_available && isAwg ? <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">Ключ недоступен, нажмите «Перевыпустить»</p> : <textarea readOnly value={profile.data} className="h-28 w-full resize-y rounded-lg border bg-neutral-50 p-3 font-mono text-xs text-neutral-700" />}
-          <div className="flex flex-wrap gap-2">{profile.data && <CopyButton value={profile.data} />}{isAdmin && profile.kind !== 'cdn' && <button onClick={async () => { if (await confirm({ title: 'Перевыпустить профиль?', description: 'Старые данные подключения перестанут работать. Клиенту потребуется новый профиль.', confirmText: 'Перевыпустить', tone: 'warning' })) { setError(''); profileMutation.mutate({ profileId: profile.id, action: 'regenerate' }); } }} className="inline-flex items-center gap-1 rounded-lg border border-amber-200 px-3 py-2 text-xs font-medium text-amber-800 hover:bg-amber-50"><RefreshCw size={14} /> Перевыпустить</button>}</div>
+          <div className="flex flex-wrap gap-2">{isTelegram && profile.data && <a className="ui-button ui-button-secondary" href={profile.data}>Подключить Telegram</a>}{profile.data && <CopyButton value={profile.data} />}{isAdmin && profile.kind !== 'cdn' && <button onClick={async () => { if (await confirm({ title: 'Перевыпустить профиль?', description: 'Старые данные подключения перестанут работать. Клиенту потребуется новый профиль.', confirmText: 'Перевыпустить', tone: 'warning' })) { setError(''); profileMutation.mutate({ profileId: profile.id, action: 'regenerate' }); } }} className="inline-flex items-center gap-1 rounded-lg border border-amber-200 px-3 py-2 text-xs font-medium text-amber-800 hover:bg-amber-50"><RefreshCw size={14} /> Перевыпустить</button>}</div>
         </div>
       </article>;
     })}

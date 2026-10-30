@@ -23,8 +23,8 @@ def record_activity(client_id: int, kind: str, upload: int, download: int) -> No
 def client_activity(client_id: int, kinds: list[str], allowed: bool) -> dict:
     now = time.monotonic()
     connected = [kind for kind in kinds if allowed and
-                 now - _sources.get('awg' if kind == 'awg' else 'xray', float('-inf')) <= TELEMETRY_WINDOW and
+                 now - _sources.get(kind if kind in {'awg', 'mtproto'} else 'xray', float('-inf')) <= TELEMETRY_WINDOW and
                  now - _seen.get((client_id, kind), float('-inf')) <= ACTIVITY_WINDOW]
-    known = all(now - _sources.get('awg' if kind == 'awg' else 'xray', float('-inf')) <= TELEMETRY_WINDOW for kind in kinds)
+    known = all(now - _sources.get(kind if kind in {'awg', 'mtproto'} else 'xray', float('-inf')) <= TELEMETRY_WINDOW for kind in kinds)
     return {'connection_status': 'online' if connected else 'offline' if not allowed or known else 'unknown',
             'connected_protocols': connected, 'activity_window_seconds': ACTIVITY_WINDOW}
