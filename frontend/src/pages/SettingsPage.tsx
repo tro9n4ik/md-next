@@ -1,5 +1,5 @@
 import { Activity, Archive, Globe, RefreshCw, Send, Settings2, ShieldCheck, Stethoscope, ScrollText, Users, BookOpen, ArrowUpRight } from 'lucide-react';
-import { Link, NavLink, Outlet } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import PageLayout from '../components/ui/PageLayout';
 import { useCurrentUser } from '../contexts/AuthContext';
 const groups = [
@@ -23,14 +23,15 @@ const groups = [
 
 export default function SettingsPage() {
   const isAdmin = useCurrentUser().role === 'admin';
+  const { pathname } = useLocation();
+  const visibleGroups = groups.filter(group => isAdmin || !group.admin);
+  const currentGroup = visibleGroups.find(group => group.sections.some(section => section.path === pathname)) ?? visibleGroups[0];
   return <PageLayout title="Настройки" description="Управление панелью, обслуживание и безопасность аккаунта" icon={Settings2}>
     <div className="settings-layout">
-      <nav aria-label="Разделы настроек" className="settings-nav ui-card">
-        {groups.filter(group => isAdmin || !group.admin).map(group => <div className="settings-nav-group" key={group.title}>
-          <p>{group.title}</p>
-          {group.sections.map(({ path, title, icon: Icon, ...options }) => <NavLink key={path} to={path} end={'end' in options && options.end} className={({ isActive }) => `settings-nav-link ${isActive ? 'is-active' : ''}`}><Icon size={17} /><span>{title}</span></NavLink>)}
-        </div>)}
-        {isAdmin && <Link to="/wiki" className="settings-wiki-link"><BookOpen size={17} /><span>Нужна подсказка? Открыть Wiki</span><ArrowUpRight size={15} /></Link>}
+      <nav aria-label="Разделы настроек" className="settings-navigation">
+        <div className="settings-category-row"><div className="settings-categories">{visibleGroups.map(group => <Link key={group.title} to={group.sections[0].path} className={`settings-category ${group === currentGroup ? 'is-active' : ''}`} aria-current={group === currentGroup ? 'true' : undefined}>{group.title}</Link>)}</div>
+        {isAdmin && <Link to="/wiki" className="settings-help"><BookOpen size={16} /><span>Помощь</span><ArrowUpRight size={14} /></Link>}</div>
+        <div className="settings-section-tabs">{currentGroup.sections.map(({ path, title, icon: Icon, ...options }) => <NavLink key={path} to={path} end={'end' in options && options.end} className={({ isActive }) => `settings-section-tab ${isActive ? 'is-active' : ''}`}><Icon size={16} /><span>{title}</span></NavLink>)}</div>
       </nav>
       <div className="settings-body"><Outlet /></div>
     </div>
