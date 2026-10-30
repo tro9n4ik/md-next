@@ -6,7 +6,6 @@ import json
 import os
 from pathlib import Path
 import platform
-import pwd
 import re
 import subprocess
 import tarfile
@@ -46,8 +45,8 @@ def validate(payload):
 def render(payload):
     validate(payload)
     lines = [f'bind-to = "0.0.0.0:{payload["port"]}"', 'api-bind-to = "127.0.0.1:10910"',
-             'proxies = ["socks5://127.0.0.1:10909"]', 'dns = "https://1.1.1.1"',
-             'concurrency = 2048', '[secrets]']
+             'concurrency = 2048', '[network]',
+             'proxies = ["socks5://127.0.0.1:10909"]', 'dns = "https://1.1.1.1"', '[secrets]']
     for name, key in sorted(payload["users"].items()):
         lines.append(f'{name} = "ee{key}{payload["domain"].encode("ascii").hex()}"')
     return "\n".join(lines) + "\n"
@@ -77,6 +76,7 @@ def atomic(path, data, mode=0o600, gid=0):
 
 
 def prepare():
+    import pwd
     try:
         user = pwd.getpwnam("md-next-mtproto")
     except KeyError:
