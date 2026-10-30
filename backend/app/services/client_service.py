@@ -81,6 +81,13 @@ class ClientService:
         stored_settings = (await db.execute(select(Setting).where(Setting.key.in_(["warp.usage", "warp.proxy_port", "warp.node_id", "warp.node_port"])))).scalars().all()
         setting_values = {item.key: item.value for item in stored_settings}
         warp_usage = setting_values.get("warp.usage", "off")
+        use_stored_node = active_node is _USE_STORED_ACTIVE_NODE
+        selected_setting = await db.get(Setting, "active_node_id")
+        direct_route = (bool(selected_setting and selected_setting.value in {"direct:manual", "direct:auto"})
+                        if use_stored_node else active_node is None)
+        # Прямой выход временно приостанавливает WARP; настройки и пресеты в БД сохраняются.
+        if direct_route:
+            warp_usage = "off"
         warp_port = int(setting_values.get("warp.proxy_port", "40000"))
         warp_node_id = int(setting_values["warp.node_id"]) if setting_values.get("warp.node_id") else None
         if warp_node_id:
@@ -113,10 +120,8 @@ class ClientService:
         except ValueError as exc:
             log_event("error", "xray", "Не удалось подготовить правила маршрутизации", {"reason": str(exc)[:400]})
             return False, str(exc)
-        use_stored_node = active_node is _USE_STORED_ACTIVE_NODE
         if use_stored_node:
             active_node = await XrayService.get_active_node(db)
-        selected_setting = await db.get(Setting, "active_node_id")
         options = {
             "awg_routing": "awg" in kinds,
             "enabled": kinds,

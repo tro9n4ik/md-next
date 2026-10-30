@@ -79,7 +79,10 @@ class WarpService:
         target = await cls.target(db)
         usage = await db.get(Setting, "warp.usage")
         ipv4 = await db.get(Setting, "warp.ipv4_only")
-        enabled = bool(usage and usage.value != "off")
+        requested_enabled = bool(usage and usage.value != "off")
+        route = await db.get(Setting, "active_node_id")
+        paused = bool(requested_enabled and route and route.value in {"direct:manual", "direct:auto"})
+        enabled = requested_enabled and not paused
         ready = False
         if target["node_id"]:
             try:
@@ -88,10 +91,11 @@ class WarpService:
             except Exception:
                 pass
         return {**target, "remote": True, "installed": bool(target["node_id"]),
-                "enabled": enabled, "controls_ready": ready,
+                "enabled": enabled, "paused": paused, "requested_enabled": requested_enabled, "controls_ready": ready,
                 "ipv4_only": ready and (not ipv4 or ipv4.value != "false"),
-                "state": "Enabled" if enabled else "Disabled",
-                "instruction": None if target["node_id"] else "Выберите активную ноду на странице «Узлы»."}
+                "state": "Paused" if paused else "Enabled" if enabled else "Disabled",
+                "instruction": ("Выбран прямой выход: WARP приостановлен, пресеты сохранены. После выбора ноды WARP возобновится."
+                                if paused else None if target["node_id"] else "Выберите активную ноду на странице «Узлы».")}
 
     @classmethod
     async def target(cls, db: AsyncSession) -> dict[str, Any]:
