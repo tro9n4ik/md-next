@@ -71,7 +71,7 @@ def test_cdn_only_exhausted_has_no_empty_vpn_import_but_keeps_telegram():
     hrefs = Links(html).hrefs
     assert any(link.startswith("tg://proxy?") for link in hrefs)
     assert not any(link.startswith(("happ://", "v2rayng://")) for link in hrefs)
-    assert "Лимит исчерпан" in html
+    assert "Лимит обхода БС исчерпан" in html
 
 
 def test_available_cdn_is_recommended_when_regular_tls_is_not_granted():

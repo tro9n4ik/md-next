@@ -147,7 +147,8 @@ async def test_happ_metadata_distinguishes_cdn_and_general_quota(normal, general
         from urllib.parse import unquote
         assert '100 Б/мес' in unquote(base64.b64decode(r.text).decode())
         page = await api.get('/api/v1/sub/cdn-quota?format=page')
-        assert 'Обход БС: отдельный трафик' in page.text and '100.0 Б' in page.text
+        assert 'aria-label="Трафик обхода БС"' in page.text
+        assert 'из 100 Б' in page.text and 'Осталось 70 Б' in page.text
 
 
 @pytest.mark.asyncio
@@ -163,6 +164,9 @@ async def test_happ_announcement_reports_exhaustion_and_clears_removed_limit():
             await db.commit()
         r = await api.get('/api/v1/sub/cdn-quota')
         assert 'без лимита' in base64.b64decode(r.headers['announce'][7:]).decode()
+        page = await api.get('/api/v1/sub/cdn-quota?format=page')
+        assert 'Отдельное ограничение не установлено' in page.text
+        assert 'Лимит обхода БС исчерпан' not in page.text
         async with TestingSessionLocal() as db:
             row = await db.get(Setting,'cdn.enabled'); row.value = 'false'; await db.commit()
         r = await api.get('/api/v1/sub/cdn-quota')
