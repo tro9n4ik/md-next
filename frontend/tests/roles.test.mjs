@@ -40,8 +40,8 @@ function fixture(clientOverrides = {}) {
     subscription_url: 'https://vpn.example/sub/test-subscription' });
   return query;
 }
-function render(component, user, query = fixture()) {
-  const path = component === ClientAccessPage ? '/clients/123/access' : '/';
+function render(component, user, query = fixture(), location) {
+  const path = location ?? (component === ClientAccessPage ? '/clients/123/access' : '/');
   return renderToStaticMarkup(React.createElement(QueryClientProvider, { client: query },
     React.createElement(AuthContext.Provider, { value: user },
       React.createElement(MemoryRouter, { initialEntries: [path] },
@@ -120,12 +120,16 @@ test('Настройки в меню доступны всем, служебны
   for (const path of ['account', 'events', 'diagnostics', 'history', 'help']) assert.doesNotMatch(full, new RegExp(`href="/${path}"`));
 });
 test('Субадминистратор видит только личные настройки, администратор — все разделы', () => {
-  const limited = render(SettingsPage, subadmin);
-  const full = render(SettingsPage, admin);
-  assert.match(limited, /href="\/settings\/account"/);
-  for (const path of ['users', 'telegram', 'placeholder', 'diagnostics', 'history', 'events', 'backups', 'update']) {
-    assert.doesNotMatch(limited, new RegExp(`href="/settings/${path}"`));
-    assert.match(full, new RegExp(`href="/settings/${path}"`));
+  for (const location of ['/settings', '/settings/diagnostics', '/settings/account']) {
+    const limited = render(SettingsPage, subadmin, fixture(), location);
+    const full = render(SettingsPage, admin, fixture(), location);
+    assert.match(limited, /href="\/settings\/account"/);
+    for (const path of ['users', 'telegram', 'placeholder', 'diagnostics', 'history', 'events', 'backups', 'update']) {
+      assert.doesNotMatch(limited, new RegExp(`href="/settings/${path}"`));
+    }
+    const paths = location === '/settings' ? ['users', 'telegram', 'placeholder'] : location === '/settings/diagnostics' ? ['diagnostics', 'history', 'events', 'backups', 'update'] : ['account'];
+    for (const path of paths) assert.match(full, new RegExp(`href="/settings/${path}"`));
+    for (const title of ['Панель', 'Обслуживание', 'Личное']) assert.match(full, new RegExp(`>${title}</a>`));
   }
 });
 test('Пароль и 2FA в личной учётной записи всегда раскрыты', () => {
