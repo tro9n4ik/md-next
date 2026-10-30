@@ -94,6 +94,18 @@ test('WARP сообщает о приостановке мониторинга �
   assert.match(html, /Пока WARP выключен, автопроверка приостановлена/);
   assert.match(html, /disabled=""[^>]*>Проверить Gemini/);
 });
+
+test('Прямой выход показывает паузу WARP и сохраняет выбранный пресет', () => {
+  const query = fixture();
+  query.setQueryData(['warp-status'], {enabled: false, paused: true, node_id: null, controls_ready: false, name: 'Нода не выбрана'});
+  query.setQueryData(['warp-presets'], {presets: [{key: 'gemini', title: 'Gemini', description: 'Сервис', domains: [], state: {total: 1, missing: 0, extra: 0}}]});
+  query.setQueryData(['warp-gemini-monitor'], {enabled: true, node_id: null, node_name: '', result: {}});
+  const html = render(WarpPage, admin, query);
+  assert.match(html, /WARP приостановлен/);
+  assert.match(html, /Прямой выход · пресеты WARP временно не применяются/);
+  assert.match(html, /Выбран · WARP приостановлен/);
+  assert.match(html, /При прямом выходе автопроверка приостановлена вместе с WARP/);
+});
 test('Неизвестный ответ Gemini не подменяет страну выхода названием ноды', () => {
   const query = fixture();
   query.setQueryData(['warp-status'], {enabled: true, node_id: 1, name: 'Нода NL'});
