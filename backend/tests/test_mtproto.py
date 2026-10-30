@@ -52,6 +52,7 @@ def test_config_has_one_node_proxy_and_no_direct_fallback():
 
 
 def test_unconfirmed_reload_stops_service_and_restores_config(tmp_path, monkeypatch):
+    monkeypatch.setattr(runtime.os, "chown", lambda *args: None)
     target = tmp_path / "config.toml"
     before = runtime.render(config()).encode()
     target.write_bytes(before)
@@ -68,6 +69,7 @@ def test_unconfirmed_reload_stops_service_and_restores_config(tmp_path, monkeypa
 
 
 def test_empty_access_set_stops_proxy_without_download_or_dummy_secret(tmp_path, monkeypatch):
+    monkeypatch.setattr(runtime.os, "chown", lambda *args: None)
     target = tmp_path / "config.toml"
     target.write_text("secret-data")
     monkeypatch.setattr(runtime, "CONFIG", target)
