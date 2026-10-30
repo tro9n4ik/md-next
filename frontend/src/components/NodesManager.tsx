@@ -68,19 +68,6 @@ interface GeneratedInvite {
   expires_at: string;
 }
 
-const RouteStep: React.FC<{ title: string; detail: string; state: 'ok' | 'warn' | 'bad' | 'wait' }> = ({ title, detail, state }) => {
-  const colors = {
-    ok: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-    warn: 'border-amber-200 bg-amber-50 text-amber-700',
-    bad: 'border-red-200 bg-red-50 text-red-700',
-    wait: 'border-neutral-200 bg-neutral-50 text-neutral-500',
-  };
-  return <div className={`node-route-step min-w-0 flex-1 rounded-xl border px-3 py-3 ${colors[state]}`}>
-    <div className="flex items-center gap-2 text-xs font-bold"><span className="h-2 w-2 shrink-0 rounded-full bg-current" />{title}</div>
-    <div className="mt-1 break-words text-[11px] opacity-80">{detail}</div>
-  </div>;
-};
-
 const NumberField: React.FC<{ label: string; value: number; onChange: (value: number) => void; hint?: string; min?: number; max?: number }> = ({ label, value, onChange, hint, min = 0, max }) => (
   <label className="text-xs font-medium text-neutral-600">{label}
     <input required type="number" min={min} max={max} value={value} onChange={event => onChange(Number(event.target.value))} className="mt-1 w-full rounded-lg border border-neutral-200 p-2 text-sm" />
@@ -327,18 +314,7 @@ export const NodesManager: React.FC = () => {
       {route && !route.vpn.xray && <p role="alert" className="mt-3 text-sm text-red-700">Xray не работает. Проверьте состояние сервиса.</p>}
       {route?.manual_direct && <p className="mt-3 text-xs text-amber-700">Прямой выход выбран вручную. Автоматика не заменит его нодой.</p>}
       {routeCheck && <p role="status" className="mt-4 border-l-2 border-emerald-600 pl-3 text-sm">Внешний IP через Xray: <b>{routeCheck.exit_ip}</b>{routeCheck.country ? ` · ${routeCheck.country}` : ''}<span className="mt-1 block text-xs text-neutral-500">{new Date(routeCheck.checked_at).toLocaleString('ru-RU')} · {routeCheck.manual_direct ? 'Прямой выход' : routeCheck.active_node?.name || 'Прямой выход'}</span></p>}
-      <details className="mt-4 border-t border-neutral-200 pt-4"><summary className="cursor-pointer text-sm font-medium">Схема подключения и прямой выход</summary>
-        <div className="mt-4 flex flex-col gap-2 md:flex-row md:items-stretch">
-          <RouteStep title="Клиент" detail="VPN-профиль" state="wait" /><ArrowRight className="hidden self-center text-neutral-300 md:block" />
-          <RouteStep title="Этот сервер" detail={route?.server.hostname || 'Нет данных'} state={route ? 'ok' : 'wait'} /><ArrowRight className="hidden self-center text-neutral-300 md:block" />
-          <RouteStep title="VPN-уровень" detail={`Xray ${route?.vpn.xray ? 'работает' : 'нет'} · AWG ${route?.vpn.awg ? 'работает' : 'нет'}`} state={!route ? 'wait' : route.vpn.xray ? 'ok' : 'bad'} /><ArrowRight className="hidden self-center text-neutral-300 md:block" />
-          <RouteStep title={route?.active_node ? 'Нода выхода' : 'Прямой выход'} detail={route?.active_node?.name || 'Через сервер панели'} state={!route ? 'wait' : route.active_node ? route.active_node.status === 'healthy' ? 'ok' : 'bad' : 'warn'} /><ArrowRight className="hidden self-center text-neutral-300 md:block" />
-          <RouteStep title="Интернет" detail={routeCheck ? 'Выход Xray проверен' : 'Выход Xray не проверен'} state={routeCheck ? 'ok' : 'wait'} />
-        </div>
-        <p className="mt-3 text-xs leading-5 text-neutral-500">Схема показывает настроенный маршрут. Выбранная нода используется Xray и AmneziaWG; правила и WARP применяются к обоим типам подключения. Проверка внешнего IP выполняется с сервера через Xray и не заменяет проверку VPN на устройстве.</p>
-        {route?.next_candidate && <p className="mt-2 text-xs text-neutral-500">Следующий кандидат: {route.next_candidate.name} · {route.next_candidate.ip} · {route.next_candidate.ping_ms} мс</p>}
-        <button className="ui-button ui-button-secondary mt-4" onClick={() => activeNodeMutation.mutate(null)} disabled={activeNodeMutation.isPending || !route?.active_node}>Прямой выход</button>
-      </details>
+      <button className="ui-button ui-button-secondary mt-4" onClick={() => activeNodeMutation.mutate(null)} disabled={activeNodeMutation.isPending || !route?.active_node}>Прямой выход</button>
     </section>
 
     {clusterError && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{clusterError}</p>}
