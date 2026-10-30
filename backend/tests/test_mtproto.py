@@ -2,6 +2,7 @@ import base64
 from datetime import datetime, timedelta, timezone
 import importlib.util
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -51,8 +52,20 @@ def test_config_has_one_node_proxy_and_no_direct_fallback():
             runtime.validate(config(users))
 
 
+def test_node_proxy_is_in_network_table_consumed_by_mtg():
+    # Проверка текста не замечала верные параметры в неверной секции TOML.
+    tomllib = pytest.importorskip("tomllib")
+    users = {"p1": "a" * 32, "p2": "b" * 32}
+    parsed = tomllib.loads(runtime.render(config(users)))
+    assert parsed["network"] == {"proxies": ["socks5://127.0.0.1:10909"], "dns": "https://1.1.1.1"}
+    assert "proxies" not in parsed and "dns" not in parsed
+    assert parsed["concurrency"] == 2048
+    assert set(parsed["secrets"]) == set(users)
+    assert "network" not in parsed["secrets"]
+
+
 def test_unconfirmed_reload_stops_service_and_restores_config(tmp_path, monkeypatch):
-    monkeypatch.setattr(runtime.os, "chown", lambda *args: None)
+    monkeypatch.setattr(runtime.os, "chown", lambda *args: None, raising=False)
     target = tmp_path / "config.toml"
     before = runtime.render(config()).encode()
     target.write_bytes(before)
@@ -69,7 +82,7 @@ def test_unconfirmed_reload_stops_service_and_restores_config(tmp_path, monkeypa
 
 
 def test_empty_access_set_stops_proxy_without_download_or_dummy_secret(tmp_path, monkeypatch):
-    monkeypatch.setattr(runtime.os, "chown", lambda *args: None)
+    monkeypatch.setattr(runtime.os, "chown", lambda *args: None, raising=False)
     target = tmp_path / "config.toml"
     target.write_text("secret-data")
     monkeypatch.setattr(runtime, "CONFIG", target)
@@ -148,7 +161,8 @@ async def test_sync_excludes_paused_expired_quota_and_disabled_profiles(tmp_path
             assert (await mtproto.sync_config(db))[0]
         data = json.loads((tmp_path / "mtproto.json").read_text())
         assert list(data["users"].values()) == [f"{1:032x}"]
-        assert (tmp_path / "mtproto.json").stat().st_mode & 0o077 == 0
+        if os.name != "nt":
+            assert (tmp_path / "mtproto.json").stat().st_mode & 0o077 == 0
         call.assert_awaited_once_with("mtproto-apply", timeout=120)
 
 
