@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from app.services.warp import WarpService
+from app.services.probe_tls import probe_tls_context
 from app.services.xray import XrayService
 from app.services.routing_rules import to_xray_rule, validate_rule_value
 from app.api.routing import create_routing_rule
@@ -44,6 +45,8 @@ async def test_trace_test_uses_socks_proxy_and_parses_response():
     with patch("app.services.warp.httpx.AsyncClient", return_value=client) as http_client:
         result = await WarpService.test_proxy(41234)
     assert http_client.call_args.kwargs["proxy"] == "socks5://127.0.0.1:41234"
+    assert http_client.call_args.kwargs["verify"] is probe_tls_context()
+    assert http_client.call_args.kwargs["trust_env"] is False
     assert result == {"ip": "203.0.113.4", "country": "RU", "warp": "plus"}
 
 

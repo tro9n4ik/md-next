@@ -1,4 +1,5 @@
 import asyncio
+import ssl
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -44,6 +45,7 @@ def transport_client(handler):
 
     def client(**kwargs):
         assert kwargs.pop("proxy") == "socks5://127.0.0.1:23456"
+        assert kwargs["verify"] is google.probe_tls_context()
         assert kwargs["trust_env"] is False
         assert kwargs["follow_redirects"] is False
         return original(transport=httpx.MockTransport(handler), **kwargs)
@@ -306,7 +308,7 @@ async def test_probe_deadline_is_bounded():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", [httpx.ReadTimeout("trace timeout"), ValueError("no IPv4")])
+@pytest.mark.parametrize("failure", [httpx.ReadTimeout("trace timeout"), ValueError("no IPv4"), ssl.SSLError("TLS init failed")])
 @pytest.mark.parametrize("country", ["DE", "RU"])
 async def test_cloudflare_failure_keeps_google_result_without_rotation_signal(failure, country):
     calls = []
@@ -327,3 +329,24 @@ async def test_cloudflare_failure_keeps_google_result_without_rotation_signal(fa
     assert result["status"] == "unknown"
     assert result["warp"] == ""
     assert type(failure).__name__ in result["message"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failed_host", ["gemini.google.com", "accounts.google.com"])
+async def test_tls_error_in_one_google_probe_preserves_other_result(failed_host):
+    def handler(request):
+        if request.url.host == failed_host:
+            raise ssl.SSLError("TLS failed")
+        if request.url.host == "accounts.google.com":
+            return httpx.Response(200, headers={"content-type": "text/html"},
+                                  text='<input type="hidden" name="region" value="NL">')
+        return httpx.Response(200, text="<h1>Gemini</h1>")
+
+    with patch.object(monitor.WarpService, "test_proxy", AsyncMock(return_value={"ip": "104.28.1.2", "country": "NL", "warp": "on"})), \
+         patch.object(google.httpx, "AsyncClient", transport_client(handler)):
+        result = await monitor.probe_proxy(23456, timeout=1)
+    assert result["warp"] == "on"
+    assert result["google_country"] == ("" if failed_host == "accounts.google.com" else "NL")
+    assert result["gemini_status"] == ("unknown" if failed_host == "gemini.google.com" else "page_loaded")
+    assert result["status"] not in {"region_blocked", "google_region_ru"}
+    assert "TLS" in (result["message"] if failed_host == "gemini.google.com" else result["google_region_message"])

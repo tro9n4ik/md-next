@@ -29,3 +29,15 @@ async def test_periodic_egress_probes_share_context_and_close_clients():
     assert manager.__aexit__.await_count == 3
     assert all(call.kwargs['verify'] is probe_tls_context() for call in factory.call_args_list)
     assert all(call.kwargs['trust_env'] is False for call in factory.call_args_list)
+
+
+def test_all_probes_share_trust_store_and_ignore_invalid_environment_ca(monkeypatch, tmp_path):
+    from app.services import gemini_monitor, google_region, warp
+    invalid_ca = tmp_path / 'invalid.pem'
+    invalid_ca.write_text('not a certificate')
+    monkeypatch.setenv('SSL_CERT_FILE', str(invalid_ca))
+    probe_tls_context.cache_clear()
+    context = probe_tls_context()
+    assert context.check_hostname and context.verify_mode == ssl.CERT_REQUIRED
+    assert context.cert_store_stats()['x509_ca'] > 0
+    assert all(module.probe_tls_context() is context for module in (gemini_monitor, google_region, warp))

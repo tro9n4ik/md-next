@@ -7,10 +7,13 @@ that Gemini supports an account. No credentials or cookies are persisted.
 
 import asyncio
 import re
+import ssl
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit
 
 import httpx
+
+from app.services.probe_tls import probe_tls_context
 
 GOOGLE_REGION_URL = (
     "https://accounts.google.com/v3/signin/identifier?flowName=GlifSetupAndroid"
@@ -81,6 +84,7 @@ async def probe_google_region(port: int, *, timeout: float) -> dict:
             timeout=timeout,
             follow_redirects=False,
             trust_env=False,
+            verify=probe_tls_context(),
         ) as client:
             url = GOOGLE_REGION_URL
             for _ in range(4):
@@ -142,5 +146,7 @@ async def probe_google_region(port: int, *, timeout: float) -> dict:
 
     try:
         return await asyncio.wait_for(probe(), timeout=timeout)
+    except ssl.SSLError:
+        return unknown_region("Ошибка TLS при проверке региона Google. Проверка сертификатов сохранена.")
     except (httpx.HTTPError, asyncio.TimeoutError, ValueError):
         return unknown_region("Не удалось получить регион Google через WARP.")

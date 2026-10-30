@@ -8,11 +8,14 @@ import asyncio
 import json
 import logging
 import re
+import ssl
 import time
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit
 
 import httpx
+
+from app.services.probe_tls import probe_tls_context
 
 from app.db import database
 from app.models.node import Node
@@ -89,12 +92,14 @@ async def probe_proxy(port: int, *, timeout: float) -> dict:
         try:
             observed = await asyncio.wait_for(WarpService.test_proxy(port, timeout=timeout), timeout=timeout)
             return {key: observed.get(key, "") for key in ("ip", "country", "warp")}, ""
-        except (httpx.HTTPError, asyncio.TimeoutError, ValueError) as exc:
+        except (httpx.HTTPError, ssl.SSLError, asyncio.TimeoutError, ValueError) as exc:
             return {"ip": "", "country": "", "warp": ""}, type(exc).__name__
 
     async def page_probe():
         try:
             return await asyncio.wait_for(_probe_gemini_page(port, timeout=timeout, trace={}), timeout=timeout)
+        except ssl.SSLError:
+            return {"status": "unknown", "message": "Ошибка TLS при проверке Gemini. Проверка сертификатов сохранена; доступ не подтверждён."}
         except (httpx.HTTPError, asyncio.TimeoutError):
             return {"status": "unknown", "message": "Ответ Gemini получить не удалось. Доступ не подтверждён."}
 
@@ -114,7 +119,7 @@ async def probe_proxy(port: int, *, timeout: float) -> dict:
 
 async def _probe_gemini_page(port: int, *, timeout: float, trace: dict) -> dict:
     async with httpx.AsyncClient(proxy=f"socks5://127.0.0.1:{port}", timeout=timeout,
-                                 follow_redirects=False, trust_env=False) as client:
+                                 follow_redirects=False, trust_env=False, verify=probe_tls_context()) as client:
         url = GEMINI_URL
         for _ in range(6):
             async with client.stream("GET", url, headers={"Accept-Language": "en-US,en;q=0.9"}) as response:
