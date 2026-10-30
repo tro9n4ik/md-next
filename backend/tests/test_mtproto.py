@@ -60,8 +60,34 @@ def test_node_proxy_is_in_network_table_consumed_by_mtg():
     assert parsed["network"] == {"proxies": ["socks5://127.0.0.1:10909"], "dns": "https://1.1.1.1"}
     assert "proxies" not in parsed and "dns" not in parsed
     assert parsed["concurrency"] == 2048
+    assert parsed["prefer-ip"] == "only-ipv4"
     assert set(parsed["secrets"]) == set(users)
     assert "network" not in parsed["secrets"]
+
+
+@pytest.mark.parametrize("previous_policy", [None, "prefer-ipv6"])
+def test_existing_proxy_restarts_to_apply_ipv4_policy(tmp_path, monkeypatch, previous_policy):
+    # SIGHUP обновляет секреты, но для смены семейства адресов нужен перезапуск.
+    monkeypatch.setattr(runtime.os, "chown", lambda *args: None, raising=False)
+    target = tmp_path / "config.toml"
+    previous = runtime.render(config()).replace('prefer-ip = "only-ipv4"\n',
+        f'prefer-ip = "{previous_policy}"\n' if previous_policy else "")
+    target.write_bytes(previous.encode())
+    monkeypatch.setattr(runtime, "CONFIG", target)
+    monkeypatch.setattr(runtime, "prepare", lambda: SimpleNamespace(pw_gid=0))
+    monkeypatch.setattr(runtime, "install_binary", lambda: False)
+    with patch.object(runtime, "command") as command, \
+         patch.object(runtime.subprocess, "run", return_value=SimpleNamespace(returncode=0)), \
+         patch.object(runtime, "verify_applied") as verify:
+        runtime.apply(config())
+        assert target.read_bytes() == runtime.render(config()).encode()
+        command.assert_any_call("/usr/bin/systemctl", "restart", runtime.UNIT)
+        assert not any(call.args[1] == "reload" for call in command.call_args_list)
+        verify.assert_called_once_with(config())
+        # Следующая синхронизация сохраняет соединения при неизменном конфиге.
+        command.reset_mock()
+        runtime.apply(config())
+        assert not any(call.args[1] in {"restart", "reload"} for call in command.call_args_list)
 
 
 def test_unconfirmed_reload_stops_service_and_restores_config(tmp_path, monkeypatch):
