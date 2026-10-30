@@ -41,12 +41,12 @@ export const formatDateTime = (value: string | Date): string =>
 const categoryText: Record<string, string> = {
   auth: 'Вход', security: 'Безопасность', client: 'Клиенты', profile: 'Профили',
   traffic: 'Трафик', node: 'Узлы', node_invite: 'Приглашения узлов', cluster: 'Кластер',
-  xray: 'Xray', awg: 'AmneziaWG', warp: 'WARP', telegram: 'Telegram', service: 'Сервис',
+  xray: 'Xray', awg: 'AmneziaWG', mtproto: 'Telegram MTProto', warp: 'WARP', telegram: 'Telegram', service: 'Сервис',
 };
 export const translateCategory = (category: string): string => categoryText[category] || category;
 
 const profileText: Record<string, string> = {
   vless_reality_tcp: 'VLESS Reality TCP', vless_xhttp_reality: 'VLESS XHTTP Reality',
-  vless_xhttp_tls: 'VLESS XHTTP TLS', hysteria2: 'Hysteria 2', awg: 'AmneziaWG',
+  vless_xhttp_tls: 'VLESS XHTTP TLS', hysteria2: 'Hysteria 2', awg: 'AmneziaWG', mtproto: 'Telegram MTProto',
 };
 export const translateProfile = (kind: string): string => profileText[kind] || kind;

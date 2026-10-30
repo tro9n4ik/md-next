@@ -58,7 +58,7 @@ def protect_code():
 
 
 def helper_sources():
-    return {'privileged-helper.py': ROOT/'scripts/privileged-helper.py', 'update-panel.py': ROOT/'scripts/update-panel.py',
+    return {'mtproto-runtime.py': ROOT/'scripts/mtproto-runtime.py', 'privileged-helper.py': ROOT/'scripts/privileged-helper.py', 'update-panel.py': ROOT/'scripts/update-panel.py',
               'awg-routing.py': ROOT/'scripts/awg-routing.py', 'warp_registration.py': ROOT/'backend/app/services/warp_registration.py',
               'nginx.py': ROOT/'backend/app/services/nginx.py', 'app/services/shell.py': ROOT/'backend/app/services/shell.py',
               'app/services/privileges.py': ROOT/'backend/app/services/privileges.py'}
@@ -99,6 +99,7 @@ def main():
         if target.is_symlink(): raise RuntimeError('Unsafe helper destination')
         shutil.copy2(source, target);os.chown(target, 0, 0);target.chmod(0o755 if name == 'privileged-helper.py' else 0o644)
     verify_copies()
+    command('/usr/bin/python3', str(LIB/'mtproto-runtime.py'), '--prepare-only')
     sudoers = Path('/etc/sudoers.d/md-next')
     sudoers.write_text('md-next ALL=(root) NOPASSWD: /usr/local/lib/md-next/privileged-helper.py ""\n')
     sudoers.chmod(0o440);command('visudo', '-cf', str(sudoers))

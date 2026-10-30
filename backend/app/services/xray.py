@@ -288,6 +288,13 @@ class XrayService:
                     "outboundTag": tag,
                 })
 
+        if "mtproto" in enabled:
+            config["inbounds"].append({"tag": "mtproto-in", "listen": "127.0.0.1", "port": 10909,
+                                       "protocol": "socks", "settings": {"auth": "noauth", "udp": False}})
+            # Только выбранная нода: при её отсутствии запрещаю direct/WARP fallback.
+            probe_rules.insert(0, {"type": "field", "inboundTag": ["mtproto-in"],
+                                   "outboundTag": active_tag or "block"})
+
         rules: List[Dict[str, Any]] = [
             {"type": "field", "inboundTag": ["api-in"], "outboundTag": "api"},
             *probe_rules,

@@ -15,7 +15,7 @@ from app.services.xray import XrayService
 
 
 PROFILE_KINDS = (
-    "vless_reality_tcp", "vless_xhttp_reality", "vless_xhttp_tls", "hysteria2", "awg"
+    "vless_reality_tcp", "vless_xhttp_reality", "vless_xhttp_tls", "hysteria2", "awg", "mtproto"
 )
 PROFILE_LABELS = {
     "vless_reality_tcp": "VLESS Reality TCP",
@@ -23,6 +23,7 @@ PROFILE_LABELS = {
     "vless_xhttp_tls": "VLESS XHTTP TLS",
     "hysteria2": "Hysteria 2",
     "awg": "AmneziaWG",
+    "mtproto": "Telegram MTProto",
 }
 
 
@@ -38,6 +39,8 @@ async def get_profile_settings(db: AsyncSession) -> dict[str, str]:
     values = {setting.key: setting.value for setting in result.scalars().all()}
     for kind, fallback in (("vless_xhttp_reality", os.getenv("XRAY_XHTTP_REALITY_PORT", "2053")), ("hysteria2", "443")):
         values.setdefault(f"profiles.port.{kind}", fallback)
+    values.setdefault("profiles.port.mtproto", "8445")
+    values.setdefault("mtproto.domain", os.getenv("SERVER_HOST", ""))
     values.setdefault("profiles.path.vless_xhttp_reality", "/")
     values.setdefault("profiles.path.vless_xhttp_tls", os.getenv("XRAY_XHTTP_TLS_PATH", "/md-next-xhttp"))
 
@@ -87,6 +90,9 @@ async def create_profiles(db: AsyncSession, client: Client) -> list[ClientProfil
             profile.uuid = str(uuid.uuid4())
         elif kind == "hysteria2":
             profile.auth = secrets.token_urlsafe(24)
+        elif kind == "mtproto":
+            from app.services.mtproto import new_secret
+            profile.private_key_enc = encrypt_secret(new_secret())
         elif kind == "awg":
             profile.ip_address = awg_ip
             private_key, profile.public_key = AWGService.generate_keypair()
@@ -129,6 +135,9 @@ def make_profile_data(client: Client, profile: ClientProfile, settings: dict[str
     if profile.kind == "hysteria2":
         port = int(settings.get("profiles.port.hysteria2", "443"))
         return f"hysteria2://{urllib.parse.quote(profile.auth or '', safe='')}@{host}:{port}/?sni={urllib.parse.quote(host, safe='')}#{name}"
+    if profile.kind == "mtproto":
+        from app.services.mtproto import client_link
+        return client_link(profile, settings)
     if profile.kind == "awg":
         private_key = decrypt_secret(profile.private_key_enc or "")
         if not private_key:

@@ -5,11 +5,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronRight } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 
-type ProfileKind = 'vless_reality_tcp' | 'vless_xhttp_reality' | 'vless_xhttp_tls' | 'hysteria2' | 'awg';
+type ProfileKind = 'vless_reality_tcp' | 'vless_xhttp_reality' | 'vless_xhttp_tls' | 'hysteria2' | 'awg' | 'mtproto';
 type XhttpMode = 'auto' | 'packet-up' | 'stream-up' | 'stream-one';
 type ProtocolSettings = {
   profiles: { kind: ProfileKind; enabled: boolean }[];
-  ports: { vless_xhttp_reality: number; hysteria2: number };
+  ports: { vless_xhttp_reality: number; hysteria2: number; mtproto: number };
+  mtproto: {domain: string};
   paths: { vless_xhttp_reality: string; vless_xhttp_tls: string };
   reality: {
     server_address: string;
@@ -33,6 +34,7 @@ const labels: Record<ProfileKind, string> = {
   vless_xhttp_tls: 'VLESS XHTTP TLS',
   hysteria2: 'Hysteria 2',
   awg: 'AmneziaWG',
+  mtproto: 'Telegram MTProto',
 };
 const descriptions: Record<ProfileKind, string> = {
   vless_reality_tcp: 'TCP · Reality · Vision',
@@ -40,6 +42,7 @@ const descriptions: Record<ProfileKind, string> = {
   vless_xhttp_tls: 'XHTTP · TLS через Nginx',
   hysteria2: 'QUIC · UDP · TLS',
   awg: 'UDP-туннель AmneziaWG 3.1',
+  mtproto: 'TCP · FakeTLS · только Telegram',
 };
 const modes: { value: XhttpMode; label: string }[] = [
   { value: 'auto', label: 'Автоматически' },
@@ -48,8 +51,8 @@ const modes: { value: XhttpMode; label: string }[] = [
   { value: 'stream-one', label: 'Один поток' },
 ];
 
-type SettingsTab = 'reality' | 'xhttp' | 'udp';
-const tabs: { key: SettingsTab; title: string }[] = [{ key: 'reality', title: 'Reality' }, { key: 'xhttp', title: 'XHTTP' }, { key: 'udp', title: 'UDP' }];
+type SettingsTab = 'reality' | 'xhttp' | 'udp' | 'telegram';
+const tabs: { key: SettingsTab; title: string }[] = [{ key: 'reality', title: 'Reality' }, { key: 'xhttp', title: 'XHTTP' }, { key: 'udp', title: 'UDP' }, { key: 'telegram', title: 'Telegram' }];
 const input = 'protocol-input';
 const label = 'protocol-label';
 
@@ -87,6 +90,7 @@ const ProtocolSettingsTab: React.FC = () => {
           paths: settings.paths,
           reality: Object.fromEntries(Object.entries(settings.reality).filter(([key]) => key !== 'private_key_set')),
           modes: settings.modes,
+          mtproto: settings.mtproto,
           confirm_link_identity_change,
         }),
       }, 'protocol-settings-editor');
@@ -105,7 +109,7 @@ const ProtocolSettingsTab: React.FC = () => {
         kind: 'success',
         text: variables.confirm_link_identity_change
           ? 'Параметры сохранены. Ссылки клиентов перестроены, прежние ссылки больше не действуют.'
-          : 'Параметры сохранены, конфигурация Xray применена',
+          : 'Параметры сохранены, настройки протоколов применены',
       });
       client.invalidateQueries({ queryKey: ['clients'] });
       client.invalidateQueries({ queryKey: ['clusterRoute'] });
@@ -153,6 +157,16 @@ const ProtocolSettingsTab: React.FC = () => {
 
       <fieldset className="protocol-fields" disabled={save.isPending}>
         <div role="tabpanel" id={`protocol-panel-${tab}`} aria-labelledby={`protocol-tab-${tab}`} tabIndex={0}>
+          {tab === 'telegram' && <>
+            <p className="protocol-context">Отдельный секрет и ссылка для каждого клиента. Выход только через выбранную ноду; при её отсутствии соединения блокируются. Обновлять ноды не требуется.</p>
+            <div className="protocol-field-grid">
+              <label className={label}>Публичный TCP-порт<input className={input} type="number" min="1024" max="65535" value={value.ports.mtproto ?? 8445} onChange={event => update('ports', 'mtproto', Number(event.target.value))} /></label>
+              <label className={label}>Домен FakeTLS<input className={input} value={value.mtproto?.domain ?? ''} onChange={event => update('mtproto', 'domain', event.target.value)} placeholder="vpn.example.com" /></label>
+            </div>
+            <p className="protocol-context">Используйте доступный HTTPS-домен. Публичный адрес из вкладки Reality должен вести на сервер панели. Откройте выбранный TCP-порт в файрволе сервера и у хостинга.</p>
+            <p className="protocol-context">Ссылка и QR-код доступны отдельно в карточке клиента и на личной странице. В VPN-подписку этот прокси не добавляется — откройте его ссылку непосредственно в Telegram.</p>
+            <p className="protocol-context">При смене порта или домена заново выдайте ссылки. Срок, приостановка и лимиты подписки действуют и на MTProto. Трафик и достижение лимитов проверяются при периодическом сборе статистики.</p>
+          </>}
           {tab === 'reality' && <>
             <p className="protocol-context">Общие параметры для VLESS Reality TCP и VLESS XHTTP Reality.</p>
             <div className="protocol-field-grid">

@@ -12,7 +12,7 @@ from qrcode.image.pure import PyPNGImage
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from app.services.client_limits import limit_info, utc
 from app.services.cdn import make_cdn_link, cdn_access_allowed
-from app.services.profiles import PROFILE_LABELS
+from app.services.profiles import PROFILE_LABELS, make_profile_data
 
 environment = Environment(loader=FileSystemLoader(Path(__file__).parent.parent / "templates"),
                           autoescape=select_autoescape(["html"]))
@@ -51,6 +51,16 @@ def render_subscription_page(client, profiles, settings, enabled, url, usage, to
     qrcode.make(url, image_factory=PyPNGImage).save(buffer)
     expiry = utc(client.expires_at) if client.expires_at else None
     days = max(0, int((expiry - datetime.now(timezone.utc)).total_seconds() // 86400)) if expiry else None
+    telegram = ""
+    telegram_qr = ""
+    if limits["access_allowed"] and "mtproto" in enabled:
+        profile = next((p for p in profiles if p.kind == "mtproto" and p.is_enabled), None)
+        if profile:
+            telegram = make_profile_data(client, profile, settings)
+            if telegram:
+                image = BytesIO()
+                qrcode.make(telegram, image_factory=PyPNGImage).save(image)
+                telegram_qr = "data:image/png;base64," + base64.b64encode(image.getvalue()).decode()
     return environment.get_template("subscription.html").render(
         name=client.name, status=status, active=limits["access_allowed"], expiry=expiry,
         days=days, usage=size(usage), total=size(total) if total else "Без ограничений",
@@ -60,6 +70,8 @@ def render_subscription_page(client, profiles, settings, enabled, url, usage, to
         cdn_total=size(limits['cdn_monthly_traffic_limit']) if limits['cdn_monthly_traffic_limit'] else 'Без ограничений',
         cdn_remaining=size(max(0, limits['cdn_monthly_traffic_limit']-limits['cdn_monthly_traffic_used'])),
         cdn_limited=bool(limits['cdn_monthly_traffic_limit']), cdn_exhausted=limits['cdn_quota_exhausted'],
+        telegram=telegram, telegram_qr=telegram_qr,
+        vpn_available=cdn_available or any(p.kind not in {"mtproto", "awg"} and p.kind in enabled and p.is_enabled for p in profiles),
         profiles=names, url=url, happ="happ://add/" + url,
         v2ray="v2rayng://install-sub?url=" + quote(url, safe=""),
         qr="data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode())
