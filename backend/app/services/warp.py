@@ -8,6 +8,8 @@ from typing import Any, Optional
 
 import httpx
 
+from app.services.probe_tls import probe_tls_context
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -237,7 +239,7 @@ class WarpService:
     @classmethod
     async def test_proxy(cls, port: int, *, timeout: float = 15.0) -> dict[str, str]:
         proxy = f"socks5://127.0.0.1:{port}"
-        async with httpx.AsyncClient(proxy=proxy, timeout=timeout) as client:
+        async with httpx.AsyncClient(proxy=proxy, timeout=timeout, trust_env=False, verify=probe_tls_context()) as client:
             response = await client.get("https://1.1.1.1/cdn-cgi/trace")
             response.raise_for_status()
         values = dict(line.split("=", 1) for line in response.text.splitlines() if "=" in line)

@@ -3,9 +3,6 @@ import datetime
 import logging
 import os
 import time
-import ssl
-from functools import lru_cache
-import certifi
 from typing import Optional, Tuple
 
 import httpx
@@ -22,15 +19,9 @@ from app.bot.bot import get_bot
 from app.bot.handlers import notify_admin
 from app.bot.notification_cards import node_down, node_recovered, route_changed
 from app.services.events import log_event
+from app.services.probe_tls import probe_tls_context
 
 logger = logging.getLogger(__name__)
-
-
-@lru_cache(maxsize=1)
-def probe_tls_context():
-    # Repeated CA loading grows native TLS allocations in this process.
-    # Reuse trust configuration, but keep clients and sockets short-lived.
-    return ssl.create_default_context(cafile=certifi.where())
 
 
 class WatchdogService:
