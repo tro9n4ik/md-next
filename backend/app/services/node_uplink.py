@@ -67,7 +67,7 @@ async def local_listener(port: int) -> bool:
         writer.write(b"\x05\x01\x00")
         await writer.drain()
         return await asyncio.wait_for(reader.readexactly(2), 1) == b"\x05\x00"
-    except (OSError, TimeoutError, asyncio.IncompleteReadError):
+    except (OSError, asyncio.TimeoutError, asyncio.IncompleteReadError):
         return False
     finally:
         if writer:

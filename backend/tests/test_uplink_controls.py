@@ -1,4 +1,5 @@
 """Настройка из панели перекрывает env и сохраняет прежний маршрут при ошибке."""
+import asyncio
 import json
 from unittest.mock import AsyncMock, patch
 
@@ -11,6 +12,7 @@ from app.models.node import Node
 from app.models.setting import Setting
 from app.models.user import User
 from app.services import node_uplink
+from app.services.node_uplink import local_listener as real_local_listener
 from app.services.client_service import ClientService
 from app.services.watchdog import WatchdogService
 from app.services.warp import WarpService
@@ -189,3 +191,10 @@ async def test_check_result_is_hidden_after_the_selected_node_changes(auth_heade
         await db.commit()
     response = await request('GET', '', auth_headers)
     assert response.json()['check'] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('error', [OSError, asyncio.TimeoutError])
+async def test_local_proxy_failure_is_a_status_on_all_supported_python_versions(error):
+    with patch('app.services.node_uplink.asyncio.open_connection', new=AsyncMock(side_effect=error)):
+        assert await real_local_listener(40000) is False
