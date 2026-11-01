@@ -18,6 +18,7 @@ const { AuthContext } = require('../src/contexts/AuthContext.ts');
 const Sidebar = require('../src/components/Sidebar.tsx').default;
 const ClientsTable = require('../src/components/ClientsTable.tsx').default;
 const ClientAccessPage = require('../src/pages/ClientAccessPage.tsx').default;
+const ClientExitRoute = require('../src/components/ClientExitRoute.tsx').default;
 const UsersPage = require('../src/pages/UsersPage.tsx').default;
 const { AccountEditor } = require('../src/pages/UsersPage.tsx');
 const UpdatePage = require('../src/pages/UpdatePage.tsx').default;
@@ -35,7 +36,7 @@ function fixture(clientOverrides = {}) {
   const client = { id: 123, name: 'Issued client', phone: '', email: '', is_active: true, access_allowed: true,
     expires_at: null, profiles: [], connected_protocols: [], monthly_traffic_used: 0, monthly_traffic_limit: 0,
     cdn_monthly_traffic_used: 0, cdn_monthly_traffic_limit: 0, traffic_total: 0, connection_status: 'offline', can_delete: false, can_pause: false, ...clientOverrides };
-  query.setQueryData(['clients', '', 'all', 'created', 'desc'], [client]);
+  query.setQueryData(['clients', '', 'all', 'created', 'desc', '', ''], [client]);
   query.setQueryData(['clientProfiles', 123], { client, access: [], adblock_enabled: false,
     profiles: [{ id: 456, kind: 'vless_reality_tcp', label: 'Reality TCP', data: 'vless://test-profile', is_enabled: true, key_available: true }],
     subscription_url: 'https://vpn.example/sub/test-subscription' });
@@ -58,6 +59,40 @@ function uplinkFixture(overrides = {}) {
     can_prepare: true, node_id: 1, node_name: 'Первая нода', job: {phase: 'ready', installed: true}, check: null, ...overrides});
   return query;
 }
+
+function exitFixture(nodeId = null) {
+  const node = { id: 1, name: 'Германия', country_code: 'DE', status: 'healthy', is_enabled: true, selectable: true, ping_ms: 55, assigned_clients: 8, following_clients: 12 };
+  const second = { ...node, id: 2, name: 'Нидерланды', country_code: 'NL', assigned_clients: 3, following_clients: 0 };
+  const route = { mode: nodeId === null ? 'common' : 'node', node_id: nodeId, node: nodeId === 2 ? second : node, status: 'healthy' };
+  const query = fixture({ exit_route: route });
+  const options = { nodes: [node, second], common: { mode: 'node', node }, common_clients: 12, total_clients: 23 };
+  query.setQueryData(['clientExitOptions'], options);
+  query.setQueryData(['clientExitRoute', 123], { ...options, route });
+  return query;
+}
+
+test('Индивидуальный выход объясняет приоритет, протоколы и сохранение ссылки', () => {
+  const html = render(() => React.createElement(ClientExitRoute, { clientId: 123, clientName: 'Ирина' }), admin, exitFixture(2));
+  for (const phrase of ['Персональный маршрут', 'Нидерланды', 'Закреплено', 'По общему', 'Блокировка рекламы', 'приоритет', 'Telegram MTProto использует общий выход']) assert.ok(html.includes(phrase), phrase);
+  assert.match(html, /aria-label="Путь трафика"/);
+  assert.doesNotMatch(html, /type="checkbox"/);
+});
+
+test('Общий маршрут остаётся исходным, редактирование скрыто от субадминистратора', () => {
+  const html = render(ClientAccessPage, admin, exitFixture());
+  assert.match(html, /Сейчас: Германия/);
+  assert.match(html, /Сохранить маршрут/);
+  assert.doesNotMatch(render(ClientAccessPage, subadmin, exitFixture(2)), /Персональный маршрут|Сохранить маршрут/);
+});
+
+test('В списке клиентов есть маршрут и фильтр выходов без адресов нод', () => {
+  const html = render(ClientsTable, admin, exitFixture(2));
+  assert.match(html, /Изменить выход клиента Issued client/);
+  assert.match(html, /Фильтр по выходу/);
+  assert.match(html, /Своя нода/);
+  assert.match(html, /Нидерланды/);
+  assert.doesNotMatch(render(ClientsTable, subadmin, exitFixture(2)), /Фильтр по выходу|Изменить выход клиента/);
+});
 
 test('Канал к нодам отделён от пресетов и объясняет маршрут и границы ускорения', () => {
   const html = render(WarpUplinkCard, admin, uplinkFixture());

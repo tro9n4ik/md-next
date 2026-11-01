@@ -115,8 +115,11 @@ class ClientService:
                 raise ValueError("Выберите активную ноду для WARP на странице «Узлы»")
             if warp_usage != "off" and warp_node_id and (warp_node_id not in nodes_by_id or not nodes_by_id[warp_node_id].secret):
                 raise ValueError("Выбранная нода WARP отключена или отсутствует; переключите выход WARP")
+            from app.services.client_exit import build_client_exit_rules
+            common_rules = [to_xray_rule(rule, nodes_by_id) for rule in routing_rules]
             xray_routing_rules = await build_adblock_rules(db, profiles, kinds)
-            xray_routing_rules += [to_xray_rule(rule, nodes_by_id) for rule in routing_rules]
+            xray_routing_rules += build_client_exit_rules(profiles, kinds, nodes_by_id, common_rules)
+            xray_routing_rules += common_rules
         except ValueError as exc:
             log_event("error", "xray", "Не удалось подготовить правила маршрутизации", {"reason": str(exc)[:400]})
             return False, str(exc)

@@ -234,3 +234,25 @@ def test_client_groups_preserve_credentials_and_seed_defaults(alembic_config):
     with sqlite3.connect(db_file) as db:
         assert db.execute("select sub_token,is_active from clients where id=3").fetchone() == ('unchanged-token', 1)
         assert db.execute("select uuid from client_profiles where client_id=3").fetchone() == ('unchanged-uuid',)
+
+
+def test_client_exit_upgrade_downgrade_preserve_subscription(alembic_config):
+    cfg, db_file = alembic_config
+    command.upgrade(cfg, "0018_client_groups")
+    with sqlite3.connect(db_file) as db:
+        db.execute("insert into nodes (id,name,host,port,protocol) values (1,'Test','192.0.2.1',443,'trojan')")
+        db.execute("insert into clients (id,name,phone,email,sub_token,is_active,traffic_total) values (1,'Test','','','unchanged-token',1,579)")
+        db.execute("insert into client_profiles (client_id,kind,uuid,is_enabled) values (1,'vless_reality_tcp','unchanged-profile',1)")
+    command.upgrade(cfg, "head")
+    with sqlite3.connect(db_file) as db:
+        assert db.execute("select exit_node_id,sub_token,traffic_total from clients").fetchone() == (None, 'unchanged-token', 579)
+        db.execute("update clients set exit_node_id=1")
+        assert not db.execute("pragma foreign_key_check").fetchall()
+    with sqlite3.connect(db_file) as db:
+        db.execute("pragma foreign_keys=on")
+        with pytest.raises(sqlite3.IntegrityError):
+            db.execute("delete from nodes where id=1")
+    command.downgrade(cfg, "0018_client_groups")
+    with sqlite3.connect(db_file) as db:
+        assert db.execute("select sub_token,traffic_total from clients").fetchone() == ('unchanged-token', 579)
+        assert db.execute("select uuid from client_profiles").fetchone() == ('unchanged-profile',)

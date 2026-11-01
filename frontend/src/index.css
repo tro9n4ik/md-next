@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./styles/clients.css";
+@import "./styles/client-exit.css";
 @import "./styles/nodes.css";
 @import "./styles/warp.css";
 @import "./styles/protocols.css";

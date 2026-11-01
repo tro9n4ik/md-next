@@ -19,6 +19,7 @@ class Client(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     group_id = Column(Integer, ForeignKey("client_groups.id", ondelete="SET NULL"), nullable=True, index=True)
+    exit_node_id = Column(Integer, ForeignKey("nodes.id", ondelete="RESTRICT"), nullable=True, index=True)
     last_seen_at = Column(DateTime(timezone=True), nullable=True)
     created_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     name = Column(String, index=True, nullable=False)
