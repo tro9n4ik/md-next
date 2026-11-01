@@ -19,7 +19,9 @@ def node_outbound(node: dict) -> dict:
         return {
             "tag": tag, "protocol": "vless",
             "settings": {"vnext": [{"address": node["host"], "port": int(node["port"]),
-                                    "users": [{"id": identity, "encryption": "none", "flow": "xtls-rprx-vision"}]}]},
+                                    # Межсерверный канал должен передавать QUIC, а не
+                                    # принудительно переводить клиентов на TCP.
+                                    "users": [{"id": identity, "encryption": "none", "flow": "xtls-rprx-vision-udp443"}]}]},
             "streamSettings": {"network": "tcp", "security": "reality",
                                "realitySettings": {"serverName": REALITY_SERVER_NAME,
                                                    "fingerprint": "firefox", "password": key, "shortId": short_id}},

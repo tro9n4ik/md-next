@@ -17,7 +17,8 @@ from app.services.xray import XrayService
 )
 @pytest.mark.parametrize("kind", ["reality", "hysteria"])
 @pytest.mark.parametrize("mode", ["http", "https", "udp"])
-def test_real_client_master_node_roundtrip(tmp_path, monkeypatch, kind, mode):
+@pytest.mark.parametrize("node_protocol", ["trojan", "vless"])
+def test_real_client_master_node_roundtrip(tmp_path, monkeypatch, kind, mode, node_protocol):
     """Local real binaries; a relay emulates Nginx's incoming PROXY header."""
     monkeypatch.setenv("NODE_PROBE_ENABLED", "false")
     root = tmp_path
@@ -48,6 +49,7 @@ def test_real_client_master_node_roundtrip(tmp_path, monkeypatch, kind, mode):
         .serial_number(x509.random_serial_number())
         .not_valid_before(now - timedelta(minutes=1))
         .not_valid_after(now + timedelta(days=1))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
         .add_extension(
             x509.SubjectAlternativeName(
                 [
@@ -171,6 +173,9 @@ def test_real_client_master_node_roundtrip(tmp_path, monkeypatch, kind, mode):
         .rstrip("=")
     )
     uid = str(uuid.uuid4())
+    if node_protocol == "vless":
+        monkeypatch.setattr("app.services.node_transport.REALITY_SERVER_NAME", "example.test")
+        node.update(protocol="vless", secret=str(uuid.uuid4()), public_key=pub, short_id="")
     master = json.loads(
         XrayService.generate_config(
             [{"id": uid, "flow": "xtls-rprx-vision", "email": "test"}],
@@ -213,9 +218,25 @@ def test_real_client_master_node_roundtrip(tmp_path, monkeypatch, kind, mode):
             }
         ],
         "outbounds": [
-            {"protocol": "freedom", "sendThrough": "127.0.0.2", "settings": {}}
+            {"protocol": "freedom", "sendThrough": "127.0.0.2", "settings": {"finalRules": [
+                {"action": "allow", "network": "tcp", "ip": ["127.0.0.1/32"], "port": str(origin.server_port)},
+                {"action": "allow", "network": "udp", "ip": ["127.0.0.1/32"], "port": str(echo.getsockname()[1])},
+            ]}}
         ],
     }
+    if node_protocol == "vless":
+        node_config["inbounds"][0].update(
+            protocol="vless",
+            settings={"clients": [{"id": node["secret"], "flow": "xtls-rprx-vision"}], "decryption": "none"},
+            streamSettings={"network": "tcp", "security": "reality", "realitySettings": {
+                "dest": f"127.0.0.1:{target_port}", "serverNames": ["example.test"],
+                "privateKey": priv, "shortIds": [""], "xver": 1,
+            }},
+        )
+        if mode == "udp":
+            # Запрос проходит именно как UDP/443; локальное перенаправление
+            # позволяет проверить ответ без привилегированной привязки порта.
+            node_config["outbounds"][0]["settings"]["redirect"] = f"127.0.0.1:{echo.getsockname()[1]}"
     relay = socket.socket()
     relay.bind(("127.0.0.1", proxy_port))
     relay.listen()
@@ -267,7 +288,7 @@ def test_real_client_master_node_roundtrip(tmp_path, monkeypatch, kind, mode):
                                     {
                                         "id": uid,
                                         "encryption": "none",
-                                        "flow": "xtls-rprx-vision",
+                                        "flow": "xtls-rprx-vision-udp443" if node_protocol == "vless" and mode == "udp" else "xtls-rprx-vision",
                                     }
                                 ],
                             }
@@ -293,6 +314,7 @@ def test_real_client_master_node_roundtrip(tmp_path, monkeypatch, kind, mode):
                         "security": "tls",
                         "tlsSettings": {
                             "serverName": "example.test",
+                            "disableSystemRoot": True,
                             "certificates": [
                                 {
                                     "certificateFile": str(root / "cert.pem"),
@@ -363,7 +385,7 @@ def test_real_client_master_node_roundtrip(tmp_path, monkeypatch, kind, mode):
                         udp.sendto(
                             b"\x00\x00\x00\x01"
                             + socket.inet_aton("127.0.0.1")
-                            + echo.getsockname()[1].to_bytes(2, "big")
+                            + (443 if node_protocol == "vless" else echo.getsockname()[1]).to_bytes(2, "big")
                             + payload,
                             endpoint,
                         )
