@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { Cloud, Loader2, Sparkles, ArrowRight, RefreshCw, Globe, Server, ShieldCheck, Network, ChevronRight, Activity, CircleHelp, Gamepad2, Bot } from 'lucide-react';
 import Switch from '../components/ui/Switch';
+import WarpUplinkCard from '../components/WarpUplinkCard';
 import { apiFetch } from '../utils/api';
 interface WarpPreset { key: string; title: string; description: string; domains: string[]; state: {total: number; missing: number; extra: number} }
 interface GeminiMonitorState {
@@ -22,7 +23,7 @@ export default function WarpPage() {
   const status = useQuery<{enabled: boolean; paused?: boolean; ipv4_only: boolean; controls_ready: boolean; node_id: number | null; name: string; instruction?: string}>({queryKey: ['warp-status'], queryFn: () => request('status'), refetchInterval: 15000});
   const presets = useQuery<{presets: WarpPreset[]}>({queryKey: ['warp-presets'], queryFn: () => request('presets')});
   const gemini = useQuery<GeminiMonitorState>({queryKey: ['warp-gemini-monitor'], queryFn: () => request('gemini/monitor'), refetchInterval: 15000});
-  const refresh = () => { client.invalidateQueries({queryKey: ['warp-status']}); client.invalidateQueries({queryKey: ['warp-presets']}); client.invalidateQueries({queryKey: ['warp-gemini-monitor']}); client.invalidateQueries({queryKey: ['routingRules']}); };
+  const refresh = () => { client.invalidateQueries({queryKey: ['warp-status']}); client.invalidateQueries({queryKey: ['warp-presets']}); client.invalidateQueries({queryKey: ['warp-gemini-monitor']}); client.invalidateQueries({queryKey: ['warp-uplink']}); client.invalidateQueries({queryKey: ['routingRules']}); };
   const target = `${status.data?.node_id}:${status.data?.ipv4_only}:${status.data?.enabled}`;
   const exitResult = testResult?.target === target ? testResult.trace : null;
   const toggle = useMutation({mutationFn: (enabled: boolean) => request('usage', 'PUT', {usage: enabled ? 'rules' : 'off'}), onSuccess: () => {setNotice('Настройки сохранены'); setTestResult(null); refresh();}, onError: (error: Error) => setNotice(error.message)});
@@ -59,6 +60,8 @@ export default function WarpPage() {
     </section>
 
     {notice && <p role="status" className="warp-notice">{notice}</p>}
+
+    <WarpUplinkCard disabled={busy} onChanged={() => {setTestResult(null); refresh();}} />
 
     <div className="warp-main-grid">
       <section data-autosave className="ui-card warp-services">

@@ -21,7 +21,7 @@ from app.bot.handlers import notify_admin
 from app.bot.notification_cards import node_down, node_recovered, route_changed
 from app.services.events import log_event
 from app.services.probe_tls import probe_tls_context
-from app.services.node_transport import node_uplink_warp_port
+from app.services.node_transport import resolve_uplink_port, UPLINK_FROM_ENV
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ class WatchdogService:
         self.probe_timeout = max(2.0, float(os.getenv("NODE_PROBE_TIMEOUT", "8")))
 
     async def _check_node_ping(self, host: str, port: int) -> Tuple[bool, int]:
-        uplink_port = node_uplink_warp_port()
+        uplink_port = resolve_uplink_port(getattr(self, "_uplink_port", UPLINK_FROM_ENV))
         start = time.monotonic()
         writer = None
         proxy_socket = None
@@ -115,6 +115,8 @@ class WatchdogService:
         self.recovery_threshold = settings["failback_stable_checks"]
         self.recovery_cooldown = settings["cooldown_s"]
         nodes = (await session.execute(select(Node).order_by(Node.priority, Node.id))).scalars().all()
+        from app.services.node_uplink import get_uplink_port
+        self._uplink_port = await get_uplink_port(session)
         now = datetime.datetime.now(datetime.timezone.utc)
         for node in nodes:
             if not node.is_enabled:

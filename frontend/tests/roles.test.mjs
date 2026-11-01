@@ -22,6 +22,7 @@ const UsersPage = require('../src/pages/UsersPage.tsx').default;
 const { AccountEditor } = require('../src/pages/UsersPage.tsx');
 const UpdatePage = require('../src/pages/UpdatePage.tsx').default;
 const WarpPage = require('../src/pages/WarpPage.tsx').default;
+const WarpUplinkCard = require('../src/components/WarpUplinkCard.tsx').default;
 const SettingsPage = require('../src/pages/SettingsPage.tsx').default;
 const AccountPage = require('../src/pages/AccountPage.tsx').default;
 const HelpPage = require('../src/pages/HelpPage.tsx').default;
@@ -50,6 +51,47 @@ function render(component, user, query = fixture(), location) {
           element: React.createElement(component, { onLogout: () => {} }),
         }))))));
 }
+
+function uplinkFixture(overrides = {}) {
+  const query = fixture();
+  query.setQueryData(['warp-uplink'], {enabled: true, ready: true, paused: false, preparing: false,
+    can_prepare: true, node_id: 1, node_name: 'Первая нода', job: {phase: 'ready', installed: true}, check: null, ...overrides});
+  return query;
+}
+
+test('Канал к нодам отделён от пресетов и объясняет маршрут и границы ускорения', () => {
+  const html = render(WarpUplinkCard, admin, uplinkFixture());
+  assert.match(html, /aria-label="Маршрут при включённом канале WARP"/);
+  assert.match(html, /Основной сервер/);
+  assert.match(html, /Локальный WARP/);
+  assert.match(html, /Первая нода/);
+  assert.match(html, /не гарантирует увеличение скорости/);
+  assert.match(html, /Отдельно от пресетов сервисов/);
+  assert.match(html, /Проверить канал/);
+  assert.match(html, /aria-checked="true" aria-label="Канал к нодам через WARP"/);
+});
+
+test('Без готового локального подключения канал нельзя включить; доступна подготовка', () => {
+  const html = render(WarpUplinkCard, admin, uplinkFixture({enabled: false, ready: false, job: {phase: 'idle', installed: false}}));
+  assert.match(html, /aria-checked="false" aria-label="Канал к нодам через WARP" disabled=""/);
+  assert.match(html, /Подготовить WARP/);
+  assert.match(html, /зарегистрирует WARP через выбранную ноду/);
+});
+
+test('Подготовка не запрещает отключить уже включённый канал', () => {
+  const html = render(WarpUplinkCard, admin, uplinkFixture({ready: false, preparing: true, job: {phase: 'connecting', message: 'Подключаем WARP'}}));
+  const toggle = html.match(/<button[^>]*role="switch"[^>]*>/)[0];
+  assert.doesNotMatch(toggle, / disabled=""/);
+  assert.match(html, /Подготовка продолжится, даже если закрыть страницу/);
+});
+
+test('Прямой выход сохраняет включение канала и показывает ожидание ноды', () => {
+  const html = render(WarpUplinkCard, admin, uplinkFixture({paused: true, node_id: null, node_name: 'Нода не выбрана', can_prepare: false}));
+  assert.match(html, /Ожидает ноду/);
+  assert.match(html, /Настройка канала сохранена/);
+  assert.match(html, /Выбрать активную ноду/);
+  assert.match(html, /aria-checked="true"/);
+});
 test('WARP показывает результат Gemini и объясняет границы автоматической смены IP', () => {
   const query = fixture();
   query.setQueryData(['warp-status'], {enabled: true, controls_ready: true, node_id: 1, name: 'Первая нода', ipv4_only: true});

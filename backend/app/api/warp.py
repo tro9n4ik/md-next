@@ -48,6 +48,65 @@ class GeminiMonitorRequest(BaseModel):
     enabled: bool = Field(strict=True)
 
 
+class UplinkRequest(BaseModel):
+    enabled: bool = Field(strict=True)
+
+
+@router.get("/uplink")
+async def get_uplink(db: AsyncSession = Depends(get_db)):
+    from app.services import node_uplink
+    return await node_uplink.status(db)
+
+
+@router.put("/uplink")
+async def set_uplink(request: UplinkRequest, db: AsyncSession = Depends(get_db)):
+    from app.services import node_uplink
+    try:
+        result = await node_uplink.set_enabled(db, request.enabled)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    log_event("info", "warp", "Изменён канал к нодам через WARP", {"enabled": request.enabled})
+    return result
+
+
+@router.post("/uplink/prepare")
+async def prepare_uplink(db: AsyncSession = Depends(get_db)):
+    from app.services import node_uplink
+    from app.services.xray import XrayService
+    node = await XrayService.get_active_node(db)
+    if not node or not node.secret:
+        raise HTTPException(status_code=409, detail="Для подготовки WARP выберите активную ноду в разделе «Узлы»")
+    value = await node_uplink.settings(db)
+    try:
+        job = await node_uplink.runtime_request("prepare", node_id=node.id, port=value["port"])
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail="Не удалось запустить подготовку локального WARP") from exc
+    log_event("info", "warp", "Запущена подготовка канала к нодам через WARP")
+    return job
+
+
+@router.post("/uplink/check")
+async def check_uplink(db: AsyncSession = Depends(get_db)):
+    import json
+    import time
+    from app.services import node_uplink
+    from app.services.warp import _setup_lock
+    async with _setup_lock:
+        value = await node_uplink.settings(db)
+        try:
+            result = await node_uplink.verify(db, value["port"])
+        except ValueError as exc:
+            result = {"ok": False, "message": str(exc), "port": value["port"], "checked_at": time.time()}
+            from app.services.xray import XrayService
+            node = await XrayService.get_active_node(db)
+            result["node_id"] = node.id if node else None
+        await node_uplink.save_value(db, node_uplink.CHECK_KEY, json.dumps(result))
+        await db.commit()
+    return result
+
+
 @router.get("/gemini/monitor")
 async def get_gemini_monitor(db: AsyncSession = Depends(get_db)):
     from app.services.gemini_monitor import monitor_status
@@ -80,7 +139,7 @@ async def set_warp_ipv4(request: WarpIPv4Request, db: AsyncSession = Depends(get
             raise HTTPException(status_code=409, detail="Нет подключённых нод")
         try:
             for node in nodes:
-                await WarpService.control_node(node, "status", request.ipv4_only)
+                await WarpService.control_node(node, "status", request.ipv4_only, db=db)
         except Exception as exc:
             raise HTTPException(status_code=409, detail="Обновите служебный обработчик WARP на всех включённых нодах. Настройка не изменена.") from exc
         await WarpService._save_setting(db, "warp.ipv4_only", str(request.ipv4_only).lower())
@@ -105,7 +164,7 @@ async def rotate_warp_ip(db: AsyncSession = Depends(get_db)):
         if not node:
             raise HTTPException(status_code=409, detail="Активная нода не выбрана")
         try:
-            result = await WarpService.control_node(node, "rotate", target["port"] == 40000)
+            result = await WarpService.control_node(node, "rotate", target["port"] == 40000, db=db)
         except Exception as exc:
             raise HTTPException(status_code=502, detail="Не удалось переподключить WARP. Проверьте его состояние и служебный обработчик на ноде.") from exc
         log_event("info", "warp", "WARP переподключён", {"node_id": node.id, "changed": result["changed"]})

@@ -1,4 +1,4 @@
-from app.services.node_transport import node_outbound, node_uplink_outbounds
+from app.services.node_transport import node_outbound, node_uplink_outbounds, UPLINK_FROM_ENV
 import json
 import os
 import time
@@ -103,11 +103,12 @@ class XrayService:
         if node_fallback_tag not in ("direct", "block"):
             node_fallback_tag = "direct"
         node_tags: List[str] = []
+        uplink_port = options.get("node_uplink_port", UPLINK_FROM_ENV)
         outbounds = []
         for node in options.get("nodes", []):
             if active_node and int(node.get("id", -1)) == int(active_node.id):
                 continue
-            outbounds.append(node_outbound(node))
+            outbounds.append(node_outbound(node, uplink_port=uplink_port))
             node_tags.append(f"node-{node['id']}")
 
         if active_node and getattr(active_node, 'is_enabled', True):
@@ -118,13 +119,13 @@ class XrayService:
                     "protocol": active_node.protocol, "secret": node_secret,
                     "public_key": getattr(active_node, "public_key", None),
                     "short_id": getattr(active_node, "short_id", None),
-                }))
+                }, uplink_port=uplink_port))
                 node_tags.append(f"node-{active_node.id}")
             else:
                 logger.warning(f"Нода {getattr(active_node, 'id', 'unknown')} активна, но секрет ноды отсутствует. Outbound каскада не добавлен.")
 
         if node_tags:
-            outbounds.extend(node_uplink_outbounds())
+            outbounds.extend(node_uplink_outbounds(uplink_port))
 
         if warp_usage != "off":
             warp_node_id = options.get("warp_node_id")

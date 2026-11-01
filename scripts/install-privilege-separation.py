@@ -60,6 +60,7 @@ def protect_code():
 def helper_sources():
     return {'mtproto-runtime.py': ROOT/'scripts/mtproto-runtime.py', 'privileged-helper.py': ROOT/'scripts/privileged-helper.py', 'update-panel.py': ROOT/'scripts/update-panel.py',
               'awg-routing.py': ROOT/'scripts/awg-routing.py', 'warp_registration.py': ROOT/'backend/app/services/warp_registration.py',
+              'warp-uplink-runtime.py': ROOT/'scripts/warp-uplink-runtime.py',
               'nginx.py': ROOT/'backend/app/services/nginx.py', 'app/services/shell.py': ROOT/'backend/app/services/shell.py',
               'app/services/privileges.py': ROOT/'backend/app/services/privileges.py'}
 

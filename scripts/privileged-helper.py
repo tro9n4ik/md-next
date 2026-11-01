@@ -118,6 +118,14 @@ def execute(args):
 
 def dispatch(request):
     operation = request.get('operation')
+    if operation in {'warp-uplink-status', 'warp-uplink-prepare'}:
+        if operation == 'warp-uplink-prepare' and (type(request.get('node_id')) is not int or not 1 <= request['node_id'] <= 2**63-1
+                or type(request.get('port')) is not int or not 1 <= request['port'] <= 65535):
+            raise ValueError('Invalid WARP uplink preparation')
+        spec = importlib.util.spec_from_file_location('trusted_uplink', LIB/'warp-uplink-runtime.py')
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        data = module.status() if operation == 'warp-uplink-status' else module.start(request.get('node_id'), request.get('port'))
+        return [0, json.dumps(data), '']
     if operation == 'mtproto-apply':
         data = read_stage(str(STAGE/'mtproto.json'), 'mtproto.json')
         spec = importlib.util.spec_from_file_location('trusted_mtproto', LIB/'mtproto-runtime.py')

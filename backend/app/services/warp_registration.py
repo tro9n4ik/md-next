@@ -6,6 +6,7 @@
 
 import argparse
 import asyncio
+import copy
 import json
 import ipaddress
 import os
@@ -48,10 +49,15 @@ async def close_servers(servers, connections) -> None:
 
 
 def node_config(config: dict, node_id: int, port: int) -> dict:
-    outbound = next((item for item in config.get("outbounds", []) if item.get("tag") == f"node-{node_id}"), None)
+    outbound = copy.deepcopy(next((item for item in config.get("outbounds", []) if item.get("tag") == f"node-{node_id}"), None))
     if not outbound or outbound.get("protocol") not in {"trojan", "vless"}:
         raise RuntimeError("Нода отсутствует в действующей конфигурации Xray")
-    if outbound.get("proxySettings") or outbound.get("streamSettings", {}).get("sockopt", {}).get("dialerProxy"):
+    sockopt = outbound.get("streamSettings", {}).get("sockopt", {})
+    # Регистрация не должна зависеть от WARP, который сейчас подготавливается.
+    # Убираем только собственный промежуточный канал; остальные цепочки запрещены.
+    if sockopt.get("dialerProxy") == "uplink-warp":
+        del sockopt["dialerProxy"]
+    if outbound.get("proxySettings") or sockopt.get("dialerProxy"):
         raise RuntimeError("Для регистрации нужна нода с самостоятельным выходом")
     return {"log": {"loglevel": "none"},
             "inbounds": [{"listen": "127.0.0.1", "port": port, "protocol": "socks", "settings": {"auth": "noauth", "udp": False}}],

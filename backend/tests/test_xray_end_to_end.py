@@ -143,10 +143,8 @@ def test_real_client_master_node_roundtrip(tmp_path, monkeypatch, kind, mode, no
     api_port = port()
     proxy_port = port()
     uplink_port = port() if uplink else None
-    if uplink:
-        monkeypatch.setenv("NODE_UPLINK_WARP_PORT", str(uplink_port))
-    else:
-        monkeypatch.delenv("NODE_UPLINK_WARP_PORT", raising=False)
+    # Настройка панели перекрывает старый env-флаг и при включении, и при выключении.
+    monkeypatch.setenv("NODE_UPLINK_WARP_PORT", "1")
     node = {
         "id": 1,
         "host": "127.0.0.1",
@@ -190,6 +188,7 @@ def test_real_client_master_node_roundtrip(tmp_path, monkeypatch, kind, mode, no
             dest=f"127.0.0.1:{target_port}",
             active_node=SimpleNamespace(**node),
             profile_options={
+                "node_uplink_port": uplink_port,
                 "enabled": {"vless_reality_tcp", "hysteria2"},
                 "hysteria2_clients": [{"auth": "hy-secret", "email": "hy-test"}],
                 "hysteria2_port": hy_port,
