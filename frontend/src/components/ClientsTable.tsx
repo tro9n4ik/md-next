@@ -208,7 +208,13 @@ const ClientsTable: React.FC<{ description?: string }> = ({ description = 'По�
             <p className="client-traffic-detail">Обход БС: {formatTraffic(client.cdn_monthly_traffic_used)} / {client.cdn_monthly_traffic_limit > 0 ? formatTraffic(client.cdn_monthly_traffic_limit) : '∞'}{client.cdn_quota_exhausted && <span className="text-amber-700"> · лимит исчерпан</span>}</p>
             <p className="client-traffic-detail">Всего: {formatTraffic(client.traffic_total)}</p><p className="client-traffic-detail">Обновление: {formatSubscriptionDate(client.traffic_period_end)}</p>
           </td>
-          <td data-label="Протоколы"><div className="client-protocols">{client.profiles.filter(profile => profile.is_enabled).map(profile => <span key={profile.id}>{translateProfile(profile.kind)}</span>)}</div><p className="client-traffic-detail">Активность: {client.connected_protocols?.length ? client.connected_protocols.map(translateProfile).join(', ') : '—'}</p></td>
+          <td data-label="Протоколы"><div className="client-protocols">{client.profiles.filter(profile => profile.is_enabled).map(profile => {
+            const isActive = client.connection_status === 'online' && client.connected_protocols?.includes(profile.kind);
+            return <span key={profile.id} className={isActive ? 'is-active' : undefined} title={isActive ? 'Была передача трафика за последние 3 минуты' : undefined}>
+              {isActive && <i aria-hidden="true" />}{translateProfile(profile.kind)}
+              {isActive && <span className="sr-only"> — была передача трафика за последние 3 минуты</span>}
+            </span>;
+          })}</div></td>
           <td data-label="Действия"><div className="client-row-actions">
             {canIssue && <button onClick={() => navigate(`/clients/${client.id}/access`)} title={isAdmin ? 'Настроить доступ' : 'Выдать подключение'} aria-label={isAdmin ? 'Настроить доступ' : 'Выдать подключение'} className="ui-button ui-button-secondary"><KeyRound size={16} /></button>}
             {(isAdmin || (user.can_pause_subscriptions && client.can_pause)) && <button disabled={pauseMutation.isPending} onClick={async () => { setError(''); if (await confirm({ title: client.is_active ? 'Приостановить доступ?' : 'Возобновить доступ?', description: client.is_active ? `Доступ клиента «${client.name}» будет приостановлен. Профили и ссылки сохранятся.` : `Доступ клиента «${client.name}» будет возобновлён. Срок и лимиты подписки сохранятся.`, confirmText: client.is_active ? 'Приостановить' : 'Возобновить', tone: client.is_active ? 'warning' : 'default' })) pauseMutation.mutate(client); }} title={client.is_active ? 'Приостановить' : 'Возобновить'} aria-label={client.is_active ? 'Приостановить' : 'Возобновить'} className="ui-button ui-button-secondary">{client.is_active ? <Pause size={16} /> : <Play size={16} />}</button>}
