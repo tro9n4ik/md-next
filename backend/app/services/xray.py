@@ -1,4 +1,4 @@
-from app.services.node_transport import node_outbound
+from app.services.node_transport import node_outbound, node_uplink_outbounds
 import json
 import os
 import time
@@ -122,6 +122,9 @@ class XrayService:
                 node_tags.append(f"node-{active_node.id}")
             else:
                 logger.warning(f"Нода {getattr(active_node, 'id', 'unknown')} активна, но секрет ноды отсутствует. Outbound каскада не добавлен.")
+
+        if node_tags:
+            outbounds.extend(node_uplink_outbounds())
 
         if warp_usage != "off":
             warp_node_id = options.get("warp_node_id")
