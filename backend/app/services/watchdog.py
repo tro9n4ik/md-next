@@ -6,6 +6,7 @@ import time
 from typing import Optional, Tuple
 
 import httpx
+from python_socks.async_.asyncio import Proxy
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +21,7 @@ from app.bot.handlers import notify_admin
 from app.bot.notification_cards import node_down, node_recovered, route_changed
 from app.services.events import log_event
 from app.services.probe_tls import probe_tls_context
+from app.services.node_transport import node_uplink_warp_port
 
 logger = logging.getLogger(__name__)
 
@@ -42,14 +44,24 @@ class WatchdogService:
         self.probe_timeout = max(2.0, float(os.getenv("NODE_PROBE_TIMEOUT", "8")))
 
     async def _check_node_ping(self, host: str, port: int) -> Tuple[bool, int]:
+        uplink_port = node_uplink_warp_port()
         start = time.monotonic()
         writer = None
+        proxy_socket = None
         try:
-            _, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=3.0)
+            if uplink_port is not None:
+                # Проверяем тот же путь, который использует Xray: плохой прямой
+                # канал не должен отключать ноду с работающим WARP-каналом.
+                proxy = Proxy.from_url(f"socks5://127.0.0.1:{uplink_port}")
+                proxy_socket = await proxy.connect(dest_host=host, dest_port=port, timeout=3.0)
+            else:
+                _, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=3.0)
             return True, int((time.monotonic() - start) * 1000)
         except Exception:
             return False, 0
         finally:
+            if proxy_socket is not None:
+                proxy_socket.close()
             if writer:
                 writer.close()
                 try:

@@ -18,7 +18,8 @@ from app.services.xray import XrayService
 @pytest.mark.parametrize("kind", ["reality", "hysteria"])
 @pytest.mark.parametrize("mode", ["http", "https", "udp"])
 @pytest.mark.parametrize("node_protocol", ["trojan", "vless"])
-def test_real_client_master_node_roundtrip(tmp_path, monkeypatch, kind, mode, node_protocol):
+@pytest.mark.parametrize("uplink", [False, True], ids=["direct", "uplink"])
+def test_real_client_master_node_roundtrip(tmp_path, monkeypatch, kind, mode, node_protocol, uplink):
     """Local real binaries; a relay emulates Nginx's incoming PROXY header."""
     monkeypatch.setenv("NODE_PROBE_ENABLED", "false")
     root = tmp_path
@@ -141,6 +142,11 @@ def test_real_client_master_node_roundtrip(tmp_path, monkeypatch, kind, mode, no
     master_socks = port()
     api_port = port()
     proxy_port = port()
+    uplink_port = port() if uplink else None
+    if uplink:
+        monkeypatch.setenv("NODE_UPLINK_WARP_PORT", str(uplink_port))
+    else:
+        monkeypatch.delenv("NODE_UPLINK_WARP_PORT", raising=False)
     node = {
         "id": 1,
         "host": "127.0.0.1",
@@ -237,6 +243,23 @@ def test_real_client_master_node_roundtrip(tmp_path, monkeypatch, kind, mode, no
             # Запрос проходит именно как UDP/443; локальное перенаправление
             # позволяет проверить ответ без привилегированной привязки порта.
             node_config["outbounds"][0]["settings"]["redirect"] = f"127.0.0.1:{echo.getsockname()[1]}"
+    if uplink:
+        # Нода принимает полезный трафик только от локального SOCKS-реле.
+        # Прямой обход реле не сможет дать успешный ответ теста.
+        node_config["outbounds"][0]["tag"] = "node-egress"
+        node_config["outbounds"].append({"tag": "deny-direct", "protocol": "blackhole"})
+        node_config["routing"] = {"rules": [
+            {"type": "field", "source": ["127.0.0.3/32"], "outboundTag": "node-egress"},
+            {"type": "field", "network": "tcp,udp", "outboundTag": "deny-direct"},
+        ]}
+        uplink_config = {
+            "log": {"loglevel": "debug"},
+            "inbounds": [{"listen": "127.0.0.1", "port": uplink_port, "protocol": "socks",
+                          "settings": {"auth": "noauth", "udp": False}}],
+            "outbounds": [{"protocol": "freedom", "sendThrough": "127.0.0.3", "settings": {
+                "finalRules": [{"action": "allow", "network": "tcp", "ip": ["127.0.0.1/32"],
+                                "port": str(node_port)}]}}],
+        }
     relay = socket.socket()
     relay.bind(("127.0.0.1", proxy_port))
     relay.listen()
@@ -273,6 +296,8 @@ def test_real_client_master_node_roundtrip(tmp_path, monkeypatch, kind, mode, no
     threading.Thread(target=accept_relay, daemon=True).start()
     try:
         start("node", node_config)
+        if uplink:
+            start("uplink", uplink_config)
         start("master", master)
         for kind in [kind]:
             socks = port()

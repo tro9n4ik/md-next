@@ -7,7 +7,7 @@ import socket
 import tempfile
 
 from app.services.shell import find_command
-from app.services.node_transport import node_outbound as build_node_outbound
+from app.services.node_transport import node_outbound as build_node_outbound, node_uplink_outbounds
 
 
 def warp_outbound(port: int, node_tag: str | None = None) -> dict:
@@ -40,7 +40,8 @@ async def test_node_proxy(node, port: int, probe, *, control: bool = False) -> d
         path.write_text(json.dumps({"log": {"loglevel": "none"}, "inbounds": [{
             "listen": "127.0.0.1", "port": local_port, "protocol": "socks",
             "settings": {"auth": "noauth", "udp": False}}],
-            "outbounds": [node_outbound] if control else [warp_outbound(port, tag), node_outbound]}), encoding="utf-8")
+            "outbounds": ([node_outbound] if control else [warp_outbound(port, tag), node_outbound])
+                         + node_uplink_outbounds()}), encoding="utf-8")
         path.chmod(0o600)
         process = await asyncio.create_subprocess_exec(binary, "run", "-config", str(path),
             stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
