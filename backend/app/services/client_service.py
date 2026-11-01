@@ -122,7 +122,9 @@ class ClientService:
             return False, str(exc)
         if use_stored_node:
             active_node = await XrayService.get_active_node(db)
+        from app.services.node_uplink import get_uplink_port
         options = {
+            "node_uplink_port": await get_uplink_port(db),
             "awg_routing": "awg" in kinds,
             "enabled": kinds,
             "vless_xhttp_reality_clients": xhttp_reality_clients,

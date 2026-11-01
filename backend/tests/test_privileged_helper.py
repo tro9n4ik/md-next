@@ -18,6 +18,9 @@ helper = importlib.util.module_from_spec(spec);spec.loader.exec_module(helper)
     {'operation': 'nginx', 'kind': 'path', 'value': '/;include /tmp/evil;'},
     {'operation': 'nginx', 'kind': 'sni', 'value': 'example.com; root /;'},
     {'operation': 'update-start', 'commit': '--option'},
+    {'operation': 'warp-uplink-prepare', 'node_id': '../other', 'port': 40000},
+    {'operation': 'warp-uplink-prepare', 'node_id': 1, 'port': True},
+    {'operation': 'warp-uplink-prepare', 'node_id': 1, 'port': 65536},
 ])
 def test_caller_cannot_choose_root_executable_paths_or_unrelated_services(case, monkeypatch):
     def forbidden(*args): raise AssertionError('A system command was reached')

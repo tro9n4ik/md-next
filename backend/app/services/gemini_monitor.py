@@ -180,6 +180,8 @@ class GeminiMonitor:
         if automatic and not (enabled and enabled.value == "true"):
             return {"status": "disabled", "message": "Автопроверка выключена."}
         target = await WarpService.target(db)
+        from app.services.node_uplink import get_uplink_port
+        uplink_port = await get_uplink_port(db)
         node = await db.get(Node, target["node_id"]) if target["node_id"] else None
         if not node or not node.is_enabled:
             return {"status": "skipped", "message": "Активная нода не выбрана или отключена."}
@@ -193,7 +195,7 @@ class GeminiMonitor:
         previous = state.get("status")
         attempts = [stamp for stamp in state.get("rotation_attempts", []) if stamp > now - ROTATE_WINDOW]
         try:
-            result = await asyncio.wait_for(test_node_proxy(node, target["port"], probe_proxy), 45)
+            result = await asyncio.wait_for(test_node_proxy(node, target["port"], probe_proxy, uplink_port=uplink_port), 45)
         except Exception as exc:
             logger.warning("Проверка Gemini через ноду %s не завершилась (%s)", node.id, type(exc).__name__)
             result = {"status": "unknown", "message": (
@@ -234,13 +236,13 @@ class GeminiMonitor:
             state["rotation_note"] = "Автопереподключение запрошено."
             await _save_state(db, node.id, state)
             try:
-                rotated = await WarpService.control_node(node, "rotate", target["port"] == 40000)
+                rotated = await WarpService.control_node(node, "rotate", target["port"] == 40000, db=db)
                 state["rotation_note"] = ("WARP переподключён, IP изменился." if rotated["changed"]
                                           else "WARP переподключён; Cloudflare сохранил прежний IP.")
                 state["last_rotation_at"] = time.time()
                 state["last_rotation_changed"] = rotated["changed"]
                 # Повторная проверка идёт через тот же выход, а не локальный интернет панели.
-                result = await asyncio.wait_for(test_node_proxy(node, target["port"], probe_proxy), 45)
+                result = await asyncio.wait_for(test_node_proxy(node, target["port"], probe_proxy, uplink_port=uplink_port), 45)
                 state.update({**result_fields(result),
                               "checked_at": time.time()})
                 log_event("warning", "warp", "Автопереподключение WARP для Gemini", {

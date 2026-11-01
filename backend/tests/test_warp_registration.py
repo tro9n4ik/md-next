@@ -32,6 +32,19 @@ def test_cleanup_removes_only_own_rules():
     assert all(COMMENT in args and "another-service" not in args for args in deletes)
 
 
+def test_registration_bypasses_only_the_managed_uplink_without_changing_live_config():
+    import copy
+    outbound = {'tag': 'node-7', 'protocol': 'vless', 'streamSettings': {
+        'network': 'tcp', 'security': 'reality', 'sockopt': {'dialerProxy': 'uplink-warp'}}}
+    original = copy.deepcopy(outbound)
+    result = node_config({'outbounds': [outbound]}, 7, 10999)
+    assert 'dialerProxy' not in result['outbounds'][0]['streamSettings']['sockopt']
+    assert outbound == original
+    outbound['streamSettings']['sockopt']['dialerProxy'] = 'unrelated-proxy'
+    with pytest.raises(RuntimeError):
+        node_config({'outbounds': [outbound]}, 7, 10999)
+
+
 @pytest.mark.asyncio
 async def test_register_uses_selected_node_and_preserves_existing_registration():
     async with TestingSessionLocal() as db:

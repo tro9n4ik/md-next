@@ -134,3 +134,46 @@ html[data-theme=dark] .warp-inline-error { color: #efb4a8; background: #3c2725; 
 @media (max-width:767px) { .warp-gemini .warp-section-heading { flex-wrap: wrap; } .warp-section-heading > .warp-gemini-actions { flex-basis: 100%; width: 100%; justify-content: space-between; padding-left: 48px; gap: 12px; } .warp-result-summary { flex-direction: column; align-items: flex-start; gap: 3px; } }
 
 .warp-gemini-result.warp-region-checked { background: var(--surface); border-color: var(--muted); }
+
+.warp-uplink { padding: 24px; }
+.warp-uplink-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 22px; }
+.warp-uplink-heading .warp-section-heading { margin: 0; }
+.warp-uplink-heading h2 { margin-top: 5px; }
+.warp-uplink-control { display: flex; align-items: center; gap: 14px; flex-shrink: 0; padding-top: 8px; }
+.warp-uplink-badge { background: var(--soft); color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 5px 9px; font-size: 10px; line-height: 1.5; }
+.warp-uplink-badge.is-enabled { color: #07835e; background: #edf8f1; border-color: #cde6d8; }
+.warp-uplink-intro { color: var(--muted); font-size: 12px; line-height: 1.9; margin-top: 18px; max-width: 100ch; }
+.warp-uplink-route { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; margin-top: 22px; padding: 0; list-style: none; }
+.warp-uplink-route > li { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.warp-uplink-route > li > div { display: flex; align-items: center; gap: 12px; padding: 15px; border: 1px solid var(--line); border-radius: 14px; background: var(--soft); flex: 1; min-width: 0; }
+.warp-uplink-route svg { color: var(--accent); flex-shrink: 0; }
+.warp-uplink-route span { min-width: 0; }
+.warp-uplink-route b { font-size: 12px; font-weight: 500; display: block; overflow-wrap: anywhere; }
+.warp-uplink-route small { display: block; font-size: 10px; line-height: 1.6; color: var(--muted); margin-top: 4px; }
+.warp-uplink-explanation { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 20px 32px; padding: 24px 0; }
+.warp-uplink h3 { font-size: 12px; font-weight: 600; line-height: 1.7; }
+.warp-uplink-explanation p, .warp-uplink-footer p { color: var(--muted); font-size: 11px; line-height: 1.9; margin-top: 6px; }
+.warp-uplink-footer { border-top: 1px solid var(--line); padding-top: 21px; display: flex; justify-content: space-between; align-items: center; gap: 24px; }
+.warp-uplink-footer > div:first-child { max-width: 90ch; }
+.warp-uplink-footer .warp-text-link { margin-top: 10px; }
+.warp-uplink-buttons { display: flex; gap: 10px; flex-shrink: 0; }
+.warp-uplink-progress, .warp-uplink-check { display: flex; align-items: flex-start; gap: 11px; border: 1px solid var(--line); background: var(--soft); border-radius: 13px; padding: 15px; margin-bottom: 20px; font-size: 12px; line-height: 1.8; }
+.warp-uplink-progress svg, .warp-uplink-check svg { flex-shrink: 0; color: var(--accent); margin-top: 3px; }
+.warp-uplink-progress b { font-weight: 500; }
+.warp-uplink-progress p, .warp-uplink-check small { color: var(--muted); font-size: 10px; line-height: 1.8; }
+.warp-uplink-check.is-success { border-color: #cde6d8; }
+html[data-theme=dark] .warp-uplink-badge.is-enabled { color: #6ee7b7; background: #193d31; border-color: #355c47; }
+html[data-theme=dark] .warp-uplink-check.is-success { border-color: #355c47; }
+@media (max-width:1199px) { .warp-uplink-footer { flex-direction: column; align-items: stretch; } .warp-uplink-buttons { flex-wrap: wrap; } }
+@media (max-width:767px) {
+ .warp-uplink { padding: 20px; }
+ .warp-uplink-heading { flex-direction: column; gap: 17px; }
+ .warp-uplink-control { justify-content: space-between; width: 100%; padding-top: 14px; border-top: 1px solid var(--line); }
+ .warp-uplink-route { grid-template-columns: minmax(0,1fr); gap: 7px; }
+ .warp-uplink-route > li { flex-direction: column; align-items: stretch; gap: 7px; }
+ .warp-uplink-route > li > svg { align-self: center; transform: rotate(90deg); }
+ .warp-uplink-route > li > div { padding: 12px 14px; }
+ .warp-uplink-explanation { grid-template-columns: minmax(0,1fr); gap: 17px; padding-block: 20px; }
+ .warp-uplink-buttons { flex-direction: column; }
+ .warp-uplink-buttons .ui-button { justify-content: center; width: 100%; }
+}

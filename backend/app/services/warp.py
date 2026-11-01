@@ -86,7 +86,7 @@ class WarpService:
         ready = False
         if target["node_id"]:
             try:
-                await cls.control_node(await db.get(Node, target["node_id"]), "status", True)
+                await cls.control_node(await db.get(Node, target["node_id"]), "status", True, db=db)
                 ready = True
             except Exception:
                 pass
@@ -106,7 +106,7 @@ class WarpService:
                 "port": 40001 if ipv4 and ipv4.value == "false" else cls.DEFAULT_PORT, "expected_country": ""}
 
     @classmethod
-    async def control_node(cls, node, action: str, ipv4_only: bool) -> dict:
+    async def control_node(cls, node, action: str, ipv4_only: bool, *, db=None) -> dict:
         if action not in {"status", "rotate"}:
             raise ValueError("Неизвестная операция WARP")
         from app.services.warp_node import test_node_proxy
@@ -117,7 +117,10 @@ class WarpService:
                     headers={"Authorization": "Bearer " + node.secret}, json={"ipv4_only": ipv4_only})
                 response.raise_for_status()
                 return response.json()
-        return await test_node_proxy(node, 40002, request, control=True)
+        from app.services.node_transport import UPLINK_FROM_ENV
+        from app.services.node_uplink import get_uplink_port
+        uplink_port = await get_uplink_port(db) if db is not None else UPLINK_FROM_ENV
+        return await test_node_proxy(node, 40002, request, control=True, uplink_port=uplink_port)
 
     @classmethod
     async def test_target(cls, db: AsyncSession, target: dict | None = None) -> dict[str, str]:
@@ -126,7 +129,8 @@ class WarpService:
             raise ValueError("Выберите активную ноду на странице «Узлы». WARP работает только через ноду.")
         from app.services.warp_node import test_node_proxy
         node = await db.get(Node, target["node_id"])
-        return await test_node_proxy(node, target["port"], cls.test_proxy)
+        from app.services.node_uplink import get_uplink_port
+        return await test_node_proxy(node, target["port"], cls.test_proxy, uplink_port=await get_uplink_port(db))
 
     @classmethod
     async def get_port(cls, db: AsyncSession, fallback: Optional[int] = None) -> int:

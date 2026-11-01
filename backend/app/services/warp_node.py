@@ -7,7 +7,7 @@ import socket
 import tempfile
 
 from app.services.shell import find_command
-from app.services.node_transport import node_outbound as build_node_outbound, node_uplink_outbounds
+from app.services.node_transport import node_outbound as build_node_outbound, node_uplink_outbounds, UPLINK_FROM_ENV
 
 
 def warp_outbound(port: int, node_tag: str | None = None) -> dict:
@@ -18,7 +18,7 @@ def warp_outbound(port: int, node_tag: str | None = None) -> dict:
     return outbound
 
 
-async def test_node_proxy(node, port: int, probe, *, control: bool = False) -> dict:
+async def test_node_proxy(node, port: int, probe, *, control: bool = False, uplink_port=UPLINK_FROM_ENV) -> dict:
     if not node or not node.is_enabled or not node.secret:
         raise ValueError("Нода WARP отсутствует, отключена или не имеет секрета")
     binary = find_command("xray")
@@ -30,7 +30,7 @@ async def test_node_proxy(node, port: int, probe, *, control: bool = False) -> d
         "protocol": node.protocol, "secret": node.secret,
         "public_key": getattr(node, "public_key", None),
                     "short_id": getattr(node, "short_id", None),
-    })
+    }, uplink_port=uplink_port)
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         local_port = listener.getsockname()[1]
@@ -41,7 +41,7 @@ async def test_node_proxy(node, port: int, probe, *, control: bool = False) -> d
             "listen": "127.0.0.1", "port": local_port, "protocol": "socks",
             "settings": {"auth": "noauth", "udp": False}}],
             "outbounds": ([node_outbound] if control else [warp_outbound(port, tag), node_outbound])
-                         + node_uplink_outbounds()}), encoding="utf-8")
+                         + node_uplink_outbounds(uplink_port)}), encoding="utf-8")
         path.chmod(0o600)
         process = await asyncio.create_subprocess_exec(binary, "run", "-config", str(path),
             stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)

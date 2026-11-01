@@ -6,6 +6,17 @@ import re
 
 REALITY_SERVER_NAME = "www.cloudflare.com"
 NODE_UPLINK_TAG = "uplink-warp"
+UPLINK_FROM_ENV = object()
+
+
+def resolve_uplink_port(port=UPLINK_FROM_ENV) -> int | None:
+    if port is UPLINK_FROM_ENV:
+        return node_uplink_warp_port()
+    if port is None or type(port) is int and port == 0:
+        return None
+    if type(port) is not int or not 1 <= port <= 65535:
+        raise ValueError("Некорректный локальный порт WARP")
+    return port
 
 
 def node_uplink_warp_port() -> int | None:
@@ -18,21 +29,21 @@ def node_uplink_warp_port() -> int | None:
     return int(value)
 
 
-def node_uplink_outbounds() -> list[dict]:
-    port = node_uplink_warp_port()
+def node_uplink_outbounds(port=UPLINK_FROM_ENV) -> list[dict]:
+    port = resolve_uplink_port(port)
     if port is None:
         return []
     return [{"tag": NODE_UPLINK_TAG, "protocol": "socks", "settings": {
         "servers": [{"address": "127.0.0.1", "port": port}]}}]
 
 
-def _with_node_uplink(outbound: dict) -> dict:
-    if node_uplink_warp_port() is not None:
+def _with_node_uplink(outbound: dict, port=UPLINK_FROM_ENV) -> dict:
+    if resolve_uplink_port(port) is not None:
         outbound["streamSettings"].setdefault("sockopt", {})["dialerProxy"] = NODE_UPLINK_TAG
     return outbound
 
 
-def node_outbound(node: dict) -> dict:
+def node_outbound(node: dict, *, uplink_port=UPLINK_FROM_ENV) -> dict:
     tag = f"node-{node['id']}"
     if node.get("protocol") == "vless":
         key = node.get("public_key")
@@ -51,9 +62,9 @@ def node_outbound(node: dict) -> dict:
             "streamSettings": {"network": "tcp", "security": "reality",
                                "realitySettings": {"serverName": REALITY_SERVER_NAME,
                                                    "fingerprint": "firefox", "password": key, "shortId": short_id}},
-        })
+        }, uplink_port)
     return _with_node_uplink({
         "tag": tag, "protocol": "trojan",
         "settings": {"servers": [{"address": node["host"], "port": int(node["port"]), "password": node["secret"]}]},
         "streamSettings": {"network": "grpc", "grpcSettings": {"serviceName": "MD-Next-Node"}},
-    })
+    }, uplink_port)
