@@ -238,6 +238,25 @@ async def get_system_health(db: AsyncSession = Depends(get_db)):
         telegram_status, telegram_description = "disabled", "Бот выключен"
     checks.append({"key": "telegram", "name": "Telegram-бот", "status": telegram_status, "description": telegram_description})
 
+    mtproto_setting = await db.get(Setting, "profiles.enabled.mtproto")
+    if not mtproto_setting or mtproto_setting.value.lower() not in {"true", "1", "yes"}:
+        mtproto_status, mtproto_description = "disabled", "Протокол выключен"
+    else:
+        from app.models.client import Client, ClientProfile
+        from app.services.client_limits import access_allowed
+        profiles = (await db.execute(select(ClientProfile, Client).join(
+            Client, Client.id == ClientProfile.client_id
+        ).where(ClientProfile.kind == "mtproto", ClientProfile.is_enabled.is_(True)))).all()
+        available = any(access_allowed(client) for _, client in profiles)
+        running, _ = await _service_active("md-next-mtproto")
+        if running:
+            mtproto_status, mtproto_description = "ok", "Служба работает; доступность Telegram проверяется в приложении"
+        elif not available:
+            mtproto_status, mtproto_description = "disabled", "Служба остановлена: нет клиентов с разрешённым MTProto"
+        else:
+            mtproto_status, mtproto_description = "warning", "Служба MTProto не работает, хотя есть клиенты с разрешённым доступом"
+    checks.append({"key": "mtproto", "name": "Telegram MTProto", "status": mtproto_status, "description": mtproto_description})
+
     usage_setting = await db.get(Setting, "warp.usage")
     if not usage_setting or usage_setting.value == "off":
         checks.append({"key": "warp", "name": "WARP", "status": "disabled", "description": "Использование WARP в Xray выключено"})

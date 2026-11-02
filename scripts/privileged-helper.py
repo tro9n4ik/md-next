@@ -22,7 +22,7 @@ STAGE = Path('/var/lib/md-next/app-config')
 XRAY = Path('/usr/local/etc/xray/config.json')
 AWG = Path('/etc/amnezia/amneziawg/awg0.conf')
 SERVICES = {'xray', 'nginx', 'md-next-backend', 'md-next-awg', 'warp-svc', 'md-next-panel-update.service',
-            'md-next-adguard', 'fail2ban', 'certbot', 'awg-quick@awg0'}
+            'md-next-adguard', 'fail2ban', 'certbot', 'awg-quick@awg0', 'md-next-mtproto'}
 
 
 def read_stage(value, prefix):

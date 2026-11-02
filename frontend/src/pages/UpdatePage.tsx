@@ -1,7 +1,7 @@
 import { useConfirm } from '../contexts/ConfirmationContext';
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Copy, Download, RefreshCw, Network, ShieldCheck, Globe, Cable, Cloud, Shield, KeyRound, Braces, Code, CheckCircle2, CirclePause, CircleAlert, CircleHelp } from 'lucide-react';
+import { Send, Copy, Download, RefreshCw, Network, ShieldCheck, Globe, Cable, Cloud, Shield, KeyRound, Braces, Code, CheckCircle2, CirclePause, CircleAlert, CircleHelp } from 'lucide-react';
 import { request } from '../utils/operations';
 import PageLayout from '../components/ui/PageLayout';
 
@@ -10,7 +10,7 @@ type Status = { installed: { version: string; commit: string }; job: Job; can_in
 type Candidate = { commit: string; summary: string; available: boolean; ready: boolean; signature_verified: boolean; published_at: string; relation: string; identity_notice?: string };
 type Component = { key: string; name: string; version: string | null; status: string; description: string };
 const componentStates: Record<string, string> = { running: 'Работает', stopped: 'Остановлен', failed: 'Ошибка службы', starting: 'Запускается', stopping: 'Останавливается', installed: 'Установлен', not_installed: 'Не установлен', unknown: 'Статус недоступен' };
-const componentIcons = { xray: Network, adguard: ShieldCheck, nginx: Globe, awg: Cable, warp: Cloud, fail2ban: Shield, certbot: KeyRound, node: Braces, python: Code };
+const componentIcons = { mtproto: Send, xray: Network, adguard: ShieldCheck, nginx: Globe, awg: Cable, warp: Cloud, fail2ban: Shield, certbot: KeyRound, node: Braces, python: Code };
 const busyPhases = ['queued', 'preparing', 'backup', 'installing', 'checking', 'rolling_back'];
 
 export default function UpdatePage() {

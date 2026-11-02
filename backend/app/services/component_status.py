@@ -17,6 +17,7 @@ COMPONENTS = (
     ("fail2ban", "Fail2ban", ("fail2ban-client", "--version"), "fail2ban", "Защита от перебора паролей и сканирования"),
     ("certbot", "Certbot", ("certbot", "--version"), None, "Выпуск и продление HTTPS-сертификатов"),
     ("node", "Node.js", ("node", "--version"), None, "Сборка интерфейса при обновлении"),
+    ("mtproto", "Telegram MTProto (mtg-multi)", ("/usr/local/bin/md-next-mtg", "--version"), "md-next-mtproto", "Прокси Telegram с личными секретами клиентов"),
 )
 
 

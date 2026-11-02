@@ -59,5 +59,7 @@ async def test_timeout_keeps_other_components(monkeypatch):
     rows = {row["key"]: row for row in result["components"]}
     assert rows["xray"]["status"] == "unknown"
     assert rows["adguard"]["status"] == "running"
+    assert rows["mtproto"]["status"] == "running"
+    assert rows["mtproto"]["version"] == "1.2.3"
     assert rows["python"]["version"]
     assert result["scope"] == "panel_server"
