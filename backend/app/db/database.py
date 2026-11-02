@@ -1,5 +1,7 @@
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import declarative_base
+import os
+from sqlalchemy import text
 
 # Асинхронный URL для SQLite
 SQLALCHEMY_DATABASE_URL = "sqlite+aiosqlite:///./md_next.db"
@@ -26,4 +28,6 @@ async def get_db():
     Генератор сессий базы данных для инъекции зависимостей FastAPI
     """
     async with AsyncSessionLocal() as session:
+        if os.getenv('MDNEXT_MIGRATION_STAGING') == '1':
+            await session.execute(text('PRAGMA query_only=ON'))
         yield session

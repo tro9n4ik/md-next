@@ -32,7 +32,7 @@ def owned_data(path, uid, gid, *, public=False):
 
 def protect_code():
     """Archive permissions must never make application code writable by the API."""
-    writable = {ROOT/'backend/app/static/fake', ROOT/'backend/backups', ROOT/'data/placeholder'}
+    writable = {ROOT/'backend/app/static/fake', ROOT/'backend/backups', ROOT/'backend/migrations', ROOT/'data/placeholder'}
     runtimes = {ROOT/'backend/venv', ROOT/'venv-releases', ROOT/'frontend/node_modules'}
     for directory, folders, files in os.walk(ROOT, followlinks=False):
         parent = Path(directory)
@@ -58,7 +58,7 @@ def protect_code():
 
 
 def helper_sources():
-    return {'mtproto-runtime.py': ROOT/'scripts/mtproto-runtime.py', 'privileged-helper.py': ROOT/'scripts/privileged-helper.py', 'update-panel.py': ROOT/'scripts/update-panel.py',
+    return {'migration-ssh.py': ROOT/'scripts/migration-ssh.py', 'migration-control.py': ROOT/'scripts/migration-control.py', 'prepare-migration-target.sh': ROOT/'scripts/prepare-migration-target.sh', 'migrate-panel.py': ROOT/'scripts/migrate-panel.py', 'migration-bundle.py': ROOT/'backend/app/services/migration_bundle.py', 'mtproto-runtime.py': ROOT/'scripts/mtproto-runtime.py', 'privileged-helper.py': ROOT/'scripts/privileged-helper.py', 'update-panel.py': ROOT/'scripts/update-panel.py',
               'awg-routing.py': ROOT/'scripts/awg-routing.py', 'warp_registration.py': ROOT/'backend/app/services/warp_registration.py',
               'warp-uplink-runtime.py': ROOT/'scripts/warp-uplink-runtime.py',
               'nginx.py': ROOT/'backend/app/services/nginx.py', 'app/services/shell.py': ROOT/'backend/app/services/shell.py',
@@ -124,6 +124,7 @@ def main():
     owned_data(fake, uid, gid, public=True);owned_data(placeholder, uid, gid)
     old_backups = ROOT/'backend/backups'
     owned_data(old_backups, uid, gid)
+    owned_data(ROOT/'backend/migrations', uid, gid)
     command('systemctl', 'stop', 'md-next-backend')
     database = ROOT/'backend/md_next.db'
     try:

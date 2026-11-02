@@ -65,3 +65,36 @@ html[data-theme=dark] .settings-layout { --accent: #83dbb1; }
   .settings-save-bar { padding: 16px 20px; flex-wrap: wrap; }
   .settings-form-notice { padding: 0 20px 20px; }
 }
+.migration-intro { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.migration-intro p, .migration-checks p, .migration-note, .migration-footer p { font-size: 12px; line-height: 1.85; color: var(--muted); margin-top: 8px; }
+.migration-intro > button, .migration-footer > button { flex-shrink: 0; }
+.migration-counts { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 14px; }
+.migration-counts > div { padding: 20px; }
+.migration-counts span { font-size: 11px; color: var(--muted); }
+.migration-counts b { display: block; margin-top: 10px; font-size: 26px; font-weight: 600; }
+.migration-checks > div { display: flex; gap: 12px; padding: 20px 0; border-bottom: 1px solid var(--line); }
+.migration-checks > div:last-child { border: 0; padding-bottom: 0; }
+.migration-checks svg { flex-shrink: 0; margin-top: 2px; }
+.migration-checks b { display: block; font-size: 13px; }
+.migration-checks code { display: block; overflow-wrap: anywhere; font-size: 12px; margin-top: 8px; color: var(--accent); }
+.migration-list { padding-left: 20px; margin-top: 16px; font-size: 12px; line-height: 1.9; color: var(--muted); }
+ul.migration-list { list-style: disc; } ol.migration-list { list-style: decimal; }
+.migration-list li + li { margin-top: 10px; }
+.migration-footer { display: flex; align-items: center; gap: 24px; justify-content: space-between; border-top: 1px solid var(--line); margin-top: 24px; padding-top: 16px; }
+@media (max-width: 700px) { .migration-counts { grid-template-columns: repeat(2,minmax(0,1fr)); } .migration-intro,.migration-footer { flex-direction: column; align-items: stretch; } }
+.migration-target-fields { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 18px; margin-top: 24px; min-inline-size: 0; }
+.migration-target-fields > * { min-width: 0; }
+.migration-target-fields .ui-button { max-width: 100%; white-space: normal; }
+.migration-target-fields > label { font-size: 12px; font-weight: 500; }
+.migration-target-fields > label > input { display: block; width: 100%; margin-top: 8px; }
+.migration-input { min-height: 44px; padding: 10px 13px; border: 1px solid var(--line); border-radius: 12px; background: var(--canvas); color: var(--ink); font-size: 13px; }
+.migration-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.migration-full-row { grid-column: 1 / -1; }
+.migration-checkbox { display: flex; align-items: flex-start; gap: 9px; font-size: 12px; line-height: 1.8; margin-top: 10px; }
+.migration-checkbox input { flex: 0 0 16px; width: 16px; height: 16px; margin-top: 5px; }
+.migration-fingerprint { display: block; overflow-wrap: anywhere; padding: 14px; border-radius: 12px; background: var(--soft); font-size: 12px; }
+.migration-job-status { margin-top: 18px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; font-size: 12px; }
+.migration-job-status p { margin-top: 7px; line-height: 1.8; color: var(--muted); }
+.migration-package { display: flex; align-items: center; gap: 12px; justify-content: space-between; margin-top: 16px; font-size: 11px; }
+.migration-package span { overflow-wrap: anywhere; min-width: 0; }
+@media (max-width: 700px) { .migration-target-fields { grid-template-columns: minmax(0,1fr); } .migration-package { flex-wrap: wrap; } }

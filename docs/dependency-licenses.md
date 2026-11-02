@@ -26,6 +26,7 @@
 | [pyotp](https://pypi.org/project/pyotp/2.9.0/) | 2.9.0 | MIT License |
 | [alembic](https://pypi.org/project/alembic/1.20.0/) | 1.20.0 | MIT |
 | [psutil](https://pypi.org/project/psutil/7.2.2/) | 7.2.2 | BSD-3-Clause |
+| [paramiko](https://pypi.org/project/paramiko/5.1.0/) | 5.1.0 | LGPL-2.1 |
 
 ## Пакеты frontend из lock-файла
 

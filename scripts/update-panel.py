@@ -321,8 +321,9 @@ def main():
     if not re.fullmatch('[0-9a-f]{40}', request.get('commit', '')) or not Path(request.get('python', '')).is_absolute():
         raise RuntimeError('Invalid request')
     STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
-    with (STATE / 'lock').open('w') as lock:
+    with (STATE / 'lock').open('w') as lock, (STATE.parent / 'maintenance.lock').open('w') as maintenance:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(maintenance, fcntl.LOCK_EX | fcntl.LOCK_NB)
         updater = Updater(ROOT, STATE, request)
         def terminate(signum, frame):
             raise RuntimeError('Update interrupted')

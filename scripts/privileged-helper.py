@@ -118,6 +118,18 @@ def execute(args):
 
 def dispatch(request):
     operation = request.get('operation')
+    if operation in {'migration-status', 'migration-start'}:
+        spec = importlib.util.spec_from_file_location('migration_control', LIB/'migration-control.py')
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        data = module.read_status() if operation == 'migration-status' else module.start(request.get('request', {}))
+        return [0, json.dumps(data), '']
+    if operation == 'migration-export':
+        password = request.get('password')
+        if set(request) != {'operation', 'password'} or not isinstance(password, str) or not 12 <= len(password) <= 256:
+            raise ValueError('Invalid migration export')
+        result = subprocess.run(['/opt/md-next/backend/venv/bin/python', '-I', str(LIB/'migrate-panel.py'), 'api-export'],
+                                input=json.dumps({'password': password}), capture_output=True, text=True, timeout=120)
+        return [result.returncode, result.stdout if result.returncode == 0 else '', '' if result.returncode == 0 else 'Не удалось создать комплект переезда']
     if operation in {'warp-uplink-status', 'warp-uplink-prepare'}:
         if operation == 'warp-uplink-prepare' and (type(request.get('node_id')) is not int or not 1 <= request['node_id'] <= 2**63-1
                 or type(request.get('port')) is not int or not 1 <= request['port'] <= 65535):
@@ -146,6 +158,8 @@ def dispatch(request):
         fields = {'phase', 'message', 'commit', 'backup', 'started_at', 'finished_at'}
         return [0, json.dumps({k: v for k, v in state.items() if k in fields}), '']
     if operation == 'update-start':
+        if (Path('/var/lib/md-next/migration')/'source-fenced.json').exists():
+            raise ValueError('Source is fenced for migration')
         commit, token = request.get('commit'), request.get('token', '')
         if not isinstance(commit, str) or not re.fullmatch('[0-9a-f]{40}', commit) or not isinstance(token, str) or len(token) > 1024:
             raise ValueError('Invalid update request')
