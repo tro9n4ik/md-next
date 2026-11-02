@@ -51,6 +51,11 @@ async def lifespan(app: FastAPI):
     jwt_secret = os.getenv("JWT_SECRET_KEY")
     if not jwt_secret:
         raise RuntimeError("КРИТИЧЕСКАЯ ОШИБКА: Переменная окружения JWT_SECRET_KEY обязательна и не задана!")
+    if os.getenv('MDNEXT_MIGRATION_STAGING') == '1':
+        # A restored target must not poll Telegram, mutate quotas or rebuild VPN yet.
+        yield
+        await engine.dispose()
+        return
 
     # Прогрев первичного вызова cpu_percent
     psutil.cpu_percent(interval=None)
@@ -147,6 +152,8 @@ app = FastAPI(
 
 @app.middleware('http')
 async def settings_audit(request, call_next):
+    if os.getenv('MDNEXT_MIGRATION_STAGING') == '1' and request.method not in ('GET', 'HEAD', 'OPTIONS') and request.url.path not in ('/api/v1/auth/login', '/api/v1/migration/jobs'):
+        return JSONResponse(status_code=503, content={'detail': 'Целевая панель в режиме проверки переезда. Изменения заблокированы до активации.'})
     response = await call_next(request)
     groups = {'dns':'DNS','protocols':'Протоколы','routing':'Маршрутизация','cluster':'Кластер','warp':'WARP'}
     parts = request.url.path.strip('/').split('/')
@@ -177,6 +184,8 @@ app.include_router(users_router)
 app.include_router(system_router)
 from app.api.updates import router as updates_router
 app.include_router(updates_router)
+from app.api.migration import router as migration_router
+app.include_router(migration_router)
 app.include_router(settings_router)
 app.include_router(operations_router)
 app.include_router(protocols_router)

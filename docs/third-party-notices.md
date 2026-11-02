@@ -5,6 +5,7 @@ MIT-лицензия MD-Next распространяется на код это
 | Компонент | Лицензия upstream | Исходники и текст лицензии |
 | --- | --- | --- |
 | mtg-multi 1.13.0 | MIT | [dolonet/mtg-multi](https://github.com/dolonet/mtg-multi/tree/v1.13.0), [LICENSE](https://github.com/dolonet/mtg-multi/blob/v1.13.0/LICENSE) |
+| Paramiko 5.1.0 | LGPL-2.1 | [paramiko/paramiko](https://github.com/paramiko/paramiko), [PyPI](https://pypi.org/project/paramiko/5.1.0/) |
 | Xray-core | Mozilla Public License 2.0 | [XTLS/Xray-core](https://github.com/XTLS/Xray-core), [LICENSE](https://github.com/XTLS/Xray-core/blob/main/LICENSE) |
 | AmneziaWG Tools | GNU GPL, версия 2 | [amnezia-vpn/amneziawg-tools](https://github.com/amnezia-vpn/amneziawg-tools), [COPYING](https://github.com/amnezia-vpn/amneziawg-tools/blob/master/COPYING) |
 | AmneziaWG Go | MIT | [amnezia-vpn/amneziawg-go](https://github.com/amnezia-vpn/amneziawg-go), [LICENSE](https://github.com/amnezia-vpn/amneziawg-go/blob/master/LICENSE) |

@@ -685,6 +685,9 @@ XRAY_PROBE_URL=${XRAY_PROBE_URL:-https://cp.cloudflare.com/generate_204}
 XRAY_PROBE_INTERVAL=${XRAY_PROBE_INTERVAL:-3m}
 EOF
   chmod 600 /opt/md-next/backend/.env
+  if [ "${MDNEXT_MIGRATION_STAGING:-0}" = "1" ]; then
+    printf '\nMDNEXT_MIGRATION_STAGING=1\n' >> /opt/md-next/backend/.env
+  fi
   ensure_probe_env
 
   # Применение миграций базы данных Alembic

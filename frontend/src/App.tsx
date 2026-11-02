@@ -20,6 +20,7 @@ const RoutingPage = lazy(() => import('./pages/RoutingPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const GeneralSettingsPage = lazy(() => import('./pages/GeneralSettingsPage'));
 const UpdatePage = lazy(() => import('./pages/UpdatePage'));
+const MigrationPage = lazy(() => import('./pages/MigrationPage'));
 const PlaceholderPage = lazy(() => import('./pages/PlaceholderPage'));
 const TelegramPage = lazy(() => import('./pages/TelegramPage'));
 const WarpPage = lazy(() => import('./pages/WarpPage'));
@@ -78,6 +79,7 @@ const router = createHashRouter([{ element: <Shell />, children: [
       { path: 'telegram', element: <TelegramPage embedded /> },
       { path: 'backups', element: <BackupsPage embedded /> },
       { path: 'update', element: <UpdatePage /> },
+      { path: 'migration', element: <MigrationPage /> },
       { path: 'placeholder', element: <PlaceholderPage /> },
       { path: 'diagnostics', element: <DiagnosticsPage embedded /> },
       { path: 'history', element: <HistoryPage embedded /> },

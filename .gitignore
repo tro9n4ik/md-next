@@ -79,3 +79,5 @@ coverage/
 .codex/
 # Local development state; never publish databases or service configuration.
 backend/.runtime/
+backend/migrations/
+*.mdmove

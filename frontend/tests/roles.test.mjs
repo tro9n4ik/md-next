@@ -213,10 +213,10 @@ test('Субадминистратор видит только личные на
     const limited = render(SettingsPage, subadmin, fixture(), location);
     const full = render(SettingsPage, admin, fixture(), location);
     assert.match(limited, /href="\/settings\/account"/);
-    for (const path of ['users', 'telegram', 'placeholder', 'diagnostics', 'history', 'events', 'backups', 'update']) {
+    for (const path of ['users', 'telegram', 'placeholder', 'diagnostics', 'history', 'events', 'backups', 'update', 'migration']) {
       assert.doesNotMatch(limited, new RegExp(`href="/settings/${path}"`));
     }
-    const paths = location === '/settings' ? ['users', 'telegram', 'placeholder'] : location === '/settings/diagnostics' ? ['diagnostics', 'history', 'events', 'backups', 'update'] : ['account'];
+    const paths = location === '/settings' ? ['users', 'telegram', 'placeholder'] : location === '/settings/diagnostics' ? ['diagnostics', 'history', 'events', 'backups', 'update', 'migration'] : ['account'];
     for (const path of paths) assert.match(full, new RegExp(`href="/settings/${path}"`));
     for (const title of ['Панель', 'Обслуживание', 'Личное']) assert.match(full, new RegExp(`>${title}</a>`));
   }

@@ -108,6 +108,8 @@ async def ensure_admin_created(db: AsyncSession):
     result = await db.execute(select(User).where(User.username == "admin"))
     user = result.scalar_one_or_none()
     if not user:
+        if os.getenv('MDNEXT_MIGRATION_STAGING') == '1':
+            return
         initial_password = os.getenv("INITIAL_ADMIN_PASSWORD")
         if not initial_password or initial_password == "admin123456":
             raise RuntimeError("КРИТИЧЕСКАЯ ОШИБКА БЕЗОПАСНОСТИ: Укажите надёжный INITIAL_ADMIN_PASSWORD!")

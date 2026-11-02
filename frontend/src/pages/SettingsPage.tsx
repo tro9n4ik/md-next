@@ -15,6 +15,7 @@ const groups = [
     { path: '/settings/events', title: 'Журнал событий', icon: ScrollText },
     { path: '/settings/backups', title: 'Резервные копии', icon: Archive },
     { path: '/settings/update', title: 'Обновление панели', icon: RefreshCw },
+    { path: '/settings/migration', title: 'Переезд на VPS', icon: Globe },
   ] },
   { title: 'Личное', admin: false, sections: [
     { path: '/settings/account', title: 'Моя учётная запись', icon: ShieldCheck },

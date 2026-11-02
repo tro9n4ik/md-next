@@ -1,6 +1,7 @@
 import asyncio
 import datetime as dt
 import logging
+import os
 import re
 from typing import Any
 
@@ -36,6 +37,8 @@ async def _persist(level: str, category: str, message: str, meta: dict | None) -
 
 def log_event(level: str, category: str, message: str, meta: dict | None = None) -> None:
     """Планирует сохранение события без ожидания отдельной транзакции базы данных."""
+    if os.getenv('MDNEXT_MIGRATION_STAGING') == '1':
+        return
     try:
         normalized_level = level if level in {"info", "warning", "error"} else "info"
         task = asyncio.get_running_loop().create_task(_persist(normalized_level, category, message, meta))
