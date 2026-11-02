@@ -1,5 +1,6 @@
 from unittest.mock import AsyncMock, patch
 from pathlib import Path
+import os
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -31,7 +32,7 @@ def test_addresses(value, kind, host):
 @pytest.mark.asyncio
 async def test_source_report_is_admin_only_and_never_contains_secrets(auth_headers, monkeypatch):
     monkeypatch.setenv('PANEL_PUBLIC_URL', 'https://panel.example.com')
-    monkeypatch.setenv('JWT_SECRET_KEY', 'synthetic-test-value')
+    jwt_secret = os.environ['JWT_SECRET_KEY']
     async with TestingSessionLocal() as db:
         client = Client(name='Private name', email='private@example.com', phone='123', sub_token='private-subscription-token')
         db.add(client); await db.flush()
@@ -54,7 +55,7 @@ async def test_source_report_is_admin_only_and_never_contains_secrets(auth_heade
         assert data['source_checks_passed'] is False
         assert next(row for row in data['addresses'] if row['key']=='profiles')['status'] == 'warning'
         assert next(row for row in data['checks'] if row['key']=='target')['status'] == 'pending'
-        for secret in ['private-subscription-token','private-profile-auth','private-bot-token','Private name','private@example.com','synthetic-test-value']:
+        for secret in ['private-subscription-token','private-profile-auth','private-bot-token','Private name','private@example.com',jwt_secret]:
             assert secret not in response.text
     async with TestingSessionLocal() as db:
         assert (await db.get(Client, client.id)).sub_token == 'private-subscription-token'
