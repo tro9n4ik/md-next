@@ -250,10 +250,15 @@ export const NodesManager: React.FC = () => {
       setDeleteError(null);
       const res = await apiFetch(`/api/v1/nodes/${id}`, { method: 'DELETE' });
       if (!res.ok) {
-        let errMessage = 'Не удалось удалить ноду';
+        let errMessage = `Не удалось удалить ноду (HTTP ${res.status}).`;
+        if (res.status === 502 || res.status === 503 || res.status === 504) {
+          errMessage += ' Сервер не завершил операцию. Обновите список узлов и проверьте состояние ноды перед повтором.';
+        } else if (res.status >= 500) {
+          errMessage += ' Внутренняя ошибка сервера. Проверьте журнал панели.';
+        }
         try {
           const data = await res.json();
-          if (data.detail) errMessage = data.detail;
+          if (typeof data.detail === 'string' && data.detail.trim()) errMessage = data.detail;
         } catch {}
         throw new Error(errMessage);
       }

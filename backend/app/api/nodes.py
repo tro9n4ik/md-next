@@ -181,6 +181,21 @@ async def _delete_node(node_id, db, current_user):
     if assigned:
         raise HTTPException(409, detail=f"За нодой закреплены клиенты: {assigned}. Сначала измените их выход в разделе «Клиенты».")
 
+    from app.models.routing import RoutingRule
+    linked_rules = (await db.execute(
+        select(RoutingRule.id).where(
+            RoutingRule.target_node_id == node_id,
+            RoutingRule.action == "proxy",
+        ).order_by(RoutingRule.id)
+    )).scalars().all()
+    if linked_rules:
+        rule_ids = ", ".join(f"№{rule_id}" for rule_id in linked_rules[:10])
+        raise HTTPException(409, detail=(
+            f"Нода используется в правилах маршрутизации: {rule_ids} "
+            f"(всего {len(linked_rules)}). Сначала выберите другую ноду или удалите эти правила "
+            "в разделе «Маршрутизация». Отключённые правила также сохраняют привязку."
+        ))
+
     # Сбрасываем node_id у инвайтов, связанных с этой нодой
     await db.execute(
         update(NodeInvite)
