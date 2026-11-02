@@ -123,3 +123,10 @@ html[data-theme=dark] .client-form-error { background: #442c28; color: #ffc0ac; 
  .client-list-heading { padding-inline: 16px; }
  .client-status-tabs button { padding: 8px; font-size: 10px; }
 }
+.new-client-page { max-width: 920px; margin: 0 auto; display: grid; gap: 24px; }
+.new-client-page > button { justify-self: start; }
+.new-client-form { padding: 32px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; border-radius: 22px; }
+.new-client-form > :is(p, .client-form-error, .client-subscription-fields, button) { grid-column: 1 / -1; }
+.new-client-form > button { justify-self: end; min-width: 210px; }
+.new-client-form > label { min-width: 0; }
+@media (max-width: 640px) { .new-client-form { grid-template-columns: minmax(0, 1fr); padding: 20px; } .new-client-form > button { width: 100%; } }
