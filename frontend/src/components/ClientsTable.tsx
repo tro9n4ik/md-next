@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Search, Trash2, Pause, Play, KeyRound, Users, Folder, FolderPlus, SlidersHorizontal, ArrowRight, RefreshCw } from 'lucide-react';
+import { Plus, Search, Trash2, Pause, Play, KeyRound, Users, Folder, FolderPlus, SlidersHorizontal, ArrowRight, RefreshCw, Network } from 'lucide-react';
 import { useCurrentUser } from '../contexts/AuthContext';
 import { apiFetch } from '../utils/api';
 import { formatBytes, translateProfile } from '../utils/ru';
@@ -14,6 +14,9 @@ import { groupRequest } from '../utils/clientGroups';
 import type { ClientGroup, GroupSummary } from './ClientGroups';
 import { clientStatus, formatSubscriptionDate, subscriptionPayload } from '../utils/subscriptions';
 import { lastOnlineLabel } from '../utils/clientPresence';
+import { ExitNodeSelect, ExitRouteBadge } from './ClientExitRoute';
+import { useExitOptions } from '../utils/clientExit';
+import type { ExitRoute } from '../utils/clientExit';
 import type { ClientLimits, SubscriptionValues } from '../utils/subscriptions';
 
 type Profile = { id: number; kind: string; is_enabled: boolean };
@@ -23,6 +26,7 @@ type Client = ClientLimits & {
   connection_status: 'online' | 'offline' | 'unknown'; connected_protocols: string[];
   can_delete: boolean; can_pause: boolean; can_change_group: boolean;
   group_id: number | null; group: ClientGroup | null; last_seen_at: string | null;
+  exit_route?: ExitRoute;
 };
 type SortField = 'status' | 'name' | 'traffic' | 'protocol' | 'created';
 
@@ -53,6 +57,8 @@ const ClientsTable: React.FC<{ description?: string }> = ({ description = 'По�
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [newGroupId, setNewGroupId] = useState<string | null>(null);
+  const [newExitId, setNewExitId] = useState<number | null>(null);
+  const exits = useExitOptions(isAdmin);
   const [subscription, setSubscription] = useState<SubscriptionValues>({ period: 'month', date: '', quotaGB: '', cdnQuotaGB: '' });
   const [error, setError] = useState('');
   const [groupEditor, setGroupEditor] = useState<ClientGroup | 'new' | null>(null);
@@ -61,6 +67,7 @@ const ClientsTable: React.FC<{ description?: string }> = ({ description = 'По�
   const sort = (params.get('sort') || 'created') as SortField;
   const order = params.get('order') || 'desc';
   const groupFilter = params.get('group') || '';
+  const exitFilter = params.get('exit') || '';
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -77,11 +84,12 @@ const ClientsTable: React.FC<{ description?: string }> = ({ description = 'По�
     refetchInterval: 15000,
   });
   const clientsQuery = useQuery<Client[]>({
-    queryKey: groupFilter ? ['clients', q, status, sort, order, groupFilter] : ['clients', q, status, sort, order],
+    queryKey: ['clients', q, status, sort, order, groupFilter, exitFilter],
     refetchInterval: 15000,
     queryFn: async () => {
       const query = new URLSearchParams({ q, status, sort, order });
       if (groupFilter) query.set('group_id', groupFilter);
+      if (exitFilter) query.set('exit_node_id', exitFilter);
       const response = await apiFetch(`/api/v1/clients?${query}`);
       if (!response.ok) throw new Error(await responseError(response, 'Не удалось загрузить клиентов'));
       return response.json();
@@ -90,13 +98,14 @@ const ClientsTable: React.FC<{ description?: string }> = ({ description = 'По�
   const refreshClients = () => {
     void queryClient.invalidateQueries({ queryKey: ['clients'] });
     void queryClient.invalidateQueries({ queryKey: ['clientGroups'] });
+    void queryClient.invalidateQueries({ queryKey: ['clientExitOptions'] });
   };
   const createMutation = useMutation({
     mutationFn: async () => {
       const selectedGroup = newGroupId ?? (groupFilter !== '0' ? groupFilter : '');
       const response = await apiFetch('/api/v1/clients', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, phone, email, group_id: selectedGroup ? Number(selectedGroup) : null, ...subscriptionPayload(subscription) }),
+        body: JSON.stringify({ name, phone, email, group_id: selectedGroup ? Number(selectedGroup) : null, ...(isAdmin ? { exit_node_id: newExitId } : {}), ...subscriptionPayload(subscription) }),
       }, 'new-client-drawer');
       if (!response.ok) throw new Error(await responseError(response, 'Не удалось создать клиента'));
       return response.json();
@@ -105,6 +114,7 @@ const ClientsTable: React.FC<{ description?: string }> = ({ description = 'По�
       // Закрываем форму до перехода, чтобы снять защиту несохранённых изменений.
       flushSync(() => setCreateOpen(false));
       setName(''); setPhone(''); setEmail(''); setError(''); setNewGroupId(null);
+      setNewExitId(null);
       setSubscription({ period: 'month', date: '', quotaGB: '', cdnQuotaGB: '' });
       navigate(`/clients/${result.client.id}/access`);
     },
@@ -145,7 +155,7 @@ const ClientsTable: React.FC<{ description?: string }> = ({ description = 'По�
   const sortButton = (label: string, field: SortField) => <button onClick={() => setSort(field)}>{label}{sort === field ? (order === 'asc' ? ' ↑' : ' ↓') : ''}</button>;
   const selectedGroup = groups.data?.groups.find(item => String(item.id) === groupFilter);
   const rows = clientsQuery.data || [];
-  const createDirty = !!(name || phone || email || newGroupId !== null || subscription.date || subscription.quotaGB || subscription.cdnQuotaGB || subscription.period !== 'month');
+  const createDirty = !!(name || phone || email || newGroupId !== null || newExitId !== null || subscription.date || subscription.quotaGB || subscription.cdnQuotaGB || subscription.period !== 'month');
   const closeCreate = async () => { if (!createDirty || await confirm({ title: 'Закрыть форму клиента?', description: 'Клиент не будет создан. Заполненные данные останутся в черновике до ухода со страницы.', confirmText: 'Закрыть форму', cancelText: 'Продолжить заполнение', tone: 'warning' })) { setError(''); setCreateOpen(false); } };
 
   return <div className="clients-workspace">
@@ -173,6 +183,7 @@ const ClientsTable: React.FC<{ description?: string }> = ({ description = 'По�
         <label>Группа<select aria-label="Группа" disabled={groups.isLoading || groups.isError} value={newGroupId ?? (groupFilter !== '0' ? groupFilter : '')} onChange={event => setNewGroupId(event.target.value)}><option value="">Без группы</option>{groups.data?.groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
         <label>Телефон <span>необязательно</span><input value={phone} onChange={event => setPhone(event.target.value)} placeholder="+7 …" /></label>
         <label>Электронная почта <span>необязательно</span><input type="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="mail@example.com" /></label>
+        {isAdmin && (exits.data ? <ExitNodeSelect options={exits.data} value={newExitId} onChange={setNewExitId} disabled={createMutation.isPending} /> : <p className="client-form-hint">Общий маршрут панели. Индивидуальный выход можно выбрать в карточке клиента после создания.</p>)}
         <div className="client-subscription-fields"><h3>Условия подписки</h3><SubscriptionFields value={subscription} onChange={setSubscription} /></div>
         <button disabled={createMutation.isPending || groups.isLoading || groups.isError} className="ui-button ui-button-primary">{createMutation.isPending ? 'Создаём…' : 'Создать клиента'}<ArrowRight size={16} /></button>
       </form>
@@ -184,6 +195,7 @@ const ClientsTable: React.FC<{ description?: string }> = ({ description = 'По�
         <div className="client-status-tabs" aria-label="Фильтр по доступу">
           {([['all', 'Все'], ['active', 'Доступ разрешён'], ['disabled', 'Доступ закрыт']] as const).map(([value, label]) => <button key={value} aria-pressed={status === value} onClick={() => setFilter('status', value)} className={status === value ? 'selected' : ''}>{label}</button>)}
         </div>
+        {isAdmin && exits.data && <label className="client-exit-filter"><Network size={15} /><select aria-label="Фильтр по выходу" value={exitFilter} onChange={event => setFilter('exit', event.target.value)}><option value="">Все выходы</option><option value="0">Общий маршрут</option>{exits.data.nodes.map(node => <option key={node.id} value={node.id}>{node.name} · закреплено: {node.assigned_clients ?? 0}</option>)}</select></label>}
         <label className="client-search"><Search size={17} /><input aria-label="Поиск клиентов" value={search} onChange={event => setSearch(event.target.value)} placeholder="Имя, телефон или почта" /></label>
       </div>
       {error && !createOpen && <div role="alert" className="client-form-error mx-5 my-3">{error}</div>}
@@ -197,6 +209,7 @@ const ClientsTable: React.FC<{ description?: string }> = ({ description = 'По�
         {rows.map(client => <tr key={client.id}>
           <td data-label="Клиент"><div className="client-identity"><span className={`client-avatar group-${client.group?.color || 'slate'}`}>{client.name.charAt(0).toUpperCase()}</span><div><b>{client.name}</b><span className="client-contact">{client.email || client.phone || `ID ${client.id}`}</span></div></div>
             <div className={`client-group-badge group-${client.group?.color || 'slate'}`}><i />{(isAdmin || (canIssue && client.can_change_group)) ? <select aria-label={`Группа клиента ${client.name}`} value={client.group_id ?? ''} disabled={assignGroup.isPending || groups.isError || groups.isLoading} onChange={event => { setError(''); assignGroup.mutate({ id: client.id, groupId: event.target.value }); }}><option value="">Без группы</option>{groups.data?.groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select> : <span>{client.group?.name || 'Без группы'}</span>}</div>
+            <div className="client-route-cell">{isAdmin ? <button type="button" aria-label={`Изменить выход клиента ${client.name}`} onClick={() => navigate(`/clients/${client.id}/access`)}><ExitRouteBadge route={client.exit_route} /></button> : <ExitRouteBadge route={client.exit_route} />}</div>
           </td>
           <td data-label="Активность и доступ"><span className={`client-presence ${client.connection_status === 'online' ? 'is-online' : ''}`}><i />{client.connection_status === 'online' ? 'Онлайн' : client.connection_status === 'unknown' ? 'Нет данных' : client.last_seen_at ? 'Был онлайн' : 'Офлайн'}</span>
             <p className="client-last-seen">{client.last_seen_at ? <time dateTime={client.last_seen_at}>{lastOnlineLabel(client.last_seen_at)}</time> : 'Активность ещё не зафиксирована'}</p>

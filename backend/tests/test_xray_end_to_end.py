@@ -19,7 +19,8 @@ from app.services.xray import XrayService
 @pytest.mark.parametrize("mode", ["http", "https", "udp"])
 @pytest.mark.parametrize("node_protocol", ["trojan", "vless"])
 @pytest.mark.parametrize("uplink", [False, True], ids=["direct", "uplink"])
-def test_real_client_master_node_roundtrip(tmp_path, monkeypatch, kind, mode, node_protocol, uplink):
+@pytest.mark.parametrize("client_exit", [False, True], ids=["common-exit", "assigned-exit"])
+def test_real_client_master_node_roundtrip(tmp_path, monkeypatch, kind, mode, node_protocol, uplink, client_exit):
     """Local real binaries; a relay emulates Nginx's incoming PROXY header."""
     monkeypatch.setenv("NODE_PROBE_ENABLED", "false")
     root = tmp_path
@@ -180,17 +181,30 @@ def test_real_client_master_node_roundtrip(tmp_path, monkeypatch, kind, mode, no
     if node_protocol == "vless":
         monkeypatch.setattr("app.services.node_transport.REALITY_SERVER_NAME", "example.test")
         node.update(protocol="vless", secret=str(uuid.uuid4()), public_key=pub, short_id="")
+    routing_rules = []
+    if client_exit:
+        from app.services.client_exit import build_client_exit_rules
+        client = SimpleNamespace(id=7, exit_node_id=1, is_active=True, expires_at=None,
+            monthly_traffic_limit=0, created_at=datetime.now(timezone.utc), traffic_period_start=None)
+        profiles = [(SimpleNamespace(kind=profile_kind, uuid=uid, auth="hy-secret", is_enabled=True), client)
+                    for profile_kind in ("vless_reality_tcp", "hysteria2")]
+        routing_rules = build_client_exit_rules(profiles, {"vless_reality_tcp", "hysteria2"},
+            {1: SimpleNamespace(public_key=None, short_id=None, **node)} if node_protocol == "trojan"
+            else {1: SimpleNamespace(**node)}, [])
+        routing_rules.append({"type": "field", "network": "tcp,udp", "outboundTag": "direct"})
     master = json.loads(
         XrayService.generate_config(
-            [{"id": uid, "flow": "xtls-rprx-vision", "email": "test"}],
+            [{"id": uid, "flow": "xtls-rprx-vision", "email": "c7-vless_reality_tcp@md-next"}],
             server_private_key=priv,
             server_name="example.test",
             dest=f"127.0.0.1:{target_port}",
-            active_node=SimpleNamespace(**node),
+            active_node=SimpleNamespace(**(dict(node, id=2, port=port()) if client_exit else node)),
             profile_options={
                 "node_uplink_port": uplink_port,
+                "nodes": [node] if client_exit else [],
+                "routing_rules": routing_rules,
                 "enabled": {"vless_reality_tcp", "hysteria2"},
-                "hysteria2_clients": [{"auth": "hy-secret", "email": "hy-test"}],
+                "hysteria2_clients": [{"auth": "hy-secret", "email": "c7-hysteria2@md-next"}],
                 "hysteria2_port": hy_port,
                 "tls_cert": str(root / "cert.pem"),
                 "tls_key": str(root / "key.pem"),

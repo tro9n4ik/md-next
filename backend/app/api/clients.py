@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timezone
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import or_, select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +16,7 @@ from app.api.auth import get_current_user, require_admin, require_subscription_i
 from app.models.user import User
 from app.db.database import get_db
 from app.models.client import Client, ClientProfile, ClientGroup
+from app.models.node import Node
 from app.services.awg import AWGService
 from app.services.client_service import ClientService
 from app.services.crypto import decrypt_secret, encrypt_secret
@@ -41,6 +42,7 @@ SUBSCRIPTION_WINDOW = 60
 class ClientCreate(BaseModel):
     name: str
     group_id: int | None = Field(default=None, gt=0)
+    exit_node_id: int | None = Field(default=None, gt=0, le=2147483647, strict=True)
     phone: str | None = None
     email: str | None = None
     protocol: str | None = None
@@ -91,6 +93,11 @@ class ClientGroupUpdate(BaseModel):
     group_id: int | None = Field(gt=0)
 
 
+class ClientExitUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    node_id: int | None = Field(gt=0, le=2147483647, strict=True)
+
+
 class ClientAccessUpdate(BaseModel):
     profiles: dict[str, bool] = Field(default_factory=dict)
     adblock_enabled: bool | None = None
@@ -123,6 +130,7 @@ async def get_clients(
     sort: Literal["name", "status", "traffic", "protocol", "created"] = "created",
     order: Literal["asc", "desc"] = "desc", status: Literal["all", "active", "disabled"] | None = None,
     group_id: int | None = None,
+    exit_node_id: int | None = Query(default=None, ge=0),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -131,6 +139,8 @@ async def get_clients(
         query = query.where(Client.created_by_id == current_user.id)
     if group_id is not None:
         query = query.where(Client.group_id.is_(None) if group_id == 0 else Client.group_id == group_id)
+    if exit_node_id is not None:
+        query = query.where(Client.exit_node_id.is_(None) if exit_node_id == 0 else Client.exit_node_id == exit_node_id)
     if q.strip():
         pattern = f"%{q.strip()}%"
         query = query.where(or_(Client.name.ilike(pattern), Client.phone.ilike(pattern), Client.email.ilike(pattern)))
@@ -147,10 +157,14 @@ async def get_clients(
             profiles_by_client.setdefault(profile.client_id, []).append(profile)
     clients.sort(key=lambda c: _client_sort_key(c, sort, profiles_by_client.get(c.id, [])), reverse=order == "desc")
     groups = {group.id: group for group in (await db.execute(select(ClientGroup))).scalars().all()}
+    from app.services.client_exit import client_exit_summary, common_exit
+    nodes = {node.id: node for node in (await db.execute(select(Node))).scalars()}
+    common = await common_exit(db, nodes)
     return [
         {
             "id": c.id, "name": c.name, "phone": c.phone, "email": c.email,
             "group_id": c.group_id,
+            "exit_route": client_exit_summary(c, nodes, common),
             "group": {"id": groups[c.group_id].id, "name": groups[c.group_id].name, "color": groups[c.group_id].color} if c.group_id in groups else None,
             "last_seen_at": utc(c.last_seen_at).isoformat() if c.last_seen_at else None,
             "can_change_group": current_user.role == "admin" or (current_user.can_issue_subscriptions and c.created_by_id == current_user.id),
@@ -169,15 +183,80 @@ async def get_clients(
     ]
 
 
+@router.get("/exit-options", dependencies=[Depends(require_admin)])
+async def get_exit_options(db: AsyncSession = Depends(get_db)):
+    from app.services.client_exit import exit_options
+    return await exit_options(db)
+
+
+@router.get("/{client_id}/exit-route", dependencies=[Depends(require_admin)])
+async def get_client_exit(client_id: int, db: AsyncSession = Depends(get_db)):
+    from app.services.client_exit import exit_options, client_exit_summary
+    client = await db.get(Client, client_id)
+    if client is None:
+        raise HTTPException(404, detail="Клиент не найден")
+    options = await exit_options(db)
+    nodes = {node.id: node for node in (await db.execute(select(Node))).scalars()}
+    return {**options, "route": client_exit_summary(client, nodes, options["common"])}
+
+
+async def _validate_exit_node(db, node_id):
+    from app.services.client_exit import selectable
+    if node_id is None:
+        return
+    node = await db.get(Node, node_id)
+    if node is None:
+        raise HTTPException(404, detail="Нода не найдена")
+    if not selectable(node):
+        raise HTTPException(422, detail="Нода выключена или не настроена. Выберите другой выход.")
+
+
+@router.put("/{client_id}/exit-route")
+async def set_client_exit(client_id: int, data: ClientExitUpdate, db: AsyncSession = Depends(get_db),
+                          user: User = Depends(require_admin)):
+    from app.services.cluster import _route_lock
+    from app.services.client_exit import client_exit_summary, common_exit
+    async with _route_lock:
+        client = await db.get(Client, client_id)
+        if client is None:
+            raise HTTPException(404, detail="Клиент не найден")
+        await _validate_exit_node(db, data.node_id)
+        previous = client.exit_node_id
+        if previous != data.node_id:
+            try:
+                client.exit_node_id = data.node_id
+                await db.flush()
+                await _sync_protocols(db)
+                await db.commit()
+            except Exception as exc:
+                await db.rollback()
+                await ClientService.restore_committed_configs(db)
+                logger.exception("Не удалось применить индивидуальный выход клиента %s", client_id)
+                raise HTTPException(502, detail="Не удалось применить маршрут. Сохранено прежнее назначение; проверьте диагностику панели.") from exc
+            log_event("info", "client", "Выход клиента изменён", {"client_id": client_id, "previous_node_id": previous,
+                      "node_id": data.node_id, "actor_id": user.id})
+        nodes = {node.id: node for node in (await db.execute(select(Node))).scalars()}
+        return client_exit_summary(client, nodes, await common_exit(db, nodes))
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_client(client_data: ClientCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_subscription_issuer)):
     return await create_client_record(client_data, db, created_by_id=current_user.id, is_admin=current_user.role == "admin")
 
 
 async def create_client_record(client_data: ClientCreate, db: AsyncSession, *, created_by_id: int | None = None, is_admin: bool = True):
+    from app.services.cluster import _route_lock
+    async with _route_lock:
+        return await _create_client_record(client_data, db, created_by_id=created_by_id, is_admin=is_admin)
+
+
+async def _create_client_record(client_data: ClientCreate, db: AsyncSession, *, created_by_id: int | None, is_admin: bool):
     """Shared transaction for the authenticated panel and administrator Telegram bot."""
     if client_data.group_id is not None and await db.get(ClientGroup, client_data.group_id) is None:
         raise HTTPException(status_code=404, detail="Группа не найдена")
+    if client_data.exit_node_id is not None and not is_admin:
+        raise HTTPException(403, detail="Индивидуальный выход назначает администратор")
+    await _validate_exit_node(db, client_data.exit_node_id)
     enabled = await enabled_profile_kinds(db)
     protocol_settings = await get_profile_settings(db)
     if client_data.protocol == "vless" and any(kind.startswith("vless_") for kind in enabled) and not all(protocol_settings.get(key) for key in ("protocol.reality.server_address", "protocol.reality.public_key", "protocol.reality.server_name")):
@@ -188,7 +267,7 @@ async def create_client_record(client_data: ClientCreate, db: AsyncSession, *, c
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     client = Client(name=client_data.name.strip(), phone=client_data.phone or "", email=client_data.email or "", protocol=None,
-                    created_at=now, expires_at=expires, group_id=client_data.group_id, monthly_traffic_limit=client_data.monthly_traffic_limit,
+                    created_at=now, expires_at=expires, group_id=client_data.group_id, exit_node_id=client_data.exit_node_id, monthly_traffic_limit=client_data.monthly_traffic_limit,
                     cdn_monthly_traffic_limit=client_data.cdn_monthly_traffic_limit, traffic_period_start=now, created_by_id=created_by_id)
     db.add(client)
     try:

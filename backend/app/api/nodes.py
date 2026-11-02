@@ -123,6 +123,12 @@ async def toggle_node_enabled(
     db: AsyncSession = Depends(get_db),
     current_user = Depends(require_admin)
 ):
+    from app.services.cluster import _route_lock
+    async with _route_lock:
+        return await _toggle_node_enabled(node_id, db, current_user)
+
+
+async def _toggle_node_enabled(node_id, db, current_user):
     """
     Включить или отключить узел кластера вручную (администратором)
     """
@@ -155,6 +161,12 @@ async def delete_node(
     db: AsyncSession = Depends(get_db),
     current_user = Depends(require_admin)
 ):
+    from app.services.cluster import _route_lock
+    async with _route_lock:
+        return await _delete_node(node_id, db, current_user)
+
+
+async def _delete_node(node_id, db, current_user):
     """
     Удалить ноду из кластера и пересобрать конфигурацию Xray (требует авторизации)
     """
@@ -162,6 +174,12 @@ async def delete_node(
     node = node_res.scalar_one_or_none()
     if not node:
         raise HTTPException(status_code=404, detail="Нода не найдена")
+
+    from app.models.client import Client
+    from sqlalchemy import func
+    assigned = (await db.execute(select(func.count()).select_from(Client).where(Client.exit_node_id == node_id))).scalar_one()
+    if assigned:
+        raise HTTPException(409, detail=f"За нодой закреплены клиенты: {assigned}. Сначала измените их выход в разделе «Клиенты».")
 
     # Сбрасываем node_id у инвайтов, связанных с этой нодой
     await db.execute(
