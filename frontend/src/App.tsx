@@ -66,6 +66,7 @@ function ShellContent() {
 const router = createHashRouter([{ element: <Shell />, children: [
   { path: '/account', element: <Navigate to="/settings/account" replace /> },
   { path: '/', element: <DashboardPage /> }, { path: '/clients', element: <ClientsPage /> },
+  { path: '/clients/new', element: <ClientsPage /> },
   { path: '/clients/:id/access', element: <ClientAccessPage /> }, { path: '/nodes', element: <NodesPage /> },
   { path: '/routing', element: <RoutingPage /> }, { path: '/warp', element: <WarpPage /> },
   { path: '/bypass', element: <BypassPage /> }, { path: '/protocols', element: <ProtocolsPage /> },

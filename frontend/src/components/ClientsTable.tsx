@@ -2,13 +2,13 @@ import { useConfirm } from '../contexts/ConfirmationContext';
 import React, { useEffect, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { Plus, Search, Trash2, Pause, Play, KeyRound, Users, Folder, FolderPlus, SlidersHorizontal, ArrowRight, RefreshCw, Network } from 'lucide-react';
 import { useCurrentUser } from '../contexts/AuthContext';
 import { apiFetch } from '../utils/api';
 import { formatBytes, translateProfile } from '../utils/ru';
 import SubscriptionFields from './SubscriptionFields';
-import Drawer from './ui/Drawer';
+
 import { GroupEditor } from './ClientGroups';
 import { groupRequest } from '../utils/clientGroups';
 import type { ClientGroup, GroupSummary } from './ClientGroups';
@@ -45,7 +45,14 @@ const ClientsTable: React.FC<{ description?: string }> = ({ description = 'По�
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const [search, setSearch] = useState(params.get('q') || '');
-  const [createModalOpen, setCreateModalOpen] = useState(false);
+  useEffect(() => {
+    if (params.get('create') === '1') {
+      const next = new URLSearchParams(params); next.delete('create');
+      navigate(`/clients/new?${next}`, { replace: true });
+    }
+  }, [params, navigate]);
+  const createModalOpen = useLocation().pathname === "/clients/new";
+  const setCreateModalOpen = (open: boolean) => { if (open) navigate("/clients/new?" + params.toString()); };
   const createOpen = createModalOpen || params.get('create') === '1';
   const setCreateOpen = (open: boolean) => {
     setCreateModalOpen(open);
@@ -85,6 +92,7 @@ const ClientsTable: React.FC<{ description?: string }> = ({ description = 'По�
   });
   const clientsQuery = useQuery<Client[]>({
     queryKey: ['clients', q, status, sort, order, groupFilter, exitFilter],
+    enabled: !createModalOpen,
     refetchInterval: 15000,
     queryFn: async () => {
       const query = new URLSearchParams({ q, status, sort, order });
@@ -155,8 +163,19 @@ const ClientsTable: React.FC<{ description?: string }> = ({ description = 'По�
   const sortButton = (label: string, field: SortField) => <button onClick={() => setSort(field)}>{label}{sort === field ? (order === 'asc' ? ' ↑' : ' ↓') : ''}</button>;
   const selectedGroup = groups.data?.groups.find(item => String(item.id) === groupFilter);
   const rows = clientsQuery.data || [];
-  const createDirty = !!(name || phone || email || newGroupId !== null || newExitId !== null || subscription.date || subscription.quotaGB || subscription.cdnQuotaGB || subscription.period !== 'month');
-  const closeCreate = async () => { if (!createDirty || await confirm({ title: 'Закрыть форму клиента?', description: 'Клиент не будет создан. Заполненные данные останутся в черновике до ухода со страницы.', confirmText: 'Закрыть форму', cancelText: 'Продолжить заполнение', tone: 'warning' })) { setError(''); setCreateOpen(false); } };
+
+  if (createModalOpen && canIssue) return <div className="new-client-page"><button className="ui-button ui-button-secondary" onClick={() => navigate("/clients")}>← К списку клиентов</button><header className="dashboard-heading"><div><div className="dashboard-eyebrow">ЛЮДИ И ПОДКЛЮЧЕНИЯ</div><h1>Новый клиент</h1><p>Подписка, доступ и параметры подключения</p></div></header>      <form id="new-client-drawer" data-editable onSubmit={event => { event.preventDefault(); setError(''); createMutation.mutate(); }} className="client-editor-form ui-card new-client-form">
+        <p className="client-form-hint">Создадим подписку и профили всех включённых протоколов.</p>
+        {error && <div role="alert" className="client-form-error">{error}</div>}
+        <label>Имя клиента<input autoFocus required maxLength={64} value={name} onChange={event => setName(event.target.value)} placeholder="Имя или название" /></label>
+        <label>Группа<select aria-label="Группа" disabled={groups.isLoading || groups.isError} value={newGroupId ?? (groupFilter !== '0' ? groupFilter : '')} onChange={event => setNewGroupId(event.target.value)}><option value="">Без группы</option>{groups.data?.groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
+        <label>Телефон <span>необязательно</span><input value={phone} onChange={event => setPhone(event.target.value)} placeholder="+7 …" /></label>
+        <label>Электронная почта <span>необязательно</span><input type="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="mail@example.com" /></label>
+        {isAdmin && (exits.data ? <ExitNodeSelect options={exits.data} value={newExitId} onChange={setNewExitId} disabled={createMutation.isPending} /> : <p className="client-form-hint">Общий маршрут панели. Индивидуальный выход можно выбрать в карточке клиента после создания.</p>)}
+        <div className="client-subscription-fields"><h3>Условия подписки</h3><SubscriptionFields value={subscription} onChange={setSubscription} /></div>
+        <button disabled={createMutation.isPending || groups.isLoading || groups.isError} className="ui-button ui-button-primary">{createMutation.isPending ? 'Создаём…' : 'Создать клиента'}<ArrowRight size={16} /></button>
+      </form>
+</div>;
 
   return <div className="clients-workspace">
     <header className="dashboard-heading"><div><div className="dashboard-eyebrow">ЛЮДИ И ПОДКЛЮЧЕНИЯ</div><h1>Клиенты</h1><p>{description}</p></div><div className="page-actions">
@@ -175,19 +194,7 @@ const ClientsTable: React.FC<{ description?: string }> = ({ description = 'По�
     {groups.isError && <div role="alert" className="client-form-error">Не удалось загрузить группы. <button onClick={() => groups.refetch()}>Повторить</button></div>}
     {groupEditor && isAdmin && <GroupEditor group={groupEditor === 'new' ? null : groupEditor} onClose={() => setGroupEditor(null)} />}
 
-    {canIssue && createOpen && <Drawer id="new-client-drawer" title="Новый клиент" onClose={closeCreate} busy={createMutation.isPending} dirty={createDirty}>
-      <form onSubmit={event => { event.preventDefault(); setError(''); createMutation.mutate(); }} className="client-editor-form">
-        <p className="client-form-hint">Создадим подписку и профили всех включённых протоколов.</p>
-        {error && <div role="alert" className="client-form-error">{error}</div>}
-        <label>Имя клиента<input autoFocus required maxLength={64} value={name} onChange={event => setName(event.target.value)} placeholder="Имя или название" /></label>
-        <label>Группа<select aria-label="Группа" disabled={groups.isLoading || groups.isError} value={newGroupId ?? (groupFilter !== '0' ? groupFilter : '')} onChange={event => setNewGroupId(event.target.value)}><option value="">Без группы</option>{groups.data?.groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
-        <label>Телефон <span>необязательно</span><input value={phone} onChange={event => setPhone(event.target.value)} placeholder="+7 …" /></label>
-        <label>Электронная почта <span>необязательно</span><input type="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="mail@example.com" /></label>
-        {isAdmin && (exits.data ? <ExitNodeSelect options={exits.data} value={newExitId} onChange={setNewExitId} disabled={createMutation.isPending} /> : <p className="client-form-hint">Общий маршрут панели. Индивидуальный выход можно выбрать в карточке клиента после создания.</p>)}
-        <div className="client-subscription-fields"><h3>Условия подписки</h3><SubscriptionFields value={subscription} onChange={setSubscription} /></div>
-        <button disabled={createMutation.isPending || groups.isLoading || groups.isError} className="ui-button ui-button-primary">{createMutation.isPending ? 'Создаём…' : 'Создать клиента'}<ArrowRight size={16} /></button>
-      </form>
-    </Drawer>}
+
 
     <section className="ui-card client-list-card">
       <div className="client-list-heading"><div><h2>{selectedGroup?.name || (groupFilter === '0' ? 'Без группы' : groupFilter ? 'Группа' : 'Все клиенты')}<span>{clientsQuery.data ? rows.length : '…'}</span></h2><p>Управляйте подписками и доступом в одном месте</p></div><button className="client-refresh" title="Обновить список" aria-label="Обновить список" disabled={clientsQuery.isFetching} onClick={() => { void clientsQuery.refetch(); void groups.refetch(); }}><RefreshCw size={17} className={clientsQuery.isFetching ? 'animate-spin' : ''} /></button></div>
