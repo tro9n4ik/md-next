@@ -10,7 +10,7 @@ const version = fs.readFileSync(path.join(root, 'backend/VERSION'), 'utf8').trim
 const dist = path.join(root, 'frontend/dist');
 const assets = path.join(root, 'docs/assets');
 const GiB = 1024 ** 3;
-const epoch = Date.parse('2026-10-28T07:30:00Z');
+const epoch = Date.parse('2026-11-02T07:30:00Z');
 const iso = offset => new Date(epoch + offset).toISOString();
 const groups = [
   {id:1,name:'Семья',color:'emerald',count:2},
@@ -58,7 +58,10 @@ function fixture(url,method) {
     return {cpu_percent:7.4,memory:{used:650*1024**2,total:2*GiB},disk:{used:7.3*GiB,total:40*GiB},uptime:9*86400+5*3600,net_speed:{rx_bytes_per_sec:scale*900*1024,tx_bytes_per_sec:scale*540*1024}};
   }
   if(p==='/api/v1/system/traffic')return {last_30_days:{total:492*GiB},today:{total:18.4*GiB}};
-  if(p==='/api/v1/clients')return clients;
+  if(p==='/api/v1/clients/exit-options')return {nodes:nodes.map(n=>({...n,selectable:true,assigned_clients:0})),common:{mode:'node',node:nodes[0]},common_clients:6,total_clients:6};
+  if(p==='/api/v1/settings/subscription')return {name:'MD-Next Demo'};
+  if(p==='/api/v1/warp/uplink')return {enabled:false,ready:true,paused:false,preparing:false,can_prepare:true,node_id:1,node_name:'Нидерланды',job:{phase:'idle',message:'Локальный WARP подготовлен'},check:null};
+  if(p==='/api/v1/clients')return clients.map(c=>({...c,exit_route:{mode:'common',node_id:null,node:nodes[0],status:'healthy'}}));
   if(p==='/api/v1/client-groups')return {groups,total:clients.length,ungrouped_count:1};
   if(p==='/api/v1/events')return [
     ['Клиент добавлен','clients'],['Проверка нод завершена','nodes'],['Правила WARP сохранены','warp'],['Резервная копия создана','backup'],
@@ -91,7 +94,7 @@ function fixture(url,method) {
   const browser=await chromium.launch({headless:true,...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE?{executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE}:{}),args:['--no-sandbox','--disable-dev-shm-usage'],env:{...process.env,...(runtime?{LD_LIBRARY_PATH:runtime,FONTCONFIG_PATH:path.join(runtime,'fonts')}:{})}});
   const captures={};
   try{
-    const context=await browser.newContext({viewport:{width:1600,height:1100},deviceScaleFactor:1,timezoneId:'Asia/Krasnoyarsk',locale:'ru-RU',colorScheme:'light'});
+    const context=await browser.newContext({viewport:{width:1920,height:1080},deviceScaleFactor:1,timezoneId:'Asia/Krasnoyarsk',locale:'ru-RU',colorScheme:'light'});
     await context.addInitScript(()=>{localStorage.setItem('token','demo-only');localStorage.setItem('theme','light');localStorage.setItem('sidebar-collapsed','false');});
     await context.route('**/*',async route=>{
       const url=new URL(route.request().url());
@@ -111,12 +114,12 @@ function fixture(url,method) {
         let note=document.getElementById('demo-capture-label');
         if(!note){note=document.createElement('div');note.id='demo-capture-label';(drawer?document.querySelector('dialog[open]'):document.body).append(note);}
         note.style.display='none';
-        const imageHeight=Math.max(innerHeight,document.documentElement.scrollHeight);
+        const imageHeight=innerHeight;
         note.textContent=`Демонстрационные данные · MD-Next ${version}`;
         Object.assign(note.style,{position:'absolute',display:'block',top:`${imageHeight-34}px`,bottom:'auto',right:'14px',zIndex:'99999',padding:'5px 10px',borderRadius:'8px',fontSize:'11px',fontFamily:'sans-serif',background:'#123a30',color:'#fff',pointerEvents:'none'});
       },{version,drawer});
-      const filename=path.join(assets,name);await page.screenshot({path:filename,type:'jpeg',quality:90,fullPage:true,animations:'disabled'});
-      captures[name]={route,theme:await page.evaluate(()=>document.documentElement.dataset.theme),viewport:{width:1600,height:1100}};
+      const filename=path.join(assets,name);await page.screenshot({path:filename,type:'jpeg',quality:90,fullPage:false,animations:'disabled'});
+      captures[name]={route,theme:await page.evaluate(()=>document.documentElement.dataset.theme),viewport:{width:1920,height:1080}};
       console.log('Captured '+name);
     }
     await open('/');
@@ -126,10 +129,13 @@ function fixture(url,method) {
     await page.getByRole('button',{name:'Светлая тема',exact:true}).click();
     await open('/clients');await page.getByText('Рабочий ноутбук',{exact:true}).waitFor();await capture('clients-demo.jpg','/clients');
     await open('/nodes');await page.getByRole('button',{name:'Добавить ноду',exact:true}).waitFor();await capture('nodes-demo.jpg','/nodes');
-    await open('/warp');await page.getByText('Доступ к Gemini не подтверждён',{exact:true}).waitFor();await page.getByRole('button',{name:'Проверить IPv4',exact:true}).click();await page.getByText('198.51.100.40',{exact:true}).waitFor();await page.locator('.warp-result-details > summary').click();await capture('warp-demo.jpg','/warp');
+    await open('/clients/new');await page.getByLabel('Имя клиента',{exact:true}).waitFor();await capture('client-create-demo.jpg','/clients/new');
+    await open('/settings');await page.getByLabel('Название подписки',{exact:true}).waitFor();await capture('settings-demo.jpg','/settings');
+    await open('/wiki');await page.getByRole('heading',{name:'С чего начать',exact:true}).waitFor();await capture('wiki-demo.jpg','/wiki');
+    await open('/warp');await page.getByRole('button',{name:'Проверить IPv4',exact:true}).click();await page.getByText('198.51.100.40',{exact:true}).waitFor();await page.locator('.warp-result-details > summary').click();await capture('warp-demo.jpg','/warp');
     await open('/protocols');await page.getByLabel('Reality SNI',{exact:true}).waitFor();await page.locator('[data-sni-scanner] > summary').click();await page.getByLabel('Домены для проверки').fill('www.example.com\nredirect.example.com');await page.getByRole('button',{name:'Проверить домены',exact:true}).click();await page.getByRole('button',{name:'Выбрать SNI: www.example.com'}).waitFor();await capture('protocols-demo.jpg','/protocols');
     await open('/settings/users');await page.getByRole('button',{name:'Настроить operator',exact:true}).click();await page.getByRole('dialog').waitFor();await capture('subadmins-demo.jpg','/settings/users',{drawer:true});await page.getByRole('dialog').getByRole('button',{name:'Закрыть',exact:true}).click();
-    await open('/settings/telegram');await page.getByText('Шаблоны подписок',{exact:true}).waitFor();await capture('telegram-demo.jpg','/settings/telegram');
+    await open('/settings/telegram');await capture('telegram-demo.jpg','/settings/telegram');
     assert.deepEqual(failures,[],'All fixtures and runtime checks must pass');
     const files=Object.fromEntries(Object.keys(captures).sort().map(name=>[name,crypto.createHash('sha256').update(fs.readFileSync(path.join(assets,name))).digest('hex')]));
     fs.writeFileSync(path.join(assets,'screenshots.json'),JSON.stringify({version,source_base_commit:require('node:child_process').execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),demo:true,generated_from_worktree:true,captured_at:iso(0),files,captures},null,2)+'\n');

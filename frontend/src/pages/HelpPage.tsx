@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ArrowRight, ArrowUpRight, BookOpen, ChevronRight, Clock3, Compass, Search, ShieldCheck, Stethoscope, X } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, BookOpen, ChevronRight, Clock3, Search, X } from 'lucide-react';
 import PageLayout from '../components/ui/PageLayout';
 import { findWikiArticles, wikiArticles, wikiCategories } from '../data/wiki';
 
 export default function HelpPage() {
   const [params, setParams] = useSearchParams();
   const [query, setQuery] = useState('');
-  const [category, setCategory] = useState('all');
+  const [selectedCategory, selectCategory] = useState<string>('start');
+  const category = wikiArticles.find(item => item.id === params.get('article'))?.category || selectedCategory;
+  function setCategory(value: string) { selectCategory(value); setParams({}, { replace: true }); }
   const visible = findWikiArticles(query, category);
   const requested = params.get('article');
   const previousArticle = useRef(requested);
@@ -21,28 +23,19 @@ export default function HelpPage() {
   const missing = requested && !wikiArticles.some(item => item.id === requested);
   const readingMinutes = article ? Math.max(1, Math.ceil(article.points.flat().join(' ').split(/\s+/).length / 160)) : 0;
   function openArticle(id: string) {
-    setQuery(''); setCategory('all'); setParams({article: id});
+    setQuery(''); setCategory(wikiArticles.find(item => item.id === id)?.category || 'all'); setParams({article: id});
   }
   return <PageLayout icon={BookOpen} title="Wiki" description="Знания о панели: от первого подключения до уверенного управления сетью">
     <div className="wiki-page">
-      <section className="wiki-hero ui-card">
-        <div className="wiki-hero-copy"><span className="wiki-eyebrow"><BookOpen size={14} />MD-NEXT / БАЗА ЗНАНИЙ</span>
-          <h2>Разобраться. Настроить. Проверить.</h2><p>Пошаговые инструкции, объяснения параметров и помощь в поиске причин. Всё, что нужно для работы с панелью, — в одном месте.</p>
-          <div className="wiki-search"><Search size={20} aria-hidden="true" /><input type="search" value={query} onChange={event => setQuery(event.target.value)} aria-label="Поиск по Wiki" placeholder="Например: лимит трафика, SNI, Gemini…" />{query && <button type="button" aria-label="Очистить поиск" onClick={() => setQuery('')}><X size={17} /></button>}</div>
-          <p className="wiki-search-hint">Поиск по названиям, объяснениям и шагам настройки</p>
-        </div>
-        <div className="wiki-hero-mark" aria-hidden="true"><BookOpen size={66} strokeWidth={1} /><span>{wikiArticles.length} статей</span><small>5 разделов · на русском</small></div>
-      </section>
-      <div className="wiki-shortcuts">
-        {[{id: 'quickstart', title: 'Начать с нуля', text: 'Первое подключение за несколько шагов', icon: Compass}, {id: 'diagnostics', title: 'Разобраться с проблемой', text: 'От симптома к проверке и причине', icon: Stethoscope}, {id: 'account', title: 'Защитить доступ', text: 'Пароль, 2FA и безопасность аккаунта', icon: ShieldCheck}].map(({id, title, text, icon: Icon}) => <button type="button" key={id} className="wiki-shortcut ui-card" onClick={() => openArticle(id)}><span className="wiki-shortcut-icon"><Icon size={21} /></span><span><b>{title}</b><small>{text}</small></span><ArrowUpRight size={17} /></button>)}
-      </div>
-      <div className="wiki-categories" role="group" aria-label="Темы Wiki">
-        <button type="button" aria-pressed={category === 'all'} onClick={() => setCategory('all')}>Все темы <span>{wikiArticles.length}</span></button>
-        {wikiCategories.map(item => <button type="button" key={item.id} aria-pressed={category === item.id} onClick={() => setCategory(item.id)} title={item.description}>{item.title}<span>{wikiArticles.filter(article => article.category === item.id).length}</span></button>)}
-      </div>
+      <nav className="settings-navigation wiki-navigation" aria-label="Темы Wiki">
+        <div className="wiki-toolbar"><div className="settings-categories wiki-category-list">
+          <button type="button" className={`settings-category ${category === 'all' ? 'is-active' : ''}`} aria-pressed={category === 'all'} onClick={() => setCategory('all')}>Все темы</button>
+          {wikiCategories.map(item => <button type="button" key={item.id} className={`settings-category ${category === item.id ? 'is-active' : ''}`} aria-pressed={category === item.id} onClick={() => setCategory(item.id)}>{item.title}</button>)}
+        </div><div className="wiki-search"><Search size={17} aria-hidden="true" /><input type="search" value={query} onChange={event => { setQuery(event.target.value); setCategory("all"); }} aria-label="Поиск по Wiki" placeholder="Найти ответ…" />{query && <button type="button" aria-label="Очистить поиск" onClick={() => setQuery('')}><X size={17} /></button>}</div></div>
+      </nav>
       <p className="wiki-result-count" role="status">{query.trim() ? `Найдено статей: ${visible.length}` : `В справочнике: ${visible.length} статей`}</p>
       {!visible.length ? <section className="ui-card wiki-empty"><Search size={32} /><h2>Ответ пока не найден</h2><p>Попробуйте более короткий запрос или выберите другую тему.</p><button type="button" className="ui-button ui-button-secondary" onClick={() => {setQuery(''); setCategory('all');}}>Показать все статьи</button></section> : <div className="wiki-layout">
-        <nav className="wiki-index ui-card" aria-label="Статьи Wiki">{wikiCategories.map(group => {
+        <nav className="wiki-index" aria-label="Статьи Wiki">{wikiCategories.map(group => {
           const articles = visible.filter(item => item.category === group.id);
           return articles.length > 0 && <div key={group.id} className="wiki-index-group"><p>{group.title}</p>{articles.map(item => <Link key={item.id} to={{pathname: '/wiki', search: `?article=${item.id}`}} aria-current={article?.id === item.id ? 'page' : undefined}><span>{item.title}</span><ChevronRight size={14} /></Link>)}</div>;
         })}</nav>

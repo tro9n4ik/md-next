@@ -1,82 +1,109 @@
 {
-  "version": "2.5.0",
-  "source_base_commit": "722ef728c0d36f8b573e995d47531219afb78784",
+  "version": "2.5.1",
+  "source_base_commit": "2b77c175f3a89ae5bcb595f70777a6a9eb0cf5b1",
   "demo": true,
   "generated_from_worktree": true,
-  "captured_at": "2026-10-28T07:30:00.000Z",
+  "captured_at": "2026-11-02T07:30:00.000Z",
   "files": {
-    "clients-demo.jpg": "5c69dee952ef51f30d525f6ad0c679343abb189f866ae76e3f428a7a921fe8c0",
-    "dashboard-dark-demo.jpg": "9992deb09caa0265e4ee5177fc47c2311cdd4f53894e8c5548c1086918905d5b",
-    "dashboard-demo.jpg": "6a8939b2e55a4a3d24c0e9177eb98c2e01c9855684f1e0d34c0b7de41e39fec1",
-    "nodes-demo.jpg": "7a9e1ea782d4edeb490ba20a803306061cb6caccbe9f4a5436d249b702f5a1bb",
-    "protocols-demo.jpg": "9c463aa100be6c0ae9328779bffed837d2b254129c9b8d295df3841cb045c6b2",
-    "subadmins-demo.jpg": "b0d3a0f6278a47c571cd2da43658421731419683e9edd5f37de87170b8b9d477",
-    "telegram-demo.jpg": "11dc6ab5f0db6494bd9e588f6ab144fac7dab243d95e7b463a649b643c6233be",
-    "warp-demo.jpg": "b6362f9a401cbb849999bbadd3608fb14f529ac1def3a373f7975656f9486a08"
+    "client-create-demo.jpg": "4adc69c87069aad0c92cff5b4f1092f633ebad3eb845ccd6267167d376e5fb7e",
+    "clients-demo.jpg": "561ec3699c3640644e8eeb319b06697c7d9a6921e02167eca69fae7ce1f4bf78",
+    "dashboard-dark-demo.jpg": "332107bb49e6fd50d4287615f071b1bcfe54843cffb548525e3f716573db1aea",
+    "dashboard-demo.jpg": "3042d5bb5ac9d59410012eac8fb62497f51e76ac2bb778dc1c7626f41de3109d",
+    "nodes-demo.jpg": "1d291e134153d74b2283a60ad136721ed3b62f5a2830b7752593906c07f912ca",
+    "protocols-demo.jpg": "37676323aa6928d48e902b75d607520fb82f6732e1b23f99f725520d0dedab84",
+    "settings-demo.jpg": "295dbb7113d0b8229219b7a0f577d343aa7d27ec5ef6e22a38472e26f8bec8e6",
+    "subadmins-demo.jpg": "fc05c02bbcd1b1d760213b81b3fe845365d8b9f46a54a936e4eeca0578d503c2",
+    "telegram-demo.jpg": "375046de0d7feab6cd3eff8222ae896dc48c932992d3fa7fe37cb42bf1abac33",
+    "warp-demo.jpg": "a23e4e3a8540e1665e4eec6a5691459e1f13d150837b0ce79f813f3226e453b2",
+    "wiki-demo.jpg": "d2ccf93084a6565b39e83d7aaf000c343c484a01effceb0ab41474f2f875104b"
   },
   "captures": {
     "dashboard-demo.jpg": {
       "route": "/",
       "theme": "light",
       "viewport": {
-        "width": 1600,
-        "height": 1100
+        "width": 1920,
+        "height": 1080
       }
     },
     "dashboard-dark-demo.jpg": {
       "route": "/",
       "theme": "dark",
       "viewport": {
-        "width": 1600,
-        "height": 1100
+        "width": 1920,
+        "height": 1080
       }
     },
     "clients-demo.jpg": {
       "route": "/clients",
       "theme": "light",
       "viewport": {
-        "width": 1600,
-        "height": 1100
+        "width": 1920,
+        "height": 1080
       }
     },
     "nodes-demo.jpg": {
       "route": "/nodes",
       "theme": "light",
       "viewport": {
-        "width": 1600,
-        "height": 1100
+        "width": 1920,
+        "height": 1080
+      }
+    },
+    "client-create-demo.jpg": {
+      "route": "/clients/new",
+      "theme": "light",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      }
+    },
+    "settings-demo.jpg": {
+      "route": "/settings",
+      "theme": "light",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      }
+    },
+    "wiki-demo.jpg": {
+      "route": "/wiki",
+      "theme": "light",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
       }
     },
     "warp-demo.jpg": {
       "route": "/warp",
       "theme": "light",
       "viewport": {
-        "width": 1600,
-        "height": 1100
+        "width": 1920,
+        "height": 1080
       }
     },
     "protocols-demo.jpg": {
       "route": "/protocols",
       "theme": "light",
       "viewport": {
-        "width": 1600,
-        "height": 1100
+        "width": 1920,
+        "height": 1080
       }
     },
     "subadmins-demo.jpg": {
       "route": "/settings/users",
       "theme": "light",
       "viewport": {
-        "width": 1600,
-        "height": 1100
+        "width": 1920,
+        "height": 1080
       }
     },
     "telegram-demo.jpg": {
       "route": "/settings/telegram",
       "theme": "light",
       "viewport": {
-        "width": 1600,
-        "height": 1100
+        "width": 1920,
+        "height": 1080
       }
     }
   }
