@@ -116,6 +116,17 @@ def start_services():
     command('systemctl','restart','md-next-backend')
 
 
+def drop_to_panel_user():
+    """Проверка использует того же владельца черновиков, что и работающая панель."""
+    import pwd
+    account=pwd.getpwnam('md-next')
+    if account.pw_uid==0:raise RuntimeError('Пользователь панели не должен быть root')
+    os.initgroups(account.pw_name,account.pw_gid)
+    os.setgid(account.pw_gid)
+    os.setuid(account.pw_uid)
+    os.environ['HOME']=account.pw_dir
+
+
 def nginx_tokens(text):
     lexer=re.compile(r'''"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\#[^\n]*|[{};]|(?:\$\{[^}]+\}|\{\d+(?:,\d*)?\}|\\.|[^\s{};\#"'])+''')
     return [(m.group(),m.start(),m.end()) for m in lexer.finditer(text) if not m.group().startswith('#')]
@@ -414,12 +425,15 @@ if values.get('adguard.enabled')=='true':
   with urllib.request.urlopen('http://127.0.0.1:3001/',timeout=5) as response:
    if response.status!=200:fail('MIG_ADGUARD')
  except Exception:fail('MIG_ADGUARD')
+spec=importlib.util.spec_from_file_location('trusted_migration','/usr/local/lib/md-next/migrate-panel.py')
+runtime=importlib.util.module_from_spec(spec);spec.loader.exec_module(runtime)
+runtime.drop_to_panel_user()
 from app.db.database import AsyncSessionLocal
 from app.services.client_service import ClientService
 from app.services.awg import AWGService
 async def main():
  async with AsyncSessionLocal() as db:
-  for sync,code in ((ClientService.sync_xray_clients,'MIG_XRAY_CONFIG'),(AWGService.sync_server_config,'MIG_AWG_CONFIG')):
+  for sync,code in ((ClientService.sync_xray_clients,'MIG_XRAY_APPLY'),(AWGService.sync_server_config,'MIG_AWG_CONFIG')):
    ok,reason=await sync(db)
    if not ok:fail(code)
 asyncio.run(main())
