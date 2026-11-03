@@ -67,7 +67,7 @@ async def source_report(db):
         {'key': 'source_addresses', 'title': 'Адреса подключения',
          'status': 'blocked' if any(a['status'] == 'blocked' for a in addresses) else 'warning' if any(a['status'] == 'warning' for a in addresses) else 'ok',
          'message': 'Проверены текущие адреса, из которых панель формирует новые профили. Старые импорты и ручные изменения в приложениях проверить с сервера нельзя.'},
-        {'key': 'target', 'title': 'Новый VPS', 'status': 'pending', 'message': 'Не проверен. Подготовка текущей панели не подтверждает готовность нового сервера.'},
+        {'key': 'target', 'title': 'Новый VPS', 'status': 'pending', 'message': 'Готовность целевого сервера отображается в состоянии мастера переезда.'},
     ]
     return {'format': 1, 'phase': 'source_preflight', 'checked_at': datetime.now(timezone.utc).isoformat(),
             'can_switch': False, 'source_checks_passed': all(c['status'] == 'ok' for c in checks if c['key'] != 'target'),

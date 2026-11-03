@@ -41,7 +41,7 @@ def public_domain(value):
 
 
 def validate(request):
-    if request.get('action') not in {'prepare','finalize','activate','cancel'}:raise ValueError('Invalid action')
+    if request.get('action') not in {'prepare','finalize','activate','commit','cancel'}:raise ValueError('Invalid action')
     ip=ipaddress.ip_address(request['host'])
     if not ip.is_global or ip.is_multicast or ip.is_reserved or getattr(ip,'scope_id',None):raise ValueError('Нужен публичный IP нового VPS')
     if type(request.get('port')) is not int or not 1<=request['port']<=65535:raise ValueError('Invalid SSH port')
@@ -49,7 +49,7 @@ def validate(request):
     if not isinstance(request.get('ssh_password'),str) or not 1<=len(request['ssh_password'])<=512:raise ValueError('Invalid SSH password')
     if not isinstance(request.get('password'),str) or not 12<=len(request['password'])<=256:raise ValueError('Invalid package password')
     if request.get('confirm') is not True:raise ValueError('Confirmation required')
-    if request['action']=='activate' and request.get('confirm_protocol_tests') is not True:raise ValueError('External protocol test required')
+    if request['action'] in {'activate','commit'} and request.get('confirm_protocol_tests') is not True:raise ValueError('External protocol test required')
     return str(ip)
 
 
@@ -172,6 +172,12 @@ def reboot_target(request,sock,transport):
     raise events.MigrationError('MIG_REBOOT_TIMEOUT')
 
 
+def finish_session():
+    spec=importlib.util.spec_from_file_location('migration_session',LIB/'migration-session.py')
+    session=importlib.util.module_from_spec(spec);spec.loader.exec_module(session)
+    session.finish(STATE,write_json)
+
+
 def latest_build():
     base='https://api.github.com/repos/tro9n4ik/md-next/'
     def api(path):
@@ -197,6 +203,11 @@ def latest_build():
 def run(request):
     import paramiko
     validate(request)
+    if request['action']=='commit':
+        # Подтверждение охватывает свежую финальную синхронизацию и активацию.
+        run({**request,'action':'finalize'})
+        run({**request,'action':'activate'})
+        return
     if request['action']=='prepare':(STATE/'target-ready.json').unlink(missing_ok=True)
     status('exporting','Проверяем исходную установку.',request,stage='source_preflight')
     runtime=load_runtime();STATE.mkdir(mode=0o700,parents=True,exist_ok=True)
@@ -243,7 +254,7 @@ def run(request):
             from urllib.parse import urlsplit
             main=env.get('SERVER_HOST','');panel=urlsplit(env.get('PANEL_PUBLIC_URL','')).hostname or ''
             email=request.get('email','')
-            if not re.fullmatch(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}',email):raise events.MigrationError('MIG_INPUT')
+            if email and not re.fullmatch(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}',email):raise events.MigrationError('MIG_INPUT')
             for domain in (main,panel):
                 if not re.fullmatch(r'[a-zA-Z0-9.-]{1,253}',domain):raise events.MigrationError('MIG_SOURCE_ADDRESS')
             for attempt in range(3):
@@ -319,6 +330,7 @@ def run(request):
             write_json(STATE/'source-activated.json',{'state':'activation_started',**binding})
             remote_cli(transport,'activate',request['password'],'--confirm-cutover --confirm-protocol-tests')
             write_json(STATE/'source-activated.json',binding)
+            finish_session()
             status('activated','Новый VPS активирован. Переключите DNS вручную и проверьте подключения. Автоматический обратный перенос после активации запрещён.',request)
         else:
             if (STATE/'source-activated.json').exists():raise RuntimeError('После активации требуется согласование данных')
@@ -330,6 +342,7 @@ def run(request):
                 (STATE/'source-fenced.json').unlink()
             binding_path.unlink(missing_ok=True)
             (STATE/'target-ready.json').unlink(missing_ok=True)
+            finish_session()
             status('cancelled','Целевой сервер возвращён в изолированное исходное состояние; исходные службы возобновлены. Проверьте DNS и подключения.',request)
     finally:
         if remote_dir and re.fullmatch('/root/mdnext-transfer-[A-Za-z0-9]+',remote_dir):

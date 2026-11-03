@@ -54,10 +54,10 @@ class TargetRequest(BaseModel):
 
 
 class JobRequest(TargetRequest):
-    action: str = Field(pattern='^(prepare|finalize|activate|cancel)$')
+    action: str = Field(pattern='^(prepare|finalize|activate|commit|cancel)$')
     fingerprint: str = Field(pattern=r'^SHA256:[A-Za-z0-9+/]{43}$')
-    ssh_password: SecretStr = Field(min_length=1, max_length=512)
-    password: SecretStr = Field(min_length=12, max_length=256)
+    ssh_password: SecretStr | None = Field(default=None,min_length=1,max_length=512)
+    password: SecretStr | None = Field(default=None,min_length=12,max_length=256)
     email: str = Field(default='', max_length=254)
     confirm: bool = False
     confirm_protocol_tests: bool = False
@@ -102,10 +102,10 @@ async def job_status(response: Response):
 @router.post('/jobs',status_code=202)
 async def start_job(request: JobRequest, response: Response, current_user=Depends(require_admin)):
     public_host(request.host)
-    if not request.confirm or request.action=='activate' and not request.confirm_protocol_tests:
+    if not request.confirm or request.action in {'activate','commit'} and not request.confirm_protocol_tests:
         raise HTTPException(400,'Подтвердите действие и внешнюю проверку протоколов перед активацией')
     if not enabled():raise HTTPException(503,'Нужен системный помощник серверной панели')
-    payload=request.model_dump();payload['ssh_password']=request.ssh_password.get_secret_value();payload['password']=request.password.get_secret_value()
+    payload=request.model_dump();payload['ssh_password']=request.ssh_password.get_secret_value() if request.ssh_password else None;payload['password']=request.password.get_secret_value() if request.password else None
     payload['actor_id']=current_user.id
     code,output,_=await call('migration-start',request=payload,timeout=25)
     if code:raise operation_error(output,409)
@@ -152,4 +152,13 @@ async def delete_package(name: str):
 @router.get('/source')
 async def source(response: Response, db: AsyncSession = Depends(get_db)):
     response.headers['Cache-Control'] = 'no-store'
-    return await source_report(db)
+    report=await source_report(db)
+    if enabled():
+        try:
+            code,output,_=await call('migration-status',timeout=10)
+            status=json.loads(output) if code==0 else {}
+            if status.get('target_ready') and status.get('phase') in {'prepared','awaiting_activation','activated'}:
+                for check in report['checks']:
+                    if check['key']=='target':check.update(status='ok',message='Автоматическая проверка нового VPS пройдена. Внешнюю проверку клиентских подключений выполняет пользователь.')
+        except (ValueError,TypeError,RuntimeError):pass
+    return report

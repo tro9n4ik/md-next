@@ -16,7 +16,7 @@ export default function MigrationPage() {
     queryFn: async () => { const response = await apiFetch('/api/v1/migration/source'); if (!response.ok) throw new Error('Не удалось проверить текущую установку'); return response.json(); }});
   const data = report.data;
   return <PageLayout embedded title="Переезд на другой VPS" description="Подготовка переноса с сохранением клиентских подключений" icon={ArrowRightLeft}>
-    <section className="ui-card ui-panel migration-intro"><div><span className="settings-section-label">ПЕРЕЕЗД В ТРИ ЭТАПА</span><h3 className="ui-card-title mt-2">Подготовьте новый сервер и проверьте перенос</h3><p>Сначала мастер установит чистый проверенный билд, создаст зашифрованный бэкап и восстановит данные на новом VPS. Финальная синхронизация и активация запускаются отдельно.</p></div></section>
+    <section className="ui-card ui-panel migration-intro"><div><span className="settings-section-label">ПЕРЕЕЗД В ДВА ДЕЙСТВИЯ</span><h3 className="ui-card-title mt-2">Подготовьте новый сервер и проверьте перенос</h3><p>Сначала мастер установит чистый проверенный билд, создаст зашифрованный бэкап и восстановит данные на новом VPS. Финальная синхронизация и активация выполняются после вашего подтверждения.</p></div></section>
     {report.isPending && <p role="status">Проверяем адреса и состав данных…</p>}
     {report.error && <p role="alert" className="client-form-error">{report.error.message}</p>}
     <MigrationTransfer />
