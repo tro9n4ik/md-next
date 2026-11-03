@@ -4,7 +4,10 @@
 set -e
 
 export DEBIAN_FRONTEND=noninteractive
-LOG_FILE="/tmp/md-next-install.log"
+# Logs may contain bootstrap credentials. Keep a root-only file even when
+# invoked directly; mktemp also avoids following an attacker-created /tmp link.
+LOG_FILE=$(mktemp /var/log/md-next-install.XXXXXX.log)
+chmod 600 "$LOG_FILE"
 echo "=== MD-Next Installation Log Started: $(date) ===" > "$LOG_FILE"
 
 # Цвета для вывода
@@ -446,6 +449,26 @@ JWT_SECRET_KEY=$(openssl rand -hex 32)
 run_step() {
   local step_name="$1"
   shift
+  if [ "${MDNEXT_PROGRESS:-0}" = "1" ]; then
+    local progress_code
+    case "$1" in
+      install_deps) progress_code=INSTALL_DEPS;;
+      install_awg) progress_code=INSTALL_AWG;;
+      install_node) progress_code=INSTALL_NODE;;
+      install_xray) progress_code=INSTALL_XRAY;;
+      setup_repo) progress_code=INSTALL_REPO;;
+      install_awg_routing) progress_code=INSTALL_ROUTING;;
+      setup_backend) progress_code=INSTALL_BACKEND;;
+      setup_placeholder) progress_code=INSTALL_PLACEHOLDER;;
+      setup_frontend) progress_code=INSTALL_FRONTEND;;
+      setup_services_and_nginx) progress_code=INSTALL_SERVICES;;
+      wait_backend_ready) progress_code=INSTALL_READY;;
+      record_install_commit) progress_code=INSTALL_COMMIT;;
+      python3) progress_code=INSTALL_PRIVILEGES;;
+      *) progress_code=INSTALL_READY;;
+    esac
+    printf 'MDNEXT_EVENT {"code":"%s"}\n' "$progress_code"
+  fi
   printf "  ▸ %-52s " "$step_name..."
   if "$@" >> "$LOG_FILE" 2>&1; then
     printf "[${GREEN}OK${NC}]\n"
@@ -986,6 +1009,11 @@ run_step "Первичная синхронизация VPN" wait_backend_ready
 run_step "Изоляция панели от root" python3 /opt/md-next/scripts/install-privilege-separation.py
 run_step "Ожидание готовности API" wait_backend_ready
 run_step "Сохранение номера установленной сборки" record_install_commit
+
+if [ "${MDNEXT_MIGRATION_STAGING:-0}" = "1" ]; then
+  echo 'Изолированная установка готова. Начальные учётные данные не выводятся; далее требуется восстановление комплекта.'
+  exit 0
+fi
 
 echo ""
 echo "================================================="

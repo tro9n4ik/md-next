@@ -111,3 +111,25 @@ async def test_staging_lifespan_never_starts_background_services(monkeypatch):
     with patch('app.main.watchdog.start') as watchdog, patch('app.main.bot_manager.start',new=AsyncMock()) as bot, patch('app.main.engine',new=SimpleNamespace(dispose=AsyncMock())):
         async with lifespan(app):
             watchdog.assert_not_called();bot.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_validation_never_echoes_failed_secret_input(auth_headers):
+    payload={'host':'8.8.8.8','action':'prepare','fingerprint':'SHA256:'+'a'*43,
+             'ssh_password':'ssh-secret-value','password':'tiny-key','confirm':True}
+    async with AsyncClient(transport=ASGITransport(app=app),base_url='http://test') as api:
+        response=await api.post('/api/v1/migration/jobs',headers=auth_headers,json=payload)
+        assert response.status_code==422
+        assert response.json()['detail']['code']=='MIG_INPUT'
+        assert 'tiny-key' not in response.text and 'ssh-secret-value' not in response.text
+
+
+@pytest.mark.asyncio
+async def test_structured_worker_error_reaches_ui_without_credentials(auth_headers):
+    payload={'host':'8.8.8.8','action':'prepare','fingerprint':'SHA256:'+'a'*43,
+             'ssh_password':'ssh-secret-value','password':'package-secret-value','confirm':True}
+    async with AsyncClient(transport=ASGITransport(app=app),base_url='http://test') as api:
+        with patch('app.api.migration.enabled',return_value=True),patch('app.api.migration.call',new=AsyncMock(return_value=(1,'{"code":"MIG_BUSY","message":"Операция уже выполняется"}',''))):
+            response=await api.post('/api/v1/migration/jobs',headers=auth_headers,json=payload)
+            assert response.status_code==409 and response.json()['detail']['code']=='MIG_BUSY'
+            assert 'secret-value' not in response.text

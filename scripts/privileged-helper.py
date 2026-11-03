@@ -121,15 +121,25 @@ def dispatch(request):
     if operation in {'migration-status', 'migration-start'}:
         spec = importlib.util.spec_from_file_location('migration_control', LIB/'migration-control.py')
         module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
-        data = module.read_status() if operation == 'migration-status' else module.start(request.get('request', {}))
-        return [0, json.dumps(data), '']
+        try:
+            data = module.read_status() if operation == 'migration-status' else module.start(request.get('request', {}))
+            return [0, json.dumps(data), '']
+        except Exception as error:
+            # Catalogue-only output: no exception strings or request credentials.
+            return [1, json.dumps(module.worker().events.public_error(error)), '']
     if operation == 'migration-export':
         password = request.get('password')
         if set(request) != {'operation', 'password'} or not isinstance(password, str) or not 12 <= len(password) <= 256:
             raise ValueError('Invalid migration export')
         result = subprocess.run(['/opt/md-next/backend/venv/bin/python', '-I', str(LIB/'migrate-panel.py'), 'api-export'],
                                 input=json.dumps({'password': password}), capture_output=True, text=True, timeout=120)
-        return [result.returncode, result.stdout if result.returncode == 0 else '', '' if result.returncode == 0 else 'Не удалось создать комплект переезда']
+        if result.returncode:
+            spec=importlib.util.spec_from_file_location('migration_events',LIB/'migration-events.py')
+            events=importlib.util.module_from_spec(spec);spec.loader.exec_module(events)
+            items=[events.parse_event(line) for line in result.stdout.splitlines()]
+            detail=next((item for item in reversed(items) if item and item['code'].startswith('MIG_')),None)
+            return [result.returncode,json.dumps(detail or {'code':'MIG_SOURCE_CONFIG','message':events.MESSAGES['MIG_SOURCE_CONFIG']}),'']
+        return [0,result.stdout,'']
     if operation in {'warp-uplink-status', 'warp-uplink-prepare'}:
         if operation == 'warp-uplink-prepare' and (type(request.get('node_id')) is not int or not 1 <= request['node_id'] <= 2**63-1
                 or type(request.get('port')) is not int or not 1 <= request['port'] <= 65535):

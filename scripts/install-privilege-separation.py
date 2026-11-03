@@ -9,6 +9,7 @@ import subprocess
 import time
 import sys
 import urllib.request
+import tempfile
 
 ROOT = Path('/opt/md-next')
 LIB = Path('/usr/local/lib/md-next')
@@ -18,6 +19,18 @@ UNIT = Path('/etc/systemd/system/md-next-backend.service')
 
 def command(*args):
     subprocess.run(args, check=True, stdout=subprocess.DEVNULL)
+
+
+def initial_config(original, destination, *, staging):
+    if destination.is_symlink():raise RuntimeError('Unexpected staging file symlink')
+    if destination.exists():return
+    if original.is_file():
+        shutil.copy2(original,destination)
+    elif original.name=='awg0.conf' and staging:
+        # Never apply this empty draft; restore/verify replaces it first.
+        descriptor=os.open(destination,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+        os.close(descriptor)
+    else:raise RuntimeError('Missing required runtime configuration: '+original.name)
 
 
 def owned_data(path, uid, gid, *, public=False):
@@ -58,7 +71,7 @@ def protect_code():
 
 
 def helper_sources():
-    return {'migration-ssh.py': ROOT/'scripts/migration-ssh.py', 'migration-control.py': ROOT/'scripts/migration-control.py', 'prepare-migration-target.sh': ROOT/'scripts/prepare-migration-target.sh', 'migrate-panel.py': ROOT/'scripts/migrate-panel.py', 'migration-bundle.py': ROOT/'backend/app/services/migration_bundle.py', 'mtproto-runtime.py': ROOT/'scripts/mtproto-runtime.py', 'privileged-helper.py': ROOT/'scripts/privileged-helper.py', 'update-panel.py': ROOT/'scripts/update-panel.py',
+    return {'migration-events.py': ROOT/'scripts/migration-events.py', 'migration-target.py': ROOT/'scripts/migration-target.py', 'migration-ssh.py': ROOT/'scripts/migration-ssh.py', 'migration-control.py': ROOT/'scripts/migration-control.py', 'prepare-migration-target.sh': ROOT/'scripts/prepare-migration-target.sh', 'migrate-panel.py': ROOT/'scripts/migrate-panel.py', 'migration-bundle.py': ROOT/'backend/app/services/migration_bundle.py', 'mtproto-runtime.py': ROOT/'scripts/mtproto-runtime.py', 'privileged-helper.py': ROOT/'scripts/privileged-helper.py', 'update-panel.py': ROOT/'scripts/update-panel.py',
               'awg-routing.py': ROOT/'scripts/awg-routing.py', 'warp_registration.py': ROOT/'backend/app/services/warp_registration.py',
               'warp-uplink-runtime.py': ROOT/'scripts/warp-uplink-runtime.py',
               'nginx.py': ROOT/'backend/app/services/nginx.py', 'app/services/shell.py': ROOT/'backend/app/services/shell.py',
@@ -83,8 +96,7 @@ def main():
         command('useradd', '--system', '--user-group', '--home-dir', '/nonexistent', '--shell', '/usr/sbin/nologin', 'md-next')
         user = pwd.getpwnam('md-next')
     uid, gid = user.pw_uid, user.pw_gid
-    backup = Path('/root')/('md-next-privileges-'+time.strftime('%Y%m%d-%H%M%S'))
-    backup.mkdir(mode=0o700)
+    backup = Path(tempfile.mkdtemp(prefix='md-next-privileges-',dir='/root'))
     env_metadata = (ROOT/'backend/.env').stat()
     for name, path in [('backend.service', UNIT), ('environment', ROOT/'backend/.env')]:
         shutil.copy2(path, backup/name);(backup/name).chmod(0o600)
@@ -113,8 +125,7 @@ def main():
     os.chown(data, 0, gid);data.chmod(0o1770)
     if (data/'md_next.db').is_symlink(): raise RuntimeError('Unexpected data file symlink')
     for original, name in [(Path('/usr/local/etc/xray/config.json'), 'xray.json'), (Path('/etc/amnezia/amneziawg/awg0.conf'), 'awg0.conf')]:
-        if (stage/name).is_symlink(): raise RuntimeError('Unexpected staging file symlink')
-        if not (stage/name).exists(): shutil.copy2(original, stage/name)
+        initial_config(original,stage/name,staging='MDNEXT_MIGRATION_STAGING=1' in (ROOT/'backend/.env').read_text().splitlines())
         descriptor = os.open(stage/name, os.O_RDONLY | os.O_NOFOLLOW)
         try:
             os.fchown(descriptor, uid, gid);os.fchmod(descriptor, 0o600)
