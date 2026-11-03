@@ -13,6 +13,7 @@ import subprocess
 import tempfile
 import time
 import urllib.request
+import urllib.error
 import uuid
 
 LIB = Path('/usr/local/lib/md-next')
@@ -179,6 +180,21 @@ def trace(port):
         raise RuntimeError('Подключение WARP не подтвердилось')
 
 
+def download_repository_key():
+    request = urllib.request.Request('https://pkg.cloudflareclient.com/pubkey.gpg',
+                                     headers={'User-Agent': 'MD-Next-WARP/1.0'})
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            key_data = response.read(1024*1024+1)
+    except urllib.error.HTTPError as error:
+        raise ValueError(f'Не удалось загрузить ключ репозитория WARP: HTTP {error.code}') from None
+    except (urllib.error.URLError, TimeoutError):
+        raise ValueError('Не удалось загрузить ключ репозитория WARP: проверьте доступность сети') from None
+    if len(key_data) > 1024*1024:
+        raise ValueError('Некорректный ключ репозитория WARP')
+    return key_data
+
+
 def install_package(backup):
     if shutil.which('warp-cli', path=PATH):
         return
@@ -203,10 +219,7 @@ def install_package(backup):
         apt = ['/usr/bin/apt-get', '-o', 'DPkg::Lock::Timeout=60']
         command([*apt, 'update', '-qq'], timeout=180)
         command([*apt, 'install', '-y', '--no-install-recommends', 'ca-certificates', 'gnupg', 'curl'], timeout=180)
-        with urllib.request.urlopen('https://pkg.cloudflareclient.com/pubkey.gpg', timeout=20) as response:
-            key_data = response.read(1024*1024+1)
-        if len(key_data) > 1024*1024:
-            raise ValueError('Некорректный ключ репозитория WARP')
+        key_data = download_repository_key()
         key = subprocess.run(['/usr/bin/gpg', '--dearmor'], input=key_data,
                              capture_output=True, timeout=15, check=True).stdout
         atomic(KEY, key, 0o644)
