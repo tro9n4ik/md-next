@@ -101,6 +101,7 @@ def configuration_digest():
     for directory in bundle.DIRECTORIES:
         folder=FILESYSTEM/directory
         if folder.exists():paths.update(path for path in folder.rglob('*') if path.is_file())
+    paths.update(FILESYSTEM/name for name in ('etc/systemd/system/md-next-adguard.service','opt/md-next-adguard/AdGuardHome'))
     digest=hashlib.sha256()
     for path in sorted(paths):
         if path.is_file():
@@ -205,20 +206,70 @@ def validate_components():
         if result.returncode:raise events.MigrationError(code,exit_code=result.returncode)
 
 
+def clean_install_files(files):
+    # Системные файлы принадлежат чистому билду, данные — исходной установке.
+    result={name:data for name,data in files.items()
+            if not name.startswith(('etc/systemd/','etc/nginx/')) or name.startswith('etc/nginx/ssl_dummy/')}
+    name='etc/nginx/sites-available/md-next.conf'
+    source=files[name].decode('utf-8')
+    target=(FILESYSTEM/name).read_text()
+    for directive in ('ssl_certificate','ssl_certificate_key'):
+        paths=set(re.findall(r'(?m)^\s*'+directive+r'\s+([^;\s]+)\s*;',source))
+        if len(paths)!=1:raise events.MigrationError('MIG_TLS_LAYOUT')
+        path=paths.pop()
+        if path.lstrip('/') not in files:raise events.MigrationError('MIG_BUNDLE')
+        target=re.sub(r'(?m)^(\s*'+directive+r'\s+)[^;\s]+(\s*;)',lambda m:m[1]+path+m[2],target)
+    if 'etc/nginx/conf.d/md-next-security.conf' in files:
+        spec=importlib.util.spec_from_file_location('installed_security',ROOT/'scripts/install-security.py')
+        security=importlib.util.module_from_spec(spec);spec.loader.exec_module(security)
+        target=security.transform(target)
+        result['etc/nginx/conf.d/md-next-security.conf']=security.SECURITY_CONFIG.encode()
+        result['etc/nginx/md-next-panel-bans.map']=files['etc/nginx/md-next-panel-bans.map']
+    config='var/lib/md-next-adguard/AdGuardHome.yaml'
+    if config in result:
+        spec=importlib.util.spec_from_file_location('portable_components',Path(__file__).with_name('migration-components.py'))
+        components=importlib.util.module_from_spec(spec);spec.loader.exec_module(components)
+        try:result[config]=components.adguard_config(result[config])
+        except Exception as error:raise events.MigrationError('MIG_ADGUARD_CONFIG') from error
+    result[name]=target.encode()
+    return result
+
+
+def upgrade_database(path,env_blob=b''):
+    import io
+    from dotenv import dotenv_values
+    values=dotenv_values(stream=io.StringIO(env_blob.decode('utf-8')),interpolate=False)
+    environment=dict(os.environ)
+    for key in ('JWT_SECRET_KEY','XRAY_PRIVATE_KEY','XRAY_PUBLIC_KEY','SERVER_HOST','XRAY_SERVER_NAME','PANEL_PUBLIC_URL'):
+        if values.get(key) is not None:environment[key]=values[key]
+    result=subprocess.run([str(ROOT/'backend/venv/bin/alembic'),'-x','url=sqlite+aiosqlite:///'+str(path),'upgrade','head'],
+                          cwd=ROOT/'backend',env=environment,capture_output=True,text=True,timeout=300)
+    if result.returncode:raise events.MigrationError('MIG_SCHEMA')
+
+
 def restore(blob, password, *, rollback=False):
     bundle = library()
     bundle.guard_memory(len(blob)*7+96*1024*1024,FILESYSTEM)
     try:manifest, database, files = bundle.decode_bundle(blob, password)
     except ValueError as error:raise events.MigrationError('MIG_BUNDLE') from error
-    if manifest['version'] != (ROOT/'backend/VERSION').read_text().strip():
+    portable=manifest.get('restore_mode')=='clean-install' and not rollback
+    if portable:
+        def version(value):
+            if not re.fullmatch(r'\d+\.\d+\.\d+',value):raise events.MigrationError('MIG_SCHEMA')
+            return tuple(map(int,value.split('.')))
+        if version(manifest['version'])>version((ROOT/'backend/VERSION').read_text().strip()):raise events.MigrationError('MIG_SCHEMA')
+    if not portable and manifest['version'] != (ROOT/'backend/VERSION').read_text().strip():
         raise RuntimeError('Установите на новом VPS ту же версию панели')
-    if manifest['commit'] != (ROOT/'DEPLOYED_COMMIT').read_text().strip():
+    if not portable and manifest['commit'] != (ROOT/'DEPLOYED_COMMIT').read_text().strip():
         raise RuntimeError('Сборки серверов различаются')
     with tempfile.TemporaryDirectory(prefix='mdnext-restore-') as temporary:
         db_file = Path(temporary)/'db'; db_file.write_bytes(database)
         inventory = bundle.inventory_database(db_file)
         if inventory != {key:manifest[key] for key in ('revision', 'tables')}:
             raise RuntimeError('Манифест базы не совпадает со снимком')
+        if portable:
+            upgrade_database(db_file,files['opt/md-next/backend/.env'])
+            database=db_file.read_bytes()
     current = ROOT/'backend/md_next.db'
     target_db = current.resolve()
     if current.is_symlink() and target_db != (FILESYSTEM/'var/lib/md-next/data/md_next.db'):
@@ -240,6 +291,7 @@ def restore(blob, password, *, rollback=False):
             # A previous cancelled run may have used a different password. Fail
             # before overwriting anything if this baseline cannot be recovered.
             bundle.decode_bundle((STATE/'before-restore.mdmove').read_bytes(), password)
+    if portable:files=clean_install_files(files)
     files=component_capabilities(files)
     # Validate every destination before replacing the first file.
     for name in files:
@@ -249,6 +301,10 @@ def restore(blob, password, *, rollback=False):
             if name.startswith('etc/letsencrypt/') and path.is_symlink() and path.resolve().is_relative_to(FILESYSTEM/'etc/letsencrypt'):
                 continue
             raise RuntimeError('Небезопасный целевой путь')
+    component_files={'opt/md-next-adguard/AdGuardHome','etc/systemd/system/md-next-adguard.service'} if portable and manifest.get('components',{}).get('adguard') else set()
+    if component_files and not (STATE/'adguard-owned').exists():
+        if any((FILESYSTEM/name).exists() or (FILESYSTEM/name).is_symlink() for name in component_files):
+            raise events.MigrationError('MIG_TARGET_OCCUPIED')
     try:
         (STATE/'verified.json').unlink(missing_ok=True)
         for service in SERVICES:command('systemctl','stop',service,check=False)
@@ -256,8 +312,10 @@ def restore(blob, password, *, rollback=False):
             if command('systemctl','is-active',service,check=False).returncode==0:
                 raise RuntimeError('Не удалось остановить целевые службы')
         if not rollback:
-            write(STATE/'importing.json',json.dumps({'files':sorted(set(files)|set(pending.get('files',[])))}).encode())
+            write(STATE/'importing.json',json.dumps({'files':sorted(set(files)|component_files|set(pending.get('files',[])))}).encode())
         if rollback:
+            if 'etc/systemd/system/md-next-adguard.service' in set((previous or {}).get('imported_files',[]))|set(pending.get('files',[])):
+                command('systemctl','stop','md-next-adguard',check=False)
             # Remove only paths introduced by this import, absent from its baseline.
             # Do not leave source client keys/configs behind after cancelling.
             for name in set((previous or {}).get('imported_files',[])) | set(pending.get('files',[])):
@@ -286,10 +344,17 @@ def restore(blob, password, *, rollback=False):
         group=pwd.getpwnam(xray_user).pw_gid
         for path in [(FILESYSTEM/'usr/local/etc/xray/config.json'), *(FILESYSTEM/'usr/local/etc/xray/tls').glob('*.pem')]:
             if path.is_file():os.chown(path,0,group);path.chmod(0o640)
+        if component_files:
+            spec=importlib.util.spec_from_file_location('migration_components',Path(__file__).with_name('migration-components.py'))
+            components=importlib.util.module_from_spec(spec);spec.loader.exec_module(components)
+            if not (STATE/'adguard-owned').exists():write(STATE/'adguard-owned',b'1')
+            try:components.prepare_adguard(manifest,FILESYSTEM,write,command)
+            except Exception as error:raise events.MigrationError('MIG_ADGUARD') from error
         validate_components()
         if not rollback:
-            write(STATE/'restored.json',json.dumps({**manifest,'imported_files':sorted(files)}).encode())
+            write(STATE/'restored.json',json.dumps({**manifest,'imported_files':sorted(set(files)|component_files)}).encode())
         else:
+            (STATE/'adguard-owned').unlink(missing_ok=True)
             (STATE/'restored.json').unlink(missing_ok=True)
         (STATE/'verified.json').unlink(missing_ok=True)
         command('systemctl','restart','nginx')
@@ -387,6 +452,8 @@ asyncio.run(main())
                 raise RuntimeError('Повторите verify и подтвердите внешнюю проверку протоколов')
             command('nginx','-t')
             command('/usr/local/bin/xray','run','-test','-config','/usr/local/etc/xray/config.json')
+            if manifest.get('components',{}).get('adguard'):
+                command('systemctl','enable','md-next-adguard')
             write(STATE/'activated',b'Activation started; automatic rollback forbidden.\n')
             path=ROOT/'backend/.env';write(path,staging_env(path.read_bytes(),False),0o640)
             command('/usr/bin/python3',str(ROOT/'scripts/install-privilege-separation.py'))

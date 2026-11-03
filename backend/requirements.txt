@@ -20,3 +20,5 @@ pyotp==2.9.0
 alembic==1.20.0
 psutil==7.2.2
 paramiko==5.1.0
+
+PyYAML==6.0.3
