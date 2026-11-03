@@ -428,7 +428,10 @@ echo ""
 
 read -p "Введите основной домен для сайта-заглушки и VLESS (например, example.com): " MAIN_DOMAIN
 read -p "Введите поддомен для панели управления (например, panel.example.com): " PANEL_DOMAIN
-read -p "Введите Email администратора (для Let's Encrypt): " ADMIN_EMAIL
+ADMIN_EMAIL=""
+if [ "${MDNEXT_MIGRATION_STAGING:-0}" != "1" ]; then
+  read -p "Введите Email администратора (для Let's Encrypt): " ADMIN_EMAIL
+fi
 label='[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?'
 domain_pattern="^($label[.])+$label$"
 if [ "${#MAIN_DOMAIN}" -gt 253 ] || [ "${#PANEL_DOMAIN}" -gt 253 ] || \
@@ -436,7 +439,7 @@ if [ "${#MAIN_DOMAIN}" -gt 253 ] || [ "${#PANEL_DOMAIN}" -gt 253 ] || \
   echo 'Укажите домены в ASCII/punycode без протокола, порта, пути и специальных символов.' >&2
   exit 1
 fi
-if ! [[ "$ADMIN_EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}$ ]]; then
+if [ "${MDNEXT_MIGRATION_STAGING:-0}" != "1" ] && ! [[ "$ADMIN_EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}$ ]]; then
   echo 'Укажите корректный email администратора.' >&2
   exit 1
 fi

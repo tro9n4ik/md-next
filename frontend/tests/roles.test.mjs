@@ -63,10 +63,8 @@ test('Переезд показывает код ошибки, этап и бе�
   assert.match(html,/MIG_INSTALL/);
   assert.match(html,/Установка остановлена/);
   assert.doesNotMatch(html,/role="log"/);
-  assert.match(html,/Этапы переноса/);
-  assert.equal((html.match(/class="ui-button /g)||[]).length,3);
-  assert.match(html,/migration-cancel-link/);
-  assert.doesNotMatch(html,/Создать комплект|Получить SSH-отпечаток|Скачать/);
+  assert.match(html,/Начать переезд/);
+  assert.doesNotMatch(html,/Email администратора|Пароль комплекта|Финальная синхронизация<\/button>/);
   assert.doesNotMatch(html,/Этап запущен/);
   query.clear();
 });

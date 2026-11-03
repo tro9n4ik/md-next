@@ -71,7 +71,7 @@ def protect_code():
 
 
 def helper_sources():
-    return {'migration-components.py': ROOT/'scripts/migration-components.py', 'migration-events.py': ROOT/'scripts/migration-events.py', 'migration-target.py': ROOT/'scripts/migration-target.py', 'migration-ssh.py': ROOT/'scripts/migration-ssh.py', 'migration-control.py': ROOT/'scripts/migration-control.py', 'prepare-migration-target.sh': ROOT/'scripts/prepare-migration-target.sh', 'migrate-panel.py': ROOT/'scripts/migrate-panel.py', 'migration-bundle.py': ROOT/'backend/app/services/migration_bundle.py', 'mtproto-runtime.py': ROOT/'scripts/mtproto-runtime.py', 'privileged-helper.py': ROOT/'scripts/privileged-helper.py', 'update-panel.py': ROOT/'scripts/update-panel.py',
+    return {'boot-services.py': ROOT/'scripts/boot-services.py', 'migration-session.py': ROOT/'scripts/migration-session.py', 'migration-components.py': ROOT/'scripts/migration-components.py', 'migration-events.py': ROOT/'scripts/migration-events.py', 'migration-target.py': ROOT/'scripts/migration-target.py', 'migration-ssh.py': ROOT/'scripts/migration-ssh.py', 'migration-control.py': ROOT/'scripts/migration-control.py', 'prepare-migration-target.sh': ROOT/'scripts/prepare-migration-target.sh', 'migrate-panel.py': ROOT/'scripts/migrate-panel.py', 'migration-bundle.py': ROOT/'backend/app/services/migration_bundle.py', 'mtproto-runtime.py': ROOT/'scripts/mtproto-runtime.py', 'privileged-helper.py': ROOT/'scripts/privileged-helper.py', 'update-panel.py': ROOT/'scripts/update-panel.py',
               'awg-routing.py': ROOT/'scripts/awg-routing.py', 'warp_registration.py': ROOT/'backend/app/services/warp_registration.py',
               'warp-uplink-runtime.py': ROOT/'scripts/warp-uplink-runtime.py',
               'nginx.py': ROOT/'backend/app/services/nginx.py', 'app/services/shell.py': ROOT/'backend/app/services/shell.py',
@@ -112,6 +112,7 @@ def main():
         if target.is_symlink(): raise RuntimeError('Unsafe helper destination')
         shutil.copy2(source, target);os.chown(target, 0, 0);target.chmod(0o755 if name == 'privileged-helper.py' else 0o644)
     verify_copies()
+    command('/usr/bin/python3',str(LIB/'boot-services.py'))
     command('/usr/bin/python3', str(LIB/'mtproto-runtime.py'), '--prepare-only')
     sudoers = Path('/etc/sudoers.d/md-next')
     sudoers.write_text('md-next ALL=(root) NOPASSWD: /usr/local/lib/md-next/privileged-helper.py ""\n')

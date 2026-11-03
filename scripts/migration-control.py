@@ -40,6 +40,7 @@ def read_status():
         data.update(phase='error',error_code='MIG_INTERRUPTED',message='Процесс переезда прерван. Проверьте оба сервера перед продолжением.')
     data['source_fenced']=(STATE/'source-fenced.json').exists()
     data['activation_started']=(STATE/'source-activated.json').exists()
+    data['managed']=(STATE/'managed-session.json').is_file()
     data['target_ready']=False
     if (STATE/'target.json').is_file():
         try:
@@ -54,7 +55,7 @@ def read_status():
 
 
 def start(request):
-    module=worker();module.validate(request)
+    module=worker()
     env=Path('/opt/md-next/backend/.env').read_text()
     if 'MDNEXT_MIGRATION_STAGING=1' in env.splitlines() and not (STATE/'source-fenced.json').exists():
         raise RuntimeError('Операции переезда нельзя запускать с изолированного целевого сервера')
@@ -66,7 +67,12 @@ def start(request):
         if (STATE/'source-activated.json').exists():raise module.events.MigrationError('MIG_STATE')
         if request['action']=='prepare' and ((STATE/'source-fenced.json').exists() or (STATE/'target.json').exists()):raise module.events.MigrationError('MIG_STATE')
         if request['action']=='finalize' and not read_status().get('target_ready'):raise module.events.MigrationError('MIG_STATE')
+        if request['action']=='commit' and (read_status().get('phase') not in {'prepared','awaiting_activation'} or not read_status().get('target_ready')):raise module.events.MigrationError('MIG_STATE')
         if request['action']=='activate' and read_status().get('phase')!='awaiting_activation':raise module.events.MigrationError('MIG_STATE')
+        spec=importlib.util.spec_from_file_location('migration_session',LIB/'migration-session.py')
+        session=importlib.util.module_from_spec(spec);spec.loader.exec_module(session)
+        request=session.hydrate(request,STATE,module.write_json)
+        module.validate(request)
         path=STATE/('request-'+uuid.uuid4().hex+'.json')
         module.write_json(path,request)
         module.write_json(STATE/'job.json',{})

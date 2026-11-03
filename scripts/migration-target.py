@@ -194,7 +194,7 @@ def prepare(commit, main_domain, panel_domain, email, source):
         raise events.MigrationError('MIG_TARGET_BINDING')
     label = r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?'
     domain_pattern = r'(?=.{1,253}$)(?:'+label+r'\.)+'+label
-    if any(not re.fullmatch(domain_pattern, d) for d in (main_domain, panel_domain)) or not re.fullmatch(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}', email):
+    if any(not re.fullmatch(domain_pattern, d) for d in (main_domain, panel_domain)) or email and not re.fullmatch(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}', email):
         raise events.MigrationError('MIG_SOURCE_ADDRESS')
     verify_build(commit)
     previous = preflight(commit, source)

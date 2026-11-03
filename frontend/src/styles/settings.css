@@ -108,3 +108,7 @@ ul.migration-list { list-style: disc; } ol.migration-list { list-style: decimal;
 
 .migration-steps li[aria-current="step"] { color:var(--accent); font-weight:600; }
 .migration-steps li[data-complete="true"] span { background:var(--soft); color:var(--accent); }
+
+.migration-confirmation { margin-top:24px; padding:24px; border:1px solid var(--line); border-radius:14px; background:var(--soft); }
+.migration-confirmation p { margin:12px 0; line-height:1.8; font-size:13px; color:var(--muted); }
+.migration-confirmation-actions { display:flex; flex-wrap:wrap; gap:12px; margin-top:20px; }
