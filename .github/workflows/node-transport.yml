@@ -1,0 +1,18 @@
+name: Экспериментальный транспорт Go
+on:
+  push:
+    branches: [feature/node-transport-go]
+    paths: ['experimental/node-transport/**', '.github/workflows/node-transport.yml']
+permissions:
+  contents: read
+jobs:
+  transport:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: experimental/node-transport
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - run: go version
+      - run: go vet ./...
+      - run: go test -race ./...
