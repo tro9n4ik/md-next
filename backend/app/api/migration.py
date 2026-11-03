@@ -9,6 +9,8 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Response, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, SecretStr, Field
+from fastapi.exceptions import RequestValidationError
+from fastapi.routing import APIRoute
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import require_admin
@@ -16,9 +18,30 @@ from app.db.database import get_db
 from app.services.migration import source_report
 from app.services.privileges import enabled, call
 
-router = APIRouter(prefix='/api/v1/migration', tags=['Переезд'], dependencies=[Depends(require_admin)])
+class MigrationRoute(APIRoute):
+    def get_route_handler(self):
+        handler=super().get_route_handler()
+        async def safe_handler(request):
+            try:return await handler(request)
+            except RequestValidationError:
+                # Pydantic's default errors include the raw input, including
+                # SecretStr values that failed validation. Never echo it.
+                raise HTTPException(422,{'code':'MIG_INPUT','message':'Проверьте адрес, порт, пароль комплекта (12–256 символов) и обязательные поля.'}) from None
+        return safe_handler
+
+
+router = APIRouter(prefix='/api/v1/migration', tags=['Переезд'], dependencies=[Depends(require_admin)],route_class=MigrationRoute)
 bundle_lock = asyncio.Lock()
 BUNDLE_DIR = Path(__file__).resolve().parents[2]/'migrations'
+
+
+def operation_error(output, status, default='MIG_INTERNAL'):
+    try:
+        detail=json.loads(output)
+        if not isinstance(detail,dict) or not re.fullmatch(r'MIG_[A-Z_]+',detail.get('code','')):raise ValueError()
+        detail={'code':detail['code'],'message':detail['message']}
+    except (ValueError,TypeError,KeyError):detail={'code':default,'message':'Операция не завершена. Проверьте этап и состояние серверов.'}
+    return HTTPException(status,detail)
 
 
 class BundleRequest(BaseModel):
@@ -62,7 +85,7 @@ async def target_fingerprint(request: TargetRequest, response: Response):
                     'verified':False,'message':'Сверьте отпечаток с консолью или данными провайдера. Получение отпечатка само по себе не подтверждает подлинность сервера.'}
         finally:transport.close();sock.close()
     try:result=await asyncio.to_thread(probe)
-    except Exception:raise HTTPException(502,'Не удалось получить SSH-ключ. Проверьте IP, порт и доступность сервера.') from None
+    except Exception:raise HTTPException(502,{'code':'MIG_SSH_CONNECT','message':'Не удалось получить SSH-ключ. Проверьте IP, порт и доступность сервера.'}) from None
     response.headers['Cache-Control']='no-store'
     return result
 
@@ -72,7 +95,7 @@ async def job_status(response: Response):
     response.headers['Cache-Control']='no-store'
     if not enabled():return {'phase':'unavailable','message':'Переезд запускается на серверной установке с системным помощником.','source_fenced':False,'activation_started':False}
     code,output,_=await call('migration-status',timeout=15)
-    if code:raise HTTPException(503,'Не удалось прочитать состояние переезда')
+    if code:raise operation_error(output,503)
     return json.loads(output)
 
 
@@ -85,7 +108,7 @@ async def start_job(request: JobRequest, response: Response, current_user=Depend
     payload=request.model_dump();payload['ssh_password']=request.ssh_password.get_secret_value();payload['password']=request.password.get_secret_value()
     payload['actor_id']=current_user.id
     code,output,_=await call('migration-start',request=payload,timeout=25)
-    if code:raise HTTPException(409,'Этап не запущен. Проверьте текущий процесс и состояние серверов.')
+    if code:raise operation_error(output,409)
     response.headers['Cache-Control']='no-store'
     return json.loads(output)
 
@@ -103,7 +126,7 @@ async def create_package(request: BundleRequest, response: Response):
         raise HTTPException(503, 'Создание полного комплекта доступно на сервере с установленным системным помощником')
     async with bundle_lock:
         code, output, _ = await call('migration-export', password=request.password.get_secret_value(), timeout=130)
-        if code: raise HTTPException(503, 'Не удалось создать комплект. Проверьте состав конфигураций и место на диске.')
+        if code: raise operation_error(output,503,'MIG_SOURCE_CONFIG')
         data = json.loads(output)
         response.headers['Cache-Control'] = 'no-store'
         return data

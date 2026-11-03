@@ -21,46 +21,62 @@ def worker():
 
 
 def read_status():
+    active=subprocess.run(['systemctl','is-active','md-next-migration.service'],capture_output=True,text=True,timeout=5)
+    running=active.returncode==0 or active.stdout.strip() in {'activating','reloading','deactivating'}
+    if not running:
+        # Cleanup does not depend on a readable job.json (launcher may have
+        # crashed between saving credentials and publishing the initial state).
+        for path in STATE.glob('request-*.json'):
+            if not path.is_symlink() and time.time()-path.stat().st_mtime>90:path.unlink()
     try:
         data=json.loads((STATE/'job.json').read_text())
-        data={k:data[k] for k in ('phase','message','host','action','actor_id','updated_at') if k in data}
-        active=subprocess.run(['systemctl','is-active','md-next-migration.service'],capture_output=True,text=True,timeout=5)
-        if active.returncode != 0:
-            for path in STATE.glob('request-*.json'):
-                if not path.is_symlink() and time.time()-path.stat().st_mtime>90:path.unlink()
-        if data.get('phase') in {'connecting','preparing','exporting','restoring','verifying'} and active.returncode!=0 and time.time()-data.get('updated_at',0)>60:
-            data['phase']='error';data['message']='Процесс переезда прерван. Проверьте оба сервера перед продолжением.'
-        data['source_fenced']=(STATE/'source-fenced.json').exists()
-        data['activation_started']=(STATE/'source-activated.json').exists()
-        if (STATE/'target.json').is_file():
+        if not isinstance(data,dict):raise ValueError('Invalid state')
+        data={k:data[k] for k in ('phase','stage','message','host','port','action','actor_id','updated_at','error_code','exit_code','history') if k in data}
+    except FileNotFoundError:
+        data={'phase':'idle','message':'Переезд ещё не запускался.'}
+    except (ValueError,TypeError):
+        data={'phase':'error','error_code':'MIG_STATE','message':'Не удалось прочитать сохранённое состояние. Проверьте оба сервера.'}
+    if data.get('phase') in {'connecting','preparing','exporting','restoring','verifying'} and not running and time.time()-data.get('updated_at',0)>60:
+        data.update(phase='error',error_code='MIG_INTERRUPTED',message='Процесс переезда прерван. Проверьте оба сервера перед продолжением.')
+    data['source_fenced']=(STATE/'source-fenced.json').exists()
+    data['activation_started']=(STATE/'source-activated.json').exists()
+    data['target_ready']=False
+    if (STATE/'target.json').is_file():
+        try:
             binding=json.loads((STATE/'target.json').read_text())
             data['target']={key:binding[key] for key in ('host','port','fingerprint')}
-        return data
-    except (FileNotFoundError,ValueError):return {'phase':'idle','message':'Переезд ещё не запускался.','source_fenced':(STATE/'source-fenced.json').exists(),'activation_started':(STATE/'source-activated.json').exists()}
+            if (STATE/'target-ready.json').is_file():
+                ready=json.loads((STATE/'target-ready.json').read_text())
+                data['target_ready']=all(ready.get(key)==binding[key] for key in ('host','port','fingerprint'))
+        except (ValueError,KeyError,TypeError,AttributeError):
+            data.update(phase='error',error_code='MIG_STATE',message='Повреждена привязка целевого VPS. Проверьте серверы вручную.')
+    return data
 
 
 def start(request):
     module=worker();module.validate(request)
     env=Path('/opt/md-next/backend/.env').read_text()
-    if 'MDNEXT_MIGRATION_STAGING=1' in env and not (STATE/'source-fenced.json').exists():
+    if 'MDNEXT_MIGRATION_STAGING=1' in env.splitlines() and not (STATE/'source-fenced.json').exists():
         raise RuntimeError('Операции переезда нельзя запускать с изолированного целевого сервера')
     STATE.mkdir(mode=0o700,parents=True,exist_ok=True)
     with (STATE/'control.lock').open('w') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         current=subprocess.run(['systemctl','is-active','md-next-migration.service'],capture_output=True,text=True,timeout=5)
-        if current.returncode==0 or current.stdout.strip()=='activating':raise RuntimeError('Переезд уже выполняется')
-        if (STATE/'source-activated.json').exists():raise RuntimeError('После активации исходная панель заблокирована для новых операций')
-        if request['action']=='prepare' and (STATE/'source-fenced.json').exists():raise RuntimeError('Исходная панель уже изолирована')
-        if request['action']=='prepare' and (STATE/'target.json').exists():raise RuntimeError('Сначала отмените предыдущую подготовку')
+        if current.returncode==0 or current.stdout.strip() in {'activating','reloading','deactivating'}:raise module.events.MigrationError('MIG_BUSY')
+        if (STATE/'source-activated.json').exists():raise module.events.MigrationError('MIG_STATE')
+        if request['action']=='prepare' and ((STATE/'source-fenced.json').exists() or (STATE/'target.json').exists()):raise module.events.MigrationError('MIG_STATE')
+        if request['action']=='finalize' and not read_status().get('target_ready'):raise module.events.MigrationError('MIG_STATE')
+        if request['action']=='activate' and read_status().get('phase')!='awaiting_activation':raise module.events.MigrationError('MIG_STATE')
         path=STATE/('request-'+uuid.uuid4().hex+'.json')
         module.write_json(path,request)
+        module.write_json(STATE/'job.json',{})
         module.status('connecting','Запускаем проверку SSH.',request)
         try:
             result=subprocess.run(['systemd-run','--quiet','--collect','--unit=md-next-migration',
-                '--property=RuntimeMaxSec=3600','--property=KillMode=control-group',
+                '--property=RuntimeMaxSec=10800','--property=KillMode=control-group',
                 '/opt/md-next/backend/venv/bin/python','-I',str(LIB/'migration-ssh.py'),str(path)],
                 capture_output=True,text=True,timeout=15)
             if result.returncode:raise RuntimeError('Не удалось запустить процесс переезда')
         except Exception:
-            path.unlink(missing_ok=True);module.status('error','Не удалось запустить процесс переезда.',request);raise
+            path.unlink(missing_ok=True);module.status('error','Не удалось запустить процесс переезда.',request,error_code='MIG_INTERNAL');raise
         return read_status()

@@ -22,6 +22,7 @@ const ClientExitRoute = require('../src/components/ClientExitRoute.tsx').default
 const UsersPage = require('../src/pages/UsersPage.tsx').default;
 const { AccountEditor } = require('../src/pages/UsersPage.tsx');
 const UpdatePage = require('../src/pages/UpdatePage.tsx').default;
+const MigrationTransfer = require('../src/components/MigrationTransfer.tsx').default;
 const WarpPage = require('../src/pages/WarpPage.tsx').default;
 const WarpUplinkCard = require('../src/components/WarpUplinkCard.tsx').default;
 const SettingsPage = require('../src/pages/SettingsPage.tsx').default;
@@ -52,6 +53,20 @@ function render(component, user, query = fixture(), location) {
           element: React.createElement(component, { onLogout: () => {} }),
         }))))));
 }
+
+test('Переезд показывает код ошибки, этап и безопасный журнал VPS', () => {
+  const query=fixture();
+  query.setQueryData(['migration-job'], {phase:'error',stage:'INSTALL_AWG',error_code:'MIG_INSTALL',exit_code:1,message:'Установка остановлена',source_fenced:false,activation_started:false,
+    history:[{stage:'TARGET_APT_UPGRADE',message:'Обновляем ОС перед установкой панели.',at:1700000000},{stage:'INSTALL_AWG',message:'Установка AmneziaWG.',at:1700000010}]});
+  query.setQueryData(['migration-packages'],[]);
+  const html=render(MigrationTransfer,admin,query);
+  assert.match(html,/MIG_INSTALL/);
+  assert.match(html,/INSTALL_AWG/);
+  assert.match(html,/Обновляем ОС перед установкой панели/);
+  assert.match(html,/Журнал подготовки VPS и переноса/);
+  assert.doesNotMatch(html,/Этап запущен/);
+  query.clear();
+});
 
 function uplinkFixture(overrides = {}) {
   const query = fixture();

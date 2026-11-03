@@ -6,6 +6,7 @@ import os
 import re
 import secrets
 import sqlite3
+import time
 from datetime import datetime, timezone
 from contextlib import closing
 from pathlib import Path, PurePosixPath
@@ -29,6 +30,17 @@ DIRECTORIES = (
 )
 REQUIRED = {'opt/md-next/backend/.env', 'usr/local/etc/xray/config.json',
             'etc/nginx/sites-available/md-next.conf', 'etc/nginx/stream-available/md-next-stream.conf'}
+
+
+class InsufficientMemoryError(ValueError):
+    code='MIG_MEMORY'
+
+
+def guard_memory(required, root=Path('/')):
+    if os.name=='posix' and Path(root)==Path('/') and Path('/proc/meminfo').is_file():
+        match=re.search(r'(?m)^MemAvailable:\s+(\d+) kB',Path('/proc/meminfo').read_text())
+        if not match or int(match.group(1))*1024<required:
+            raise InsufficientMemoryError('Недостаточно свободной памяти для безопасной подготовки комплекта')
 
 
 def allowed_path(name):
@@ -81,8 +93,11 @@ def decode_bundle(blob, password):
 
 
 def snapshot(source, target):
+    deadline=time.monotonic()+60
+    def progress(status,remaining,total):
+        if time.monotonic()>deadline:raise TimeoutError('Истекло время согласованного снимка SQLite')
     with closing(sqlite3.connect(source.as_uri()+'?mode=ro', uri=True)) as live, closing(sqlite3.connect(target)) as saved:
-        live.backup(saved)
+        live.backup(saved,pages=256,progress=progress)
         if saved.execute('PRAGMA quick_check').fetchone()[0] != 'ok':
             raise ValueError('Не удалось проверить целостность снимка базы')
 
@@ -124,10 +139,7 @@ def capture(root, password, *, frozen=False):
     import tempfile
     root = Path(root).resolve()
     def memory_guard(size):
-        if os.name=='posix' and root==Path('/') and Path('/proc/meminfo').is_file():
-            match=re.search(r'(?m)^MemAvailable:\s+(\d+) kB',Path('/proc/meminfo').read_text())
-            if not match or int(match.group(1))*1024 < size*10+96*1024*1024:
-                raise ValueError('Недостаточно свободной памяти для безопасной подготовки комплекта')
+        guard_memory(size*10+96*1024*1024,root)
     memory_guard(16*1024*1024)
     app = root/'opt/md-next'
     files = {}

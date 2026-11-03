@@ -27,7 +27,7 @@ def target(source_tree,tmp_path,monkeypatch):
     monkeypatch.setattr(runtime.os,'chown',lambda *args:None,raising=False)
     calls=[]
     def command(*args,**kwargs):
-        calls.append(args);return SimpleNamespace(returncode=0,stdout='root\n')
+        calls.append(args);return SimpleNamespace(returncode=3 if args[:2]==('systemctl','is-active') else 0,stdout='root\n')
     monkeypatch.setattr(runtime,'command',command)
     return runtime,root,calls
 

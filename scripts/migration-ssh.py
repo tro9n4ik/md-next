@@ -14,6 +14,10 @@ import subprocess
 import sys
 import tempfile
 import time
+import importlib.util
+
+spec=importlib.util.spec_from_file_location('migration_events',Path(__file__).with_name('migration-events.py'))
+events=importlib.util.module_from_spec(spec);spec.loader.exec_module(events)
 
 STATE=Path('/var/lib/md-next/migration')
 LIB=Path('/usr/local/lib/md-next')
@@ -22,6 +26,17 @@ ROOT=Path('/opt/md-next')
 
 def fingerprint(key):
     return 'SHA256:'+base64.b64encode(hashlib.sha256(key.asbytes()).digest()).decode().rstrip('=')
+
+
+def public_domain(value):
+    try:
+        host=value.strip().rstrip('.').encode('idna').decode('ascii').lower()
+    except (UnicodeError,AttributeError):return False
+    try:ipaddress.ip_address(host)
+    except ValueError:
+        label=r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?'
+        return len(host)<=253 and bool(re.fullmatch(r'(?:'+label+r'\.)+'+label,host)) and not host.endswith('.localhost')
+    return False
 
 
 def validate(request):
@@ -40,12 +55,39 @@ def validate(request):
 def write_json(path,value):
     path.parent.mkdir(mode=0o700,parents=True,exist_ok=True)
     fd,name=tempfile.mkstemp(prefix='.migration-',dir=path.parent)
-    with os.fdopen(fd,'w') as output:json.dump(value,output,ensure_ascii=False)
+    with os.fdopen(fd,'w') as output:
+        json.dump(value,output,ensure_ascii=False);output.flush();os.fsync(output.fileno())
     os.chmod(name,0o600);os.replace(name,path)
+    if os.name=='posix':
+        directory=os.open(path.parent,os.O_RDONLY|os.O_DIRECTORY)
+        try:os.fsync(directory)
+        finally:os.close(directory)
 
 
-def status(phase,message,request):
-    write_json(STATE/'job.json',{'phase':phase,'message':message,'host':request['host'],'action':request['action'],'actor_id':request.get('actor_id'),'updated_at':time.time()})
+def status(phase,message,request,**details):
+    previous={}
+    try:previous=json.loads((STATE/'job.json').read_text())
+    except (OSError,ValueError):pass
+    history=previous.get('history',[]) if previous.get('action')==request['action'] else []
+    stage=details.pop('stage',phase)
+    entry={'stage':stage,'message':message,'at':time.time()}
+    if not history or (history[-1].get('stage'),history[-1].get('message'))!=(stage,message):history=(history+[entry])[-80:]
+    write_json(STATE/'job.json',{'phase':phase,'stage':stage,'message':message,'history':history,
+        'host':request['host'],'port':request['port'],'action':request['action'],
+        'actor_id':request.get('actor_id'),'updated_at':time.time(),**details})
+
+
+def fail(error,request):
+    previous={}
+    try:previous=json.loads((STATE/'job.json').read_text())
+    except (OSError,ValueError):pass
+    stage=previous.get('stage','source_preflight')
+    defaults={'source_preflight':'MIG_SOURCE_CONFIG','connecting':'MIG_SSH_CONNECT',
+              'restoring':'MIG_RESTORE','verifying':'MIG_VERIFY'}
+    details=events.public_error(error,defaults.get(stage,'MIG_INTERNAL'))
+    code=details.pop('code');message=details.pop('message')
+    status('reboot_required' if code=='MIG_REBOOT_REQUIRED' else 'error',message,request,
+           stage=stage,error_code=code,**details)
 
 
 def load_runtime():
@@ -55,20 +97,29 @@ def load_runtime():
     return module
 
 
-def execute(ssh,command,stdin='',timeout=240):
+def execute(ssh,command,stdin='',timeout=240,progress=None):
     channel=ssh.open_session(timeout=15);channel.settimeout(15);channel.exec_command(command)
     if stdin:channel.sendall(stdin.encode())
-    channel.shutdown_write();deadline=time.monotonic()+timeout;output=bytearray()
+    channel.shutdown_write();deadline=time.monotonic()+timeout;output=bytearray();pending=b'';remote_error=None
     try:
         while True:
-            if time.monotonic()>deadline:raise RuntimeError('Истекло время удалённой операции')
+            if time.monotonic()>deadline:raise events.MigrationError('MIG_TIMEOUT')
             if channel.recv_ready():
                 chunk=channel.recv(65536)
                 if len(output)<65536:output.extend(chunk[:65536-len(output)])
+                pending+=chunk
+                while b'\n' in pending:
+                    line,pending=pending.split(b'\n',1)
+                    item=events.parse_event(line.decode('utf-8','replace'))
+                    if item:
+                        if item['code'].startswith('MIG_'):remote_error=item['code']
+                        elif progress:progress(item)
+                if len(pending)>1024:pending=b''
             if channel.recv_stderr_ready():channel.recv_stderr(65536) # Never persist remote command logs/secrets.
             if channel.exit_status_ready() and not channel.recv_ready() and not channel.recv_stderr_ready():break
             time.sleep(.05)
-        if channel.recv_exit_status()!=0:raise RuntimeError('Удалённая операция не прошла проверку')
+        exit_code=channel.recv_exit_status()
+        if exit_code!=0:raise events.MigrationError(remote_error or 'MIG_REMOTE_EXIT',exit_code=exit_code)
         return output.decode(errors='replace')
     finally:channel.close()
 
@@ -81,30 +132,36 @@ def remote_cli(transport,action,password,extra=''):
 def run(request):
     import paramiko
     validate(request)
+    if request['action']=='prepare':(STATE/'target-ready.json').unlink(missing_ok=True)
+    status('exporting','Проверяем исходную установку.',request,stage='source_preflight')
     runtime=load_runtime();STATE.mkdir(mode=0o700,parents=True,exist_ok=True)
     trial_blob=trial_manifest=None
     if request['action'] in {'prepare','finalize'}:
         # Fail on unsupported/missing source files before installing or stopping anything.
-        trial_blob,trial_manifest=runtime.library().capture(Path('/'),request['password'])
+        status('exporting','Проверяем полный комплект исходного сервера.',request,stage='source_preflight')
+        try:trial_blob,trial_manifest=runtime.library().capture(Path('/'),request['password'])
+        except ValueError as error:
+            if 'памяти' in str(error):raise events.MigrationError('MIG_MEMORY') from error
+            raise events.MigrationError('MIG_SOURCE_CONFIG') from error
         if request['action']=='finalize':
+            # Do not retain an unused full encrypted copy during the final capture.
+            trial_blob=None
             import sqlite3
             from contextlib import closing
             with closing(sqlite3.connect('file:/opt/md-next/backend/md_next.db?mode=ro',uri=True)) as db:
                 row=db.execute("SELECT value FROM settings WHERE key='protocol.reality.server_address'").fetchone()
             if row:
                 value=row[0].strip()
-                try:ipaddress.ip_address(value)
-                except ValueError:
-                    if '.' not in value or value=='localhost':raise RuntimeError('Не задан публичный домен профилей')
-                else:raise RuntimeError('Автоматическое переключение профилей с IP не поддерживается. Сначала подготовьте перенос адреса или обновление профилей.')
+                if not public_domain(value):raise events.MigrationError('MIG_SOURCE_ADDRESS')
+            else:raise events.MigrationError('MIG_SOURCE_ADDRESS')
     binding_path=STATE/'target.json'
     binding={key:request[key] for key in ('host','port','fingerprint')}
     if request['action']!='prepare':
         saved=json.loads(binding_path.read_text()) if binding_path.is_file() else {}
         if any(saved.get(k)!=v for k,v in binding.items()):
-            raise RuntimeError('Целевой VPS не совпадает с подготовленным')
+            raise events.MigrationError('MIG_TARGET_BINDING')
         check=hashlib.scrypt(request['password'].encode(),salt=bytes.fromhex(saved['salt']),n=2**14,r=8,p=1).hex()
-        if not hmac.compare_digest(check,saved['password_check']):raise RuntimeError('Пароль комплекта изменён')
+        if not hmac.compare_digest(check,saved['password_check']):raise events.MigrationError('MIG_TARGET_BINDING')
     status('connecting','Проверяем ключ SSH нового VPS.',request)
     sock=socket.create_connection((request['host'],request['port']),timeout=15)
     transport=paramiko.Transport(sock);transport.banner_timeout=15;transport.auth_timeout=20
@@ -112,15 +169,16 @@ def run(request):
     try:
         transport.start_client(timeout=15)
         if fingerprint(transport.get_remote_server_key())!=request['fingerprint']:
-            raise RuntimeError('Ключ SSH изменился. Пароль серверу не отправлен.')
+            raise events.MigrationError('MIG_SSH_KEY')
         transport.auth_password('root',request['ssh_password'])
         if not transport.is_authenticated():raise RuntimeError('SSH authentication failed')
         transport.set_keepalive(20)
         # Never prepare this same machine even when addressed through a second public IP.
         local_id=Path('/etc/machine-id').read_text().strip()
-        if execute(transport,'cat /etc/machine-id').strip()==local_id:raise RuntimeError('Выбран исходный сервер')
-        commit=(ROOT/'DEPLOYED_COMMIT').read_text().strip()
-        if not re.fullmatch('[0-9a-f]{40}',commit):raise RuntimeError('Сборка исходного сервера не определена')
+        if execute(transport,'cat /etc/machine-id').strip()==local_id:raise events.MigrationError('MIG_SAME_SERVER')
+        try:commit=(ROOT/'DEPLOYED_COMMIT').read_text().strip()
+        except OSError as error:raise events.MigrationError('MIG_BUILD') from error
+        if not re.fullmatch('[0-9a-f]{40}',commit):raise events.MigrationError('MIG_BUILD')
         sftp=paramiko.SFTPClient.from_transport(transport)
         if request['action']=='prepare':
             status('preparing','Подготавливаем чистый VPS той же сборки. DNS не меняется.',request)
@@ -131,28 +189,32 @@ def run(request):
             from urllib.parse import urlsplit
             main=env.get('SERVER_HOST','');panel=urlsplit(env.get('PANEL_PUBLIC_URL','')).hostname or ''
             email=request.get('email','')
-            if not re.fullmatch(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}',email):raise RuntimeError('Укажите email администратора')
+            if not re.fullmatch(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}',email):raise events.MigrationError('MIG_INPUT')
             for domain in (main,panel):
-                if not re.fullmatch(r'[a-zA-Z0-9.-]{1,253}',domain):raise RuntimeError('Для подготовки нужны домены панели и входа')
+                if not re.fullmatch(r'[a-zA-Z0-9.-]{1,253}',domain):raise events.MigrationError('MIG_SOURCE_ADDRESS')
             # A private temporary upload directory is created by a fixed remote command.
             remote_dir=execute(transport,'umask 077; mktemp -d /root/mdnext-transfer-XXXXXXXX').strip()
             if not re.fullmatch('/root/mdnext-transfer-[A-Za-z0-9]+',remote_dir):raise RuntimeError('Invalid remote directory')
-            sftp.put(str(LIB/'prepare-migration-target.sh'),remote_dir+'/prepare.sh')
-            command='bash '+shlex.quote(remote_dir+'/prepare.sh')+' '+' '.join(shlex.quote(s) for s in (commit,main,panel,email))
-            execute(transport,command,timeout=2400)
+            for name in ('prepare-migration-target.sh','migration-target.py','migration-events.py'):
+                sftp.put(str(LIB/name),remote_dir+'/'+name)
+            command='bash '+shlex.quote(remote_dir+'/prepare-migration-target.sh')+' '+' '.join(shlex.quote(s) for s in (commit,main,panel,email,trial_manifest['installation']))
+            execute(transport,command,timeout=6000,progress=lambda item:status('preparing',item['message'],request,stage=item['code']))
             salt=os.urandom(16)
             write_json(binding_path,{**binding,'salt':salt.hex(),'password_check':hashlib.scrypt(request['password'].encode(),salt=salt,n=2**14,r=8,p=1).hex()})
         if request['action'] in {'prepare','finalize'}:
             status('exporting','Создаём полный зашифрованный комплект.',request)
             frozen=request['action']=='finalize'
             if frozen:
-                if (STATE/'source-activated.json').exists():raise RuntimeError('Переезд уже активирован')
+                if (STATE/'source-activated.json').exists():raise events.MigrationError('MIG_STATE')
                 # Record intent before stopping the first service so interrupted jobs are recoverable.
                 write_json(STATE/'source-fenced.json',{'host':request['host']})
                 for service in runtime.SERVICES:runtime.command('systemctl','stop',service,check=False)
                 for service in runtime.SERVICES:
                     if runtime.command('systemctl','is-active',service,check=False).returncode==0:raise RuntimeError('Не удалось остановить исходные службы')
-            if frozen:blob,manifest=runtime.library().capture(Path('/'),request['password'],frozen=True)
+            if frozen:
+                try:blob,manifest=runtime.library().capture(Path('/'),request['password'],frozen=True)
+                except (ValueError,MemoryError) as error:
+                    raise events.MigrationError('MIG_MEMORY' if isinstance(error,MemoryError) or 'памяти' in str(error) else 'MIG_SOURCE_CONFIG') from error
             else:blob,manifest=trial_blob,trial_manifest
             if frozen:
                 env_path=ROOT/'backend/.env'
@@ -171,6 +233,7 @@ def run(request):
                 remote_cli(transport,'restore',request['password'],'--file '+shlex.quote(remote))
             status('verifying','Проверяем конфигурации VPN и HTTPS на новом VPS.',request)
             remote_cli(transport,'verify',request['password'])
+            if not frozen:write_json(STATE/'target-ready.json',binding)
             status('awaiting_activation' if frozen else 'prepared',
                    'Финальный снимок перенесён. Исходная панель изолирована. Проверьте протоколы на новом IP и подтвердите активацию.' if frozen else
                    'Пробный перенос выполнен. Новый VPS изолирован; исходная панель работает. Проверьте протоколы, затем выполните финальную синхронизацию.',request)
@@ -187,10 +250,10 @@ def run(request):
             if (STATE/'source-fenced.json').exists():
                 path=ROOT/'backend/.env';runtime.write(path,runtime.staging_env(path.read_bytes(),False),0o640)
                 runtime.command('/usr/bin/python3',str(ROOT/'scripts/install-privilege-separation.py'),'--configure-only')
-                for service in reversed(runtime.SERVICES):runtime.command('systemctl','start',service,check=False)
-                runtime.command('systemctl','restart','md-next-backend')
+                runtime.start_services()
                 (STATE/'source-fenced.json').unlink()
             binding_path.unlink(missing_ok=True)
+            (STATE/'target-ready.json').unlink(missing_ok=True)
             status('cancelled','Целевой сервер возвращён в изолированное исходное состояние; исходные службы возобновлены. Проверьте DNS и подключения.',request)
     finally:
         if remote_dir and re.fullmatch('/root/mdnext-transfer-[A-Za-z0-9]+',remote_dir):
@@ -208,7 +271,7 @@ if __name__=='__main__':
         with (STATE.parent/'maintenance.lock').open('w') as lock:
             fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
             run(request)
-    except Exception:
+    except Exception as error:
         if (STATE/'source-fenced.json').exists() and not (STATE/'source-activated.json').exists():
             try:
                 runtime=load_runtime();path=ROOT/'backend/.env'
@@ -216,5 +279,5 @@ if __name__=='__main__':
                 runtime.command('/usr/bin/python3',str(ROOT/'scripts/install-privilege-separation.py'),'--configure-only')
                 runtime.command('systemctl','start','md-next-backend')
             except Exception:pass
-        status('error','Этап не завершён. DNS не менялся. Исходный VPS мог остаться изолирован после финальной синхронизации; не активируйте оба сервера. Проверьте этап и выполните отмену до активации.',request)
+        fail(error,request)
         raise SystemExit(1)
