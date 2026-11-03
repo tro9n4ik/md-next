@@ -38,6 +38,7 @@ def test_managed_session_rejects_changed_binding(tmp_path):
     request={'action':'prepare','host':'8.8.8.8','port':22,'fingerprint':'SHA256:'+'a'*43,'ssh_password':'synthetic-password'}
     session.hydrate(request,tmp_path,worker.write_json)
     with pytest.raises(ValueError):session.hydrate({**request,'action':'commit','fingerprint':'SHA256:'+'b'*43},tmp_path,worker.write_json)
+    with pytest.raises(ValueError):session.hydrate({**request,'fingerprint':'SHA256:'+'b'*43},tmp_path,worker.write_json)
 
 
 def test_legacy_password_is_preserved(tmp_path):

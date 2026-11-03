@@ -22,6 +22,8 @@ def hydrate(request,state,write):
     path=state/'managed-session.json'
     saved=read(path) if path.exists() else None
     if request['action']=='prepare':
+        if saved and saved.get('host')==request.get('host') and saved.get('port')==request.get('port') and saved.get('fingerprint')!=request.get('fingerprint'):
+            raise ValueError('SSH-ключ изменился. Нужна независимая проверка сервера')
         if saved and any(saved.get(k)!=request.get(k) for k in ('host','port','fingerprint')):
             if (state/'target.json').exists():raise ValueError('Сначала отмените предыдущую попытку')
             saved=None
