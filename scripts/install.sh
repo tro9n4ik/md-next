@@ -839,7 +839,7 @@ server {
 }
 EOF
 
-  if ! grep -q "include /etc/nginx/stream-enabled/\*;" /etc/nginx/nginx.conf; then
+  if ! sed 's/#.*//' /etc/nginx/nginx.conf | grep -Eq 'include[[:space:]]+/etc/nginx/stream-enabled/\*(\.conf)?[[:space:]]*;'; then
       echo "stream {
           include /etc/nginx/stream-enabled/*;
       }" >> /etc/nginx/nginx.conf
