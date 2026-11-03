@@ -53,6 +53,39 @@ def test_wrong_password_and_tampering(source_tree):
     with pytest.raises(ValueError):bundle.decode_bundle(bytes(changed),PASSWORD)
 
 
+def test_nginx_security_dependencies_survive_encrypted_roundtrip(source_tree):
+    site=source_tree/'etc/nginx/sites-available/md-next.conf'
+    site.write_text('server { access_log /var/log/nginx/md-next-auth.log md_auth; }')
+    dependencies={
+        'etc/nginx/conf.d/md-next-security.conf':b"log_format md_auth '$remote_addr $status';",
+        'etc/nginx/md-next-panel-bans.map':b'192.0.2.10 1;\n',
+    }
+    for name,content in dependencies.items():
+        path=source_tree/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(content)
+    blob,_=bundle.capture(source_tree,PASSWORD)
+    _,_,files=bundle.decode_bundle(blob,PASSWORD)
+    for name,content in dependencies.items():assert files[name]==content
+    assert not bundle.allowed_path('etc/nginx/conf.d/unrelated.conf')
+    assert not bundle.allowed_path('etc/nginx/md-next-panel-bans.map/other')
+
+
+@pytest.mark.parametrize('missing',['etc/nginx/conf.d/md-next-security.conf','etc/nginx/md-next-panel-bans.map'])
+def test_capture_rejects_missing_nginx_security_dependencies(source_tree,missing):
+    (source_tree/'etc/nginx/sites-available/md-next.conf').write_text('server { access_log /var/log/nginx/md-next-auth.log md_auth; }')
+    for name in ('etc/nginx/conf.d/md-next-security.conf','etc/nginx/md-next-panel-bans.map'):
+        if name!=missing:
+            path=source_tree/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(b'')
+    with pytest.raises(ValueError,match='Nginx'):bundle.capture(source_tree,PASSWORD)
+
+
+def test_decode_rejects_old_incomplete_security_bundle(source_tree):
+    blob,manifest=bundle.capture(source_tree,PASSWORD)
+    _,database,files=bundle.decode_bundle(blob,PASSWORD)
+    files['etc/nginx/sites-available/md-next.conf']=b'server { access_log /var/log/nginx/md-next-auth.log md_auth; }'
+    incomplete=bundle.encode_bundle(manifest,database,files,PASSWORD)
+    with pytest.raises(ValueError):bundle.decode_bundle(incomplete,PASSWORD)
+
+
 @pytest.mark.parametrize('name',['../etc/shadow','/etc/shadow','etc/letsencrypt/../shadow','etc/letsencrypt//x','etc\\shadow','opt/md-next/backend/app/main.py'])
 def test_paths_are_not_executable_or_arbitrary(name):
     assert not bundle.allowed_path(name)
