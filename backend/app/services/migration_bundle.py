@@ -20,6 +20,7 @@ SINGLE_FILES = {
     'opt/md-next/backend/.env', 'usr/local/etc/xray/config.json',
     'etc/nginx/nginx.conf', 'etc/nginx/sites-available/md-next.conf',
     'etc/nginx/stream-available/md-next-stream.conf',
+    'etc/nginx/conf.d/md-next-security.conf', 'etc/nginx/md-next-panel-bans.map',
     'etc/systemd/system/md-next-backend.service', 'etc/systemd/system/xray.service',
     'etc/systemd/system/md-next-awg.service',
 }
@@ -30,6 +31,15 @@ DIRECTORIES = (
 )
 REQUIRED = {'opt/md-next/backend/.env', 'usr/local/etc/xray/config.json',
             'etc/nginx/sites-available/md-next.conf', 'etc/nginx/stream-available/md-next-stream.conf'}
+
+
+def validate_nginx_dependencies(files):
+    site = files.get('etc/nginx/sites-available/md-next.conf', b'').decode('utf-8')
+    security = 'etc/nginx/conf.d/md-next-security.conf'
+    bans = 'etc/nginx/md-next-panel-bans.map'
+    uses_security = re.search(r'\b(?:md_auth|md_login|md_public|md_scanner(?:_total)?|md_web_connections|md_panel_banned)\b', site)
+    if uses_security and security not in files or security in files and bans not in files:
+        raise ValueError('В комплекте отсутствуют настройки защиты Nginx или карта блокировок панели')
 
 
 class InsufficientMemoryError(ValueError):
@@ -86,6 +96,7 @@ def decode_bundle(blob, password):
             if hashlib.sha256(content).hexdigest() != entry['sha256']: raise ValueError()
             files[name] = content
         if not REQUIRED <= files.keys(): raise ValueError()
+        validate_nginx_dependencies(files)
         if not database.startswith(b'SQLite format 3\0'): raise ValueError()
         return data['manifest'], database, files
     except (InvalidToken, ValueError, KeyError, TypeError, AttributeError):
@@ -162,6 +173,7 @@ def capture(root, password, *, frozen=False):
         if not allowed_path(read_name):raise ValueError('Ссылка вне разрешённого каталога')
         files[name] = read_confined(root,read_name)
     if not REQUIRED <= files.keys(): raise ValueError('Не найдены обязательные конфигурации панели')
+    validate_nginx_dependencies(files)
     env = files['opt/md-next/backend/.env'].decode('utf-8')
     if not re.search(r'(?m)^JWT_SECRET_KEY=.+$', env): raise ValueError('В .env отсутствует ключ установки')
     referenced=[]

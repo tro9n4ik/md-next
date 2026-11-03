@@ -392,6 +392,7 @@ remove_installation() {
   rm -f /etc/letsencrypt/renewal-hooks/deploy/md-next-xray-certificate.sh
   rm -f /etc/nginx/sites-enabled/md-next.conf /etc/nginx/sites-available/md-next.conf
   rm -f /etc/nginx/stream-enabled/md-next-stream.conf /etc/nginx/stream-available/md-next-stream.conf
+  rm -f /etc/nginx/conf.d/md-next-security.conf /etc/nginx/md-next-panel-bans.map
   systemctl daemon-reload
   systemctl restart nginx 2>/dev/null || true
 
