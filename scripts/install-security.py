@@ -11,6 +11,14 @@ ROOT = Path(__file__).resolve().parent.parent
 CONF = Path('/etc/nginx/sites-available/md-next.conf')
 START = '# MD_NEXT_SECURITY_BEGIN'
 END = '# MD_NEXT_SECURITY_END'
+SECURITY_CONFIG = '''map $remote_addr $md_panel_banned { default 0; include /etc/nginx/md-next-panel-bans.map; }
+limit_req_zone $binary_remote_addr zone=md_login:1m rate=6r/m;
+limit_req_zone $binary_remote_addr zone=md_public:1m rate=15r/s;
+limit_req_zone $binary_remote_addr zone=md_scanner:1m rate=2r/s;
+limit_req_zone $server_name zone=md_scanner_total:1m rate=4r/s;
+limit_conn_zone $binary_remote_addr zone=md_web_connections:1m;
+log_format md_auth '$remote_addr [$time_local] $request_method $status';
+'''
 
 PUBLIC = '''
     # MD_NEXT_SECURITY_BEGIN
@@ -83,14 +91,7 @@ def main():
     static = Path('/opt/md-next/backend/app/static/fake')
     shutil.copytree(static, backup / 'public-site')
     write('/etc/nginx/md-next-panel-bans.map', Path('/etc/nginx/md-next-panel-bans.map').read_text() if Path('/etc/nginx/md-next-panel-bans.map').exists() else '')
-    write('/etc/nginx/conf.d/md-next-security.conf', '''map $remote_addr $md_panel_banned { default 0; include /etc/nginx/md-next-panel-bans.map; }
-limit_req_zone $binary_remote_addr zone=md_login:1m rate=6r/m;
-limit_req_zone $binary_remote_addr zone=md_public:1m rate=15r/s;
-limit_req_zone $binary_remote_addr zone=md_scanner:1m rate=2r/s;
-limit_req_zone $server_name zone=md_scanner_total:1m rate=4r/s;
-limit_conn_zone $binary_remote_addr zone=md_web_connections:1m;
-log_format md_auth '$remote_addr [$time_local] $request_method $status';
-''')
+    write('/etc/nginx/conf.d/md-next-security.conf', SECURITY_CONFIG)
     CONF.write_text(updated)
     try:
         subprocess.run(['nginx', '-t'], check=True)

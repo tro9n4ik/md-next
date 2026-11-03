@@ -20,6 +20,7 @@ SINGLE_FILES = {
     'opt/md-next/backend/.env', 'usr/local/etc/xray/config.json',
     'etc/nginx/nginx.conf', 'etc/nginx/sites-available/md-next.conf',
     'etc/nginx/stream-available/md-next-stream.conf',
+    'var/lib/md-next-adguard/AdGuardHome.yaml',
     'etc/nginx/conf.d/md-next-security.conf', 'etc/nginx/md-next-panel-bans.map',
     'etc/systemd/system/md-next-backend.service', 'etc/systemd/system/xray.service',
     'etc/systemd/system/md-next-awg.service',
@@ -27,6 +28,7 @@ SINGLE_FILES = {
 DIRECTORIES = (
     'usr/local/etc/xray/tls/', 'etc/amnezia/amneziawg/', 'etc/letsencrypt/',
     'etc/nginx/ssl_dummy/', 'etc/systemd/system/xray.service.d/',
+    'var/lib/md-next-adguard/data/filters/',
     'opt/md-next/data/placeholder/', 'opt/md-next/backend/app/static/fake/',
 )
 REQUIRED = {'opt/md-next/backend/.env', 'usr/local/etc/xray/config.json',
@@ -57,7 +59,7 @@ def allowed_path(name):
     p = PurePosixPath(name)
     return (isinstance(name, str) and '\\' not in name and '\0' not in name and
             not p.is_absolute() and not any(x in {'.', '..'} for x in name.split('/')) and
-            str(p) == name and (name in SINGLE_FILES or any(name.startswith(d) for d in DIRECTORIES)))
+            str(p) == name and (name in SINGLE_FILES or name in {'opt/md-next-adguard/AdGuardHome','etc/systemd/system/md-next-adguard.service'} or any(name.startswith(d) for d in DIRECTORIES)))
 
 
 def cipher(password, salt):
@@ -146,7 +148,7 @@ def inventory_database(path):
         return {'revision': revision, 'tables': counts}
 
 
-def capture(root, password, *, frozen=False):
+def capture(root, password, *, frozen=False, portable=False):
     import tempfile
     root = Path(root).resolve()
     def memory_guard(size):
@@ -201,7 +203,21 @@ def capture(root, password, *, frozen=False):
         saved = Path(temp)/'snapshot.db'; snapshot(db_source.resolve(), saved)
         memory_guard(total+saved.stat().st_size)
         metadata = inventory_database(saved)
-        manifest = {'version': (app/'backend/VERSION').read_text().strip(),
+        components={}
+        with closing(sqlite3.connect(saved)) as db:
+            if 'settings' in metadata['tables']:
+                enabled=db.execute("SELECT value FROM settings WHERE key='adguard.enabled'").fetchone()
+                if enabled and enabled[0]=='true':
+                    if 'var/lib/md-next-adguard/AdGuardHome.yaml' not in files:
+                        raise ValueError('Отсутствует конфигурация AdGuard Home')
+                    import subprocess
+                    result=subprocess.run([str(root/'opt/md-next-adguard/AdGuardHome'),'--version'],capture_output=True,text=True,timeout=10,check=True)
+                    match=re.search(r'version (v[0-9]+\.[0-9]+\.[0-9]+)',result.stdout+result.stderr)
+                    if not match:raise ValueError('Не удалось определить версию AdGuard Home')
+                    components['adguard']={'version':match[1]}
+
+        manifest = {'components':components, 'restore_mode': 'clean-install' if portable else 'snapshot',
+                    'version': (app/'backend/VERSION').read_text().strip(),
                     'commit': (app/'DEPLOYED_COMMIT').read_text().strip(),
                     'created_at': datetime.now(timezone.utc).isoformat(), 'frozen': frozen,
                     'installation': hashlib.sha256(re.search(r'(?m)^JWT_SECRET_KEY=(.+)$', env).group(1).encode()).hexdigest(), **metadata}

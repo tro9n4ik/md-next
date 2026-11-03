@@ -61,20 +61,23 @@ test('Переезд показывает код ошибки, этап и бе�
   query.setQueryData(['migration-packages'],[]);
   const html=render(MigrationTransfer,admin,query);
   assert.match(html,/MIG_INSTALL/);
-  assert.match(html,/INSTALL_AWG/);
-  assert.match(html,/Обновляем ОС перед установкой панели/);
-  assert.match(html,/Консоль подготовки VPS и переноса/);
+  assert.match(html,/Установка остановлена/);
+  assert.doesNotMatch(html,/role="log"/);
+  assert.match(html,/Этапы переноса/);
+  assert.equal((html.match(/class="ui-button /g)||[]).length,3);
+  assert.match(html,/migration-cancel-link/);
+  assert.doesNotMatch(html,/Создать комплект|Получить SSH-отпечаток|Скачать/);
   assert.doesNotMatch(html,/Этап запущен/);
   query.clear();
 });
 
 test('Перенос показывает ожидание перезагрузки в активной консоли', () => {
   const query=fixture();
-  query.setQueryData(['migration-job'], {phase:'rebooting',history:[{stage:'TARGET_REBOOT_WAIT',message:'Ожидаем перезагрузку нового VPS.',at:1700000010}]});
+  query.setQueryData(['migration-job'], {phase:'rebooting',message:'Ожидаем перезагрузку нового VPS.',history:[{stage:'TARGET_REBOOT_WAIT',message:'Ожидаем перезагрузку нового VPS.',at:1700000010}]});
   query.setQueryData(['migration-packages'],[]);
   const html=render(MigrationTransfer,admin,query);
-  assert.match(html,/role="log"/);
-  assert.match(html,/migration-console-prompt/);
+  assert.match(html,/role="progressbar"/);
+  assert.doesNotMatch(html,/migration-console/);
   assert.match(html,/Ожидаем перезагрузку нового VPS/);
   query.clear();
 });

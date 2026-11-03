@@ -15,6 +15,7 @@ import sys
 import tempfile
 import time
 import importlib.util
+import urllib.request
 
 spec=importlib.util.spec_from_file_location('migration_events',Path(__file__).with_name('migration-events.py'))
 events=importlib.util.module_from_spec(spec);spec.loader.exec_module(events)
@@ -171,31 +172,34 @@ def reboot_target(request,sock,transport):
     raise events.MigrationError('MIG_REBOOT_TIMEOUT')
 
 
+def latest_build():
+    base='https://api.github.com/repos/tro9n4ik/md-next/'
+    def api(path):
+        request=urllib.request.Request(base+path,headers={'User-Agent':'MD-Next-migration'})
+        with urllib.request.urlopen(request,timeout=25) as response:return json.load(response)
+    try:
+        runs=api('actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=10')['workflow_runs']
+        for run in runs:
+            sha=run['head_sha']
+            if not re.fullmatch('[0-9a-f]{40}',sha):continue
+            commit=api('commits/'+sha)
+            if not commit['commit']['verification']['verified']:continue
+            checks=api('actions/runs?head_sha='+sha+'&per_page=100')['workflow_runs']
+            successful=True
+            for path in ('.github/workflows/ci.yml','.github/workflows/secrets.yml'):
+                matching=[r for r in checks if r['path']==path and r['event']=='push']
+                if not matching or max(matching,key=lambda r:r.get('id',0))['conclusion']!='success':successful=False
+            if successful:return sha
+        raise ValueError()
+    except Exception as error:raise events.MigrationError('MIG_BUILD') from error
+
+
 def run(request):
     import paramiko
     validate(request)
     if request['action']=='prepare':(STATE/'target-ready.json').unlink(missing_ok=True)
     status('exporting','Проверяем исходную установку.',request,stage='source_preflight')
     runtime=load_runtime();STATE.mkdir(mode=0o700,parents=True,exist_ok=True)
-    trial_blob=trial_manifest=None
-    if request['action'] in {'prepare','finalize'}:
-        # Fail on unsupported/missing source files before installing or stopping anything.
-        status('exporting','Проверяем полный комплект исходного сервера.',request,stage='source_preflight')
-        try:trial_blob,trial_manifest=runtime.library().capture(Path('/'),request['password'])
-        except ValueError as error:
-            if 'памяти' in str(error):raise events.MigrationError('MIG_MEMORY') from error
-            raise events.MigrationError('MIG_SOURCE_CONFIG') from error
-        if request['action']=='finalize':
-            # Do not retain an unused full encrypted copy during the final capture.
-            trial_blob=None
-            import sqlite3
-            from contextlib import closing
-            with closing(sqlite3.connect('file:/opt/md-next/backend/md_next.db?mode=ro',uri=True)) as db:
-                row=db.execute("SELECT value FROM settings WHERE key='protocol.reality.server_address'").fetchone()
-            if row:
-                value=row[0].strip()
-                if not public_domain(value):raise events.MigrationError('MIG_SOURCE_ADDRESS')
-            else:raise events.MigrationError('MIG_SOURCE_ADDRESS')
     binding_path=STATE/'target.json'
     binding={key:request[key] for key in ('host','port','fingerprint')}
     if request['action']!='prepare':
@@ -215,8 +219,23 @@ def run(request):
         except OSError as error:raise events.MigrationError('MIG_BUILD') from error
         if not re.fullmatch('[0-9a-f]{40}',commit):raise events.MigrationError('MIG_BUILD')
         sftp=paramiko.SFTPClient.from_transport(transport)
+        if request['action'] in {'finalize','activate'} and execute(transport,'cat /opt/md-next/DEPLOYED_COMMIT').strip()!=saved.get('target_commit'):
+            raise events.MigrationError('MIG_BUILD')
         if request['action']=='prepare':
-            status('preparing','Подготавливаем чистый VPS той же сборки. DNS не меняется.',request)
+            # Проверяем идентичность источника без создания снимка до установки.
+            env_text=(ROOT/'backend/.env').read_text()
+            identity=re.search(r'(?m)^JWT_SECRET_KEY=(.+)$',env_text)
+            if not identity:raise events.MigrationError('MIG_SOURCE_CONFIG')
+            installation=hashlib.sha256(identity.group(1).encode()).hexdigest()
+            preparation=STATE/'preparation.json'
+            prior=json.loads(preparation.read_text()) if preparation.is_file() else {}
+            if all(prior.get(k)==binding[k] for k in binding) and prior.get('installation')==installation:
+                commit=prior.get('commit','')
+                if not re.fullmatch('[0-9a-f]{40}',commit):raise events.MigrationError('MIG_BUILD')
+            else:
+                commit=latest_build()
+                write_json(preparation,{**binding,'installation':installation,'commit':commit})
+            status('preparing','Устанавливаем чистый проверенный билд GitHub. DNS не меняется.',request)
             env={}
             for line in (ROOT/'backend/.env').read_text().splitlines():
                 if '=' in line and not line.lstrip().startswith('#'):
@@ -233,7 +252,7 @@ def run(request):
                 if not re.fullmatch('/root/mdnext-transfer-[A-Za-z0-9]+',remote_dir):raise RuntimeError('Invalid remote directory')
                 for name in ('prepare-migration-target.sh','migration-target.py','migration-events.py'):
                     sftp.put(str(LIB/name),remote_dir+'/'+name)
-                command='bash '+shlex.quote(remote_dir+'/prepare-migration-target.sh')+' '+' '.join(shlex.quote(s) for s in (commit,main,panel,email,trial_manifest['installation']))
+                command='bash '+shlex.quote(remote_dir+'/prepare-migration-target.sh')+' '+' '.join(shlex.quote(s) for s in (commit,main,panel,email,installation))
                 try:
                     execute(transport,command,timeout=6000,progress=lambda item:status('preparing',item['message'],request,stage=item['code']))
                     break
@@ -244,10 +263,17 @@ def run(request):
                     sock,transport=reboot_target(request,sock,transport)
                     sftp=paramiko.SFTPClient.from_transport(transport)
             salt=os.urandom(16)
-            write_json(binding_path,{**binding,'salt':salt.hex(),'password_check':hashlib.scrypt(request['password'].encode(),salt=salt,n=2**14,r=8,p=1).hex()})
+            write_json(binding_path,{**binding,'target_commit':commit,'installation':installation,'salt':salt.hex(),'password_check':hashlib.scrypt(request['password'].encode(),salt=salt,n=2**14,r=8,p=1).hex()})
+            preparation.unlink(missing_ok=True)
         if request['action'] in {'prepare','finalize'}:
             status('exporting','Создаём полный зашифрованный комплект.',request)
             frozen=request['action']=='finalize'
+            if frozen:
+                import sqlite3
+                from contextlib import closing
+                with closing(sqlite3.connect('file:/opt/md-next/backend/md_next.db?mode=ro',uri=True)) as db:
+                    row=db.execute("SELECT value FROM settings WHERE key='protocol.reality.server_address'").fetchone()
+                if not row or not public_domain(row[0].strip()):raise events.MigrationError('MIG_SOURCE_ADDRESS')
             if frozen:
                 if (STATE/'source-activated.json').exists():raise events.MigrationError('MIG_STATE')
                 # Record intent before stopping the first service so interrupted jobs are recoverable.
@@ -256,10 +282,16 @@ def run(request):
                 for service in runtime.SERVICES:
                     if runtime.command('systemctl','is-active',service,check=False).returncode==0:raise RuntimeError('Не удалось остановить исходные службы')
             if frozen:
-                try:blob,manifest=runtime.library().capture(Path('/'),request['password'],frozen=True)
+                try:blob,manifest=runtime.library().capture(Path('/'),request['password'],frozen=True,portable=True)
                 except (ValueError,MemoryError) as error:
                     raise events.MigrationError('MIG_MEMORY' if isinstance(error,MemoryError) or 'памяти' in str(error) else 'MIG_SOURCE_CONFIG') from error
-            else:blob,manifest=trial_blob,trial_manifest
+            else:
+                try:blob,manifest=runtime.library().capture(Path('/'),request['password'],portable=True)
+                except (ValueError,MemoryError) as error:
+                    raise events.MigrationError('MIG_MEMORY' if isinstance(error,MemoryError) or 'памяти' in str(error) else 'MIG_SOURCE_CONFIG') from error
+            expected_installation=installation if not frozen else saved.get('installation')
+            if manifest.get('installation')!=expected_installation:raise events.MigrationError('MIG_SOURCE_CONFIG')
+            if not frozen:runtime.write(STATE/'trial.mdmove',blob)
             if frozen:
                 env_path=ROOT/'backend/.env'
                 runtime.write(env_path,runtime.staging_env(env_path.read_bytes(),True),0o640)

@@ -50,7 +50,7 @@ def boot_id():
 def check_empty_staging():
     if ROOT.is_symlink() or (ROOT/'backend/.env').is_symlink():
         raise events.MigrationError('MIG_TARGET_OCCUPIED')
-    if (STATE/'restored.json').exists() or (STATE/'activated').exists():
+    if any((STATE/name).exists() for name in ('restored.json','activated','importing.json')):
         raise events.MigrationError('MIG_TARGET_OCCUPIED')
     env = ROOT/'backend/.env'
     if ROOT.exists() and (not env.is_file() or 'MDNEXT_MIGRATION_STAGING=1' not in env.read_text().splitlines()):
@@ -196,6 +196,7 @@ def prepare(commit, main_domain, panel_domain, email, source):
     domain_pattern = r'(?=.{1,253}$)(?:'+label+r'\.)+'+label
     if any(not re.fullmatch(domain_pattern, d) for d in (main_domain, panel_domain)) or not re.fullmatch(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}', email):
         raise events.MigrationError('MIG_SOURCE_ADDRESS')
+    verify_build(commit)
     previous = preflight(commit, source)
     if previous and previous.get('phase')=='reboot_required' and previous.get('boot_id')==boot_id():
         raise events.MigrationError('MIG_REBOOT_REQUIRED')

@@ -107,6 +107,7 @@ def test_reboot_is_a_waiting_state(tmp_path,monkeypatch):
 
 def test_os_update_precedes_install_and_reboot_blocks_it(tmp_path,monkeypatch):
     driver=load_script('migration-target.py');monkeypatch.setattr(driver,'STATE',tmp_path)
+    monkeypatch.setattr(driver,'verify_build',lambda *a:None)
     monkeypatch.setattr(driver,'preflight',lambda *args:None)
     monkeypatch.setattr(driver,'wait_apt',lambda:None)
     monkeypatch.setattr(driver,'boot_id',lambda:'before-reboot')
@@ -125,6 +126,7 @@ def test_os_update_precedes_install_and_reboot_blocks_it(tmp_path,monkeypatch):
 
 def test_clearing_reboot_file_is_not_a_reboot(tmp_path,monkeypatch):
     driver=load_script('migration-target.py');monkeypatch.setattr(driver,'STATE',tmp_path)
+    monkeypatch.setattr(driver,'verify_build',lambda *a:None)
     monkeypatch.setattr(driver,'preflight',lambda *args:{'phase':'reboot_required','boot_id':'same-boot'})
     monkeypatch.setattr(driver,'boot_id',lambda:'same-boot')
     monkeypatch.setattr(driver,'run',lambda *args,**kwargs:pytest.fail('No command may start before reboot'))
@@ -150,6 +152,7 @@ def test_wait_for_package_manager_has_a_deadline(monkeypatch):
 @pytest.mark.skipif(os.name!='posix',reason='Linux process group and root log semantics')
 def test_private_target_log_does_not_forward_bootstrap_password(tmp_path,monkeypatch):
     driver=load_script('migration-target.py');monkeypatch.setattr(driver,'STATE',tmp_path)
+    monkeypatch.setattr(driver,'verify_build',lambda *a:None)
     public=[];monkeypatch.setattr(driver,'emit',public.append)
     code="print('bootstrap-password-do-not-forward'); print('MDNEXT_EVENT {\"code\":\"INSTALL_AWG\"}')"
     driver.run([sys.executable,'-c',code],'MIG_INSTALL',timeout=10)
