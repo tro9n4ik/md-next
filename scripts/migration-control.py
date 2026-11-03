@@ -36,7 +36,7 @@ def read_status():
         data={'phase':'idle','message':'Переезд ещё не запускался.'}
     except (ValueError,TypeError):
         data={'phase':'error','error_code':'MIG_STATE','message':'Не удалось прочитать сохранённое состояние. Проверьте оба сервера.'}
-    if data.get('phase') in {'connecting','preparing','exporting','restoring','verifying'} and not running and time.time()-data.get('updated_at',0)>60:
+    if data.get('phase') in {'connecting','preparing','rebooting','exporting','restoring','verifying'} and not running and time.time()-data.get('updated_at',0)>60:
         data.update(phase='error',error_code='MIG_INTERRUPTED',message='Процесс переезда прерван. Проверьте оба сервера перед продолжением.')
     data['source_fenced']=(STATE/'source-fenced.json').exists()
     data['activation_started']=(STATE/'source-activated.json').exists()

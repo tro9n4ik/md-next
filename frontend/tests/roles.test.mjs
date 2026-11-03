@@ -63,8 +63,19 @@ test('Переезд показывает код ошибки, этап и бе�
   assert.match(html,/MIG_INSTALL/);
   assert.match(html,/INSTALL_AWG/);
   assert.match(html,/Обновляем ОС перед установкой панели/);
-  assert.match(html,/Журнал подготовки VPS и переноса/);
+  assert.match(html,/Консоль подготовки VPS и переноса/);
   assert.doesNotMatch(html,/Этап запущен/);
+  query.clear();
+});
+
+test('Перенос показывает ожидание перезагрузки в активной консоли', () => {
+  const query=fixture();
+  query.setQueryData(['migration-job'], {phase:'rebooting',history:[{stage:'TARGET_REBOOT_WAIT',message:'Ожидаем перезагрузку нового VPS.',at:1700000010}]});
+  query.setQueryData(['migration-packages'],[]);
+  const html=render(MigrationTransfer,admin,query);
+  assert.match(html,/role="log"/);
+  assert.match(html,/migration-console-prompt/);
+  assert.match(html,/Ожидаем перезагрузку нового VPS/);
   query.clear();
 });
 

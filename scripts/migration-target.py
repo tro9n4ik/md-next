@@ -169,7 +169,10 @@ def preflight(commit, source):
         raise events.MigrationError('MIG_TARGET_OCCUPIED')
     previous = json.loads(marker.read_text()) if marker.is_file() else None
     if previous is not None and not marker_matches(previous, commit, source):
-        raise events.MigrationError('MIG_TARGET_BINDING')
+        # A cancelled, empty staging installation may advance to a new signed
+        # build of the same source. Never adopt another source or client data.
+        if previous.get('source')!=source or previous.get('phase')!='installed':
+            raise events.MigrationError('MIG_TARGET_BINDING')
     if previous is not None:
         check_empty_staging()
     occupied = ROOT.exists() or ROOT.is_symlink() or Path('/var/lib/md-next/data/md_next.db').exists()
@@ -197,7 +200,7 @@ def prepare(commit, main_domain, panel_domain, email, source):
     if previous and previous.get('phase')=='reboot_required' and previous.get('boot_id')==boot_id():
         raise events.MigrationError('MIG_REBOOT_REQUIRED')
     marker = {'commit': commit, 'source': source, 'phase': 'updating'}
-    if previous and previous.get('phase') == 'installed':
+    if previous and previous.get('phase') == 'installed' and previous.get('commit')==commit:
         if (ROOT/'DEPLOYED_COMMIT').read_text().strip() != commit:
             raise events.MigrationError('MIG_BUILD')
         emit('TARGET_READY'); return

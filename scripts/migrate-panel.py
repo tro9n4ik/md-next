@@ -17,6 +17,7 @@ import hashlib
 import time
 import stat
 import uuid
+import re
 
 spec=importlib.util.spec_from_file_location('migration_events',Path(__file__).with_name('migration-events.py'))
 events=importlib.util.module_from_spec(spec);spec.loader.exec_module(events)
@@ -114,6 +115,96 @@ def start_services():
     command('systemctl','restart','md-next-backend')
 
 
+def nginx_tokens(text):
+    lexer=re.compile(r'''"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\#[^\n]*|[{};]|(?:\$\{[^}]+\}|\{\d+(?:,\d*)?\}|\\.|[^\s{};\#"'])+''')
+    return [(m.group(),m.start(),m.end()) for m in lexer.finditer(text) if not m.group().startswith('#')]
+
+
+def uses_http2(text):
+    words=[]
+    for token,_,_ in nginx_tokens(text):
+        if token in {"{","}"}:words=[]
+        elif token==";":
+            if words and (words[0]=="http2" or words[0]=="listen" and "http2" in words[1:]):return True
+            words=[]
+        else:words.append(token)
+    return False
+
+
+def normalize_nginx_http2(text, version):
+    """Translate server-scoped HTTP/2 only, preserving ports, TLS and routing.
+
+    Nginx 1.25.1 introduced `http2 on`; older builds require listen's http2
+    parameter. Unknown/inherited layouts fail closed instead of disabling h2.
+    """
+    if version >= (1,25,1):return text
+    tokens=nginx_tokens(text)
+    if not any(token[0]=='http2' for token in tokens):return text
+    edits=[];index=0
+    def parse(nested=False):
+        nonlocal index
+        nodes=[]
+        while index<len(tokens):
+            if tokens[index][0]=='}':
+                if not nested:raise events.MigrationError('MIG_NGINX_COMPAT')
+                index+=1;return nodes
+            head=[]
+            while index<len(tokens) and tokens[index][0] not in {'{','}',';'}:
+                head.append(tokens[index]);index+=1
+            if not head or index>=len(tokens) or tokens[index][0]=='}':raise events.MigrationError('MIG_NGINX_COMPAT')
+            ending=tokens[index];index+=1
+            children=parse(True) if ending[0]=='{' else None
+            nodes.append((head,ending,children))
+        if nested:raise events.MigrationError('MIG_NGINX_COMPAT')
+        return nodes
+    def visit(nodes):
+        for head,ending,children in nodes:
+            if head[0][0]=='server' and children is not None:
+                directives=[node for node in children if node[0][0][0]=='http2']
+                if len(directives)>1:raise events.MigrationError('MIG_NGINX_COMPAT')
+                if directives:
+                    directive=directives[0];args=directive[0]
+                    if len(args)!=2 or args[1][0] not in {'on','off'}:raise events.MigrationError('MIG_NGINX_COMPAT')
+                    listens=[node for node in children if node[0][0][0]=='listen' and node[2] is None]
+                    if not listens:raise events.MigrationError('MIG_NGINX_COMPAT')
+                    for values,end,_ in listens:
+                        has_h2=any(token[0]=='http2' for token in values[1:])
+                        if args[1][0]=='off' and has_h2:raise events.MigrationError('MIG_NGINX_COMPAT')
+                        if args[1][0]=='on' and not has_h2:edits.append((end[1],end[1],' http2'))
+                    edits.append((args[0][1],directive[1][2],''))
+                # Nested location blocks cannot contain a valid http2 switch.
+                visit([node for node in children if node not in directives])
+            elif head[0][0]=='http2':raise events.MigrationError('MIG_NGINX_COMPAT')
+            elif children is not None:visit(children)
+    visit(parse())
+    for start,end,replacement in sorted(edits,reverse=True):text=text[:start]+replacement+text[end:]
+    return text
+
+
+def component_capabilities(files):
+    try:result=command('nginx','-V',check=False)
+    except (OSError,subprocess.SubprocessError) as error:raise events.MigrationError('MIG_COMPONENT_MISSING') from error
+    build=getattr(result,'stdout','')+getattr(result,'stderr','')
+    match=re.search(r'nginx/(\d+)\.(\d+)\.(\d+)',build)
+    if result.returncode or not match:raise events.MigrationError('MIG_NGINX_VERSION')
+    version=tuple(map(int,match.groups()))
+    name='etc/nginx/sites-available/md-next.conf'
+    original=files[name].decode('utf-8')
+    if uses_http2(original) and '--with-http_v2_module' not in build:raise events.MigrationError('MIG_NGINX_MODULE')
+    files={**files,name:normalize_nginx_http2(original,version).encode('utf-8')}
+    for args in (('/usr/local/bin/xray','version'),('awg','--version')):
+        try:result=command(*args,check=False)
+        except (OSError,subprocess.SubprocessError) as error:raise events.MigrationError('MIG_COMPONENT_MISSING') from error
+        if result.returncode:raise events.MigrationError('MIG_COMPONENT_MISSING')
+    return files
+
+
+def validate_components():
+    for args,code in ((('nginx','-t'),'MIG_NGINX_CONFIG'),(('/usr/local/bin/xray','run','-test','-config','/usr/local/etc/xray/config.json'),'MIG_XRAY_CONFIG')):
+        result=command(*args,check=False)
+        if result.returncode:raise events.MigrationError(code,exit_code=result.returncode)
+
+
 def restore(blob, password, *, rollback=False):
     bundle = library()
     bundle.guard_memory(len(blob)*7+96*1024*1024,FILESYSTEM)
@@ -149,6 +240,7 @@ def restore(blob, password, *, rollback=False):
             # A previous cancelled run may have used a different password. Fail
             # before overwriting anything if this baseline cannot be recovered.
             bundle.decode_bundle((STATE/'before-restore.mdmove').read_bytes(), password)
+    files=component_capabilities(files)
     # Validate every destination before replacing the first file.
     for name in files:
         path = FILESYSTEM/name
@@ -194,8 +286,7 @@ def restore(blob, password, *, rollback=False):
         group=pwd.getpwnam(xray_user).pw_gid
         for path in [(FILESYSTEM/'usr/local/etc/xray/config.json'), *(FILESYSTEM/'usr/local/etc/xray/tls').glob('*.pem')]:
             if path.is_file():os.chown(path,0,group);path.chmod(0o640)
-        command('nginx','-t')
-        command('/usr/local/bin/xray','run','-test','-config','/usr/local/etc/xray/config.json')
+        validate_components()
         if not rollback:
             write(STATE/'restored.json',json.dumps({**manifest,'imported_files':sorted(files)}).encode())
         else:
@@ -207,6 +298,7 @@ def restore(blob, password, *, rollback=False):
     except Exception as exc:
         # Keep services fenced. Never start a half-restored VPN or a second bot.
         for service in SERVICES: command('systemctl','stop',service,check=False)
+        if getattr(exc,'code',None):raise
         raise RuntimeError('Восстановление не прошло проверку. Службы остановлены; доступен rollback с паролем комплекта.') from exc
     return manifest
 
@@ -262,9 +354,9 @@ from app.services.client_service import ClientService
 from app.services.awg import AWGService
 async def main():
  async with AsyncSessionLocal() as db:
-  for sync in (ClientService.sync_xray_clients,AWGService.sync_server_config):
+  for sync,code in ((ClientService.sync_xray_clients,'MIG_XRAY_CONFIG'),(AWGService.sync_server_config,'MIG_AWG_CONFIG')):
    ok,reason=await sync(db)
-   if not ok:fail('MIG_VERIFY')
+   if not ok:fail(code)
 asyncio.run(main())
 """
             result=subprocess.run([str(ROOT/'backend/venv/bin/python'),'-c',code],cwd=ROOT/'backend',capture_output=True,text=True,timeout=1100)
