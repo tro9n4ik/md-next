@@ -129,6 +129,48 @@ def remote_cli(transport,action,password,extra=''):
     return execute(transport,cmd,json.dumps({'password':password}),timeout=1200 if action=='verify' else 300)
 
 
+def connect_target(request,timeout=15):
+    import paramiko
+    sock=socket.create_connection((request['host'],request['port']),timeout=timeout)
+    transport=paramiko.Transport(sock);transport.banner_timeout=timeout;transport.auth_timeout=20
+    try:
+        transport.start_client(timeout=timeout)
+        if fingerprint(transport.get_remote_server_key())!=request['fingerprint']:raise events.MigrationError('MIG_SSH_KEY')
+        transport.auth_password('root',request['ssh_password'])
+        if not transport.is_authenticated():raise events.MigrationError('MIG_SSH_AUTH')
+        transport.set_keepalive(20)
+        return sock,transport
+    except Exception:
+        transport.close();sock.close();raise
+
+
+def reboot_target(request,sock,transport):
+    before=execute(transport,'cat /proc/sys/kernel/random/boot_id').strip()
+    machine=execute(transport,'cat /etc/machine-id').strip()
+    status('rebooting',events.MESSAGES['TARGET_REBOOT_START'],request,stage='TARGET_REBOOT_START')
+    execute(transport,'systemd-run --quiet --unit=md-next-migration-reboot --on-active=3 /usr/bin/systemctl reboot',timeout=15)
+    transport.close();sock.close()
+    status('rebooting',events.MESSAGES['TARGET_REBOOT_WAIT'],request,stage='TARGET_REBOOT_WAIT')
+    deadline=time.monotonic()+300
+    while time.monotonic()<deadline:
+        candidate_sock=candidate=None;keep=False
+        try:
+            candidate_sock,candidate=connect_target(request,timeout=5)
+            after=execute(candidate,'cat /proc/sys/kernel/random/boot_id',timeout=10).strip()
+            if after and after!=before:
+                if execute(candidate,'cat /etc/machine-id',timeout=10).strip()!=machine:raise events.MigrationError('MIG_TARGET_BINDING')
+                status('preparing',events.MESSAGES['TARGET_RECONNECTED'],request,stage='TARGET_RECONNECTED')
+                keep=True
+                return candidate_sock,candidate
+        except Exception as error:
+            if getattr(error,'code',None) in {'MIG_SSH_KEY','MIG_SSH_AUTH','MIG_TARGET_BINDING'} or type(error).__name__=='AuthenticationException':raise
+        finally:
+            if candidate is not None and not keep:
+                candidate.close();candidate_sock.close()
+        time.sleep(3)
+    raise events.MigrationError('MIG_REBOOT_TIMEOUT')
+
+
 def run(request):
     import paramiko
     validate(request)
@@ -163,16 +205,9 @@ def run(request):
         check=hashlib.scrypt(request['password'].encode(),salt=bytes.fromhex(saved['salt']),n=2**14,r=8,p=1).hex()
         if not hmac.compare_digest(check,saved['password_check']):raise events.MigrationError('MIG_TARGET_BINDING')
     status('connecting','Проверяем ключ SSH нового VPS.',request)
-    sock=socket.create_connection((request['host'],request['port']),timeout=15)
-    transport=paramiko.Transport(sock);transport.banner_timeout=15;transport.auth_timeout=20
+    sock,transport=connect_target(request)
     remote_dir=None
     try:
-        transport.start_client(timeout=15)
-        if fingerprint(transport.get_remote_server_key())!=request['fingerprint']:
-            raise events.MigrationError('MIG_SSH_KEY')
-        transport.auth_password('root',request['ssh_password'])
-        if not transport.is_authenticated():raise RuntimeError('SSH authentication failed')
-        transport.set_keepalive(20)
         # Never prepare this same machine even when addressed through a second public IP.
         local_id=Path('/etc/machine-id').read_text().strip()
         if execute(transport,'cat /etc/machine-id').strip()==local_id:raise events.MigrationError('MIG_SAME_SERVER')
@@ -192,13 +227,22 @@ def run(request):
             if not re.fullmatch(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}',email):raise events.MigrationError('MIG_INPUT')
             for domain in (main,panel):
                 if not re.fullmatch(r'[a-zA-Z0-9.-]{1,253}',domain):raise events.MigrationError('MIG_SOURCE_ADDRESS')
-            # A private temporary upload directory is created by a fixed remote command.
-            remote_dir=execute(transport,'umask 077; mktemp -d /root/mdnext-transfer-XXXXXXXX').strip()
-            if not re.fullmatch('/root/mdnext-transfer-[A-Za-z0-9]+',remote_dir):raise RuntimeError('Invalid remote directory')
-            for name in ('prepare-migration-target.sh','migration-target.py','migration-events.py'):
-                sftp.put(str(LIB/name),remote_dir+'/'+name)
-            command='bash '+shlex.quote(remote_dir+'/prepare-migration-target.sh')+' '+' '.join(shlex.quote(s) for s in (commit,main,panel,email,trial_manifest['installation']))
-            execute(transport,command,timeout=6000,progress=lambda item:status('preparing',item['message'],request,stage=item['code']))
+            for attempt in range(3):
+                # /root survives reboot, but upload anew after each reconnect.
+                remote_dir=execute(transport,'umask 077; mktemp -d /root/mdnext-transfer-XXXXXXXX').strip()
+                if not re.fullmatch('/root/mdnext-transfer-[A-Za-z0-9]+',remote_dir):raise RuntimeError('Invalid remote directory')
+                for name in ('prepare-migration-target.sh','migration-target.py','migration-events.py'):
+                    sftp.put(str(LIB/name),remote_dir+'/'+name)
+                command='bash '+shlex.quote(remote_dir+'/prepare-migration-target.sh')+' '+' '.join(shlex.quote(s) for s in (commit,main,panel,email,trial_manifest['installation']))
+                try:
+                    execute(transport,command,timeout=6000,progress=lambda item:status('preparing',item['message'],request,stage=item['code']))
+                    break
+                except events.MigrationError as error:
+                    if error.code!='MIG_REBOOT_REQUIRED' or attempt==2:raise
+                    execute(transport,'rm -rf -- '+shlex.quote(remote_dir),timeout=15);remote_dir=None
+                    sftp.close()
+                    sock,transport=reboot_target(request,sock,transport)
+                    sftp=paramiko.SFTPClient.from_transport(transport)
             salt=os.urandom(16)
             write_json(binding_path,{**binding,'salt':salt.hex(),'password_check':hashlib.scrypt(request['password'].encode(),salt=salt,n=2**14,r=8,p=1).hex()})
         if request['action'] in {'prepare','finalize'}:

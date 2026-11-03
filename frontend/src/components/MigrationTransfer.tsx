@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download, Server, ShieldCheck } from 'lucide-react';
 import { apiFetch } from '../utils/api';
@@ -6,7 +6,7 @@ import { useConfirm } from '../contexts/ConfirmationContext';
 
 type Job = {phase: string; stage?: string; message: string; error_code?: string; exit_code?: number; updated_at?: number; history?: {stage:string; message:string; at:number}[]; target_ready?: boolean; source_fenced: boolean; activation_started: boolean; target?: {host: string; port: number; fingerprint: string}};
 type Package = {name: string; size: number};
-const active = new Set(['connecting','preparing','exporting','restoring','verifying']);
+const active = new Set(['connecting','preparing','rebooting','exporting','restoring','verifying']);
 async function read<T>(path: string, body?: unknown): Promise<T> {
   const response = await apiFetch('/api/v1/migration'+path, body ? {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)} : {});
   const data = await response.json();
@@ -20,6 +20,9 @@ export default function MigrationTransfer() {
   const [sshPassword,setSshPassword]=useState(''); const [password,setPassword]=useState(''); const [repeat,setRepeat]=useState('');
   const [protocols,setProtocols]=useState(false); const [notice,setNotice]=useState('');
   const job=useQuery<Job>({queryKey:['migration-job'],queryFn:()=>read('/jobs'),refetchInterval:q=>active.has(q.state.data?.phase || '')?3000:15000,retry:false});
+  const consoleRef=useRef<HTMLOListElement>(null);
+  const followConsole=useRef(true);
+  useEffect(()=>{const element=consoleRef.current;if(element && followConsole.current)element.scrollTop=element.scrollHeight;},[job.data?.history?.length,job.data?.updated_at]);
   const packages=useQuery<Package[]>({queryKey:['migration-packages'],queryFn:()=>read('/packages'),retry:false});
   const scan=useMutation({mutationFn:()=>read<{fingerprint:string}>('/fingerprint',{host,port:Number(port)}),onSuccess:data=>{setFingerprint(data.fingerprint);setTrusted(false);},onError:e=>setNotice(e.message)});
   const launch=useMutation({mutationFn:(action:string)=>read<Job>('/jobs',{action,host,port:Number(port),email,fingerprint,ssh_password:sshPassword,password,confirm:true,confirm_protocol_tests:protocols}),onSuccess:data=>{cache.setQueryData(['migration-job'],data);setNotice('Этап запущен. Закрытие страницы не останавливает работу.');},onError:e=>setNotice(e.message),onSettled:()=>{setSshPassword('');setPassword('');setRepeat('');}});
@@ -27,7 +30,7 @@ export default function MigrationTransfer() {
   const busy=active.has(job.data?.phase || '') || launch.isPending || pack.isPending || scan.isPending;
   const valid=host.trim() && /^\d+$/.test(port) && Number(port)>0 && Number(port)<=65535 && trusted && fingerprint && sshPassword && password.length>=12 && password===repeat;
   async function start(action:string) {
-    const descriptions:Record<string,string>={prepare:'На чистом новом VPS будут установлены компоненты и восстановлена пробная копия. Рабочий сервер и DNS не меняются.',finalize:'Клиентские подключения на старом VPS прервутся. Службы остановятся, панель перейдёт в режим чтения. Финальный снимок будет перенесён на новый сервер. DNS пока не меняется.',activate:'Новый VPS начнёт обслуживать клиентов и Telegram-бота. Старый останется изолированным. Переключите DNS вручную; автоматическая отмена после активации недоступна.',cancel:'Целевой сервер вернётся к исходной изолированной установке. Старые службы возобновят работу. Доступно только до начала активации; DNS нужно проверить вручную.'};
+    const descriptions:Record<string,string>={prepare:'На новом VPS обновится ОС. При необходимости мастер перезагрузит его, дождётся SSH и продолжит установку компонентов и восстановление пробной копии. Рабочий сервер и DNS не меняются.',finalize:'Клиентские подключения на старом VPS прервутся. Службы остановятся, панель перейдёт в режим чтения. Финальный снимок будет перенесён на новый сервер. DNS пока не меняется.',activate:'Новый VPS начнёт обслуживать клиентов и Telegram-бота. Старый останется изолированным. Переключите DNS вручную; автоматическая отмена после активации недоступна.',cancel:'Целевой сервер вернётся к исходной изолированной установке. Старые службы возобновят работу. Доступно только до начала активации; DNS нужно проверить вручную.'};
     if (await confirm({title:action==='finalize'?'Начать финальный перенос?':action==='activate'?'Активировать новый VPS?':action==='cancel'?'Отменить переезд?':'Подготовить новый VPS?',description:descriptions[action],confirmText:'Подтвердить',tone:action==='prepare'?'default':'warning'})) launch.mutate(action);
   }
   async function download(name:string) {
@@ -44,7 +47,7 @@ export default function MigrationTransfer() {
       {job.error && job.data && <p role="alert">Не удалось обновить состояние. Последние данные могут быть устаревшими.</p>}
       {job.data?.activation_started && <p>Активация уже началась. Перед любым возвратом установите, какой сервер принял новые данные.</p>}
     </div>
-    {!!job.data?.history?.length && <details open className="migration-job-status"><summary>Журнал подготовки VPS и переноса</summary><ol aria-label="Журнал переезда" style={{maxHeight:280,overflowY:'auto'}}>{job.data.history.map((item,index)=><li key={`${item.at}-${index}`}><time>{new Date(item.at*1000).toLocaleTimeString()}</time> · {item.message}</li>)}</ol><p className="migration-note">Показываются безопасные сообщения этапов. Полный вывод с возможными ключами и паролями доступен только root на новом VPS.</p></details>}
+    {!!job.data?.history?.length && <section className="migration-console" aria-label="Консоль переноса"><div className="migration-console-header"><span className="migration-console-lights" aria-hidden="true"><i/><i/><i/></span><strong>Консоль подготовки VPS и переноса</strong><span className="migration-console-state">{job.data.phase==='rebooting'?'Ожидаем перезагрузку':active.has(job.data.phase)?'Выполняется':job.data.phase==='error'?'Ошибка':['prepared','awaiting_activation'].includes(job.data.phase)?'Готово к проверке':job.data.phase==='activated'?'Перенос завершён':'Ожидание'}</span></div><ol ref={consoleRef} onScroll={e=>{const element=e.currentTarget;followConsole.current=element.scrollHeight-element.scrollTop-element.clientHeight<32;}} aria-label="Журнал переезда" role="log" tabIndex={0}>{job.data.history.map((item,index)=><li key={`${item.at}-${index}`} className={index===job.data!.history!.length-1 && job.data!.phase==='error'?'migration-console-error':undefined}><time>{new Date(item.at*1000).toLocaleTimeString()}</time><span aria-hidden="true">›</span><span>{item.message}</span></li>)}{active.has(job.data.phase) && <li className="migration-console-prompt" aria-hidden="true">› <span>▌</span></li>}</ol><p>Безопасный вывод этапов. Пароли и ключи скрыты.</p></section>}
     <fieldset disabled={busy} className="migration-target-fields">
       <label>IP нового VPS<input className="migration-input" value={host} onChange={e=>{setHost(e.target.value);setFingerprint('');setTrusted(false);setSshPassword('');}} placeholder="Публичный IPv4 или IPv6" autoComplete="off"/></label>
       <label>SSH-порт<input className="migration-input" type="number" min={1} max={65535} value={port} onChange={e=>{setPort(e.target.value);setFingerprint('');setTrusted(false);}}/></label>
