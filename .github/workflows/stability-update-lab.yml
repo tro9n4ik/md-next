@@ -18,6 +18,6 @@ jobs:
       - uses: vmactions/ubuntu-vm@3b554fb5d71472e2d3829d9a11160de0d91f463b
         with:
           release: '24.04'
-          mem: 4096
+          mem: 6144
           copyback: false
           run: MDNEXT_DISPOSABLE_VM=1 bash tests/linux-lab/update_mss.sh

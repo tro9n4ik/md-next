@@ -11,7 +11,7 @@ git init -q "$scratch/base"
 git -C "$scratch/base" fetch --depth=1 https://github.com/tro9n4ik/md-next.git "$base"
 git -C "$scratch/base" checkout -q --detach FETCH_HEAD
 test "$(git -C "$scratch/base" rev-parse HEAD)" = "$base"
-if ! MDNEXT_TEST_SELF_SIGNED=1 bash "$scratch/base/scripts/install.sh" >"$scratch/install.log" 2>&1 <<'INPUT'
+if ! MDNEXT_TEST_SELF_SIGNED=1 MDNEXT_PROGRESS=1 bash "$scratch/base/scripts/install.sh" 2>&1 <<'INPUT' | tee "$scratch/install.log" | awk '/^MDNEXT_EVENT / { print; fflush() }'
 1
 md-next.test
 panel.md-next.test
