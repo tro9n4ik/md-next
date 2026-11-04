@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import declarative_base
 import os
-from sqlalchemy import text
+from sqlalchemy import event, text
 
 # Асинхронный URL для SQLite
 SQLALCHEMY_DATABASE_URL = "sqlite+aiosqlite:///./md_next.db"
@@ -12,6 +12,18 @@ engine = create_async_engine(
     echo=False,
     connect_args={"check_same_thread": False}
 )
+
+@event.listens_for(engine.sync_engine, "connect")
+def configure_sqlite(connection, _connection_record):
+    cursor = connection.cursor()
+    try:
+        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA foreign_keys=ON")
+    finally:
+        cursor.close()
+
 
 # Фабрика асинхронных сессий
 AsyncSessionLocal = async_sessionmaker(

@@ -9,6 +9,7 @@ from app.db.database import AsyncSessionLocal
 from app.models.traffic import TrafficSample
 from app.services.net_utils import get_primary_interface
 from app.models.client import Client, ClientProfile
+from app.models.setting import Setting
 from app.services.client_service import ClientService
 from app.services.awg import AWGService
 from app.services.events import log_event
@@ -17,6 +18,7 @@ from app.services.telegram_delivery import enqueue
 from app.bot.notification_cards import card, safe
 from app.services.client_limits import refresh_period, subscription_block_reason, cdn_quota_exhausted
 from app.services.client_activity import source_checked, record_activity
+from app.services.mtproto import collect_deltas, fetch_traffic_stats
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +69,16 @@ async def _collect_client_traffic() -> None:
     except Exception as exc:
         logger.warning("Ошибка сбора трафика клиентов AmneziaWG: %s", exc)
 
+    async with AsyncSessionLocal() as session:
+        mtproto_setting = await session.get(Setting, "profiles.enabled.mtproto")
+        mtproto_enabled = mtproto_setting is not None and mtproto_setting.value.lower() in {"true", "1", "yes"}
+    mtproto_stats = None
+    if mtproto_enabled:
+        try:
+            mtproto_stats = await fetch_traffic_stats()
+        except Exception:
+            logger.warning("Не удалось получить статистику MTProto")
+
     quota_clients: list[tuple[int, str]] = []
     now = datetime.datetime.now(datetime.timezone.utc)
     async with AsyncSessionLocal() as session:
@@ -74,12 +86,9 @@ async def _collect_client_traffic() -> None:
         for client in clients:
             refresh_period(client, now)
         mtproto_deltas = {}
-        from app.models.setting import Setting
-        mtproto_enabled = await session.get(Setting, "profiles.enabled.mtproto")
-        if mtproto_enabled and mtproto_enabled.value.lower() in {"true", "1", "yes"}:
+        if mtproto_stats is not None:
             try:
-                from app.services.mtproto import collect_deltas
-                mtproto_deltas = await collect_deltas(session)
+                mtproto_deltas = await collect_deltas(session, mtproto_stats)
                 source_checked("mtproto")
             except Exception:
                 logger.warning("Не удалось собрать статистику MTProto")

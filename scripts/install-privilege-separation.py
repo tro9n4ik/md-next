@@ -123,7 +123,8 @@ def main():
         if path.is_symlink(): raise RuntimeError('Unexpected state directory symlink')
         path.mkdir(mode=0o700, exist_ok=True);os.chown(path, uid, gid)
     # API may create journals, but cannot replace the root-owned database with a symlink.
-    os.chown(data, 0, gid);data.chmod(0o1770)
+    # SQLite создаёт WAL и SHM рядом с базой. Наследуем группу каталога.
+    os.chown(data, 0, gid);data.chmod(0o3770)
     if (data/'md_next.db').is_symlink(): raise RuntimeError('Unexpected data file symlink')
     for original, name in [(Path('/usr/local/etc/xray/config.json'), 'xray.json'), (Path('/etc/amnezia/amneziawg/awg0.conf'), 'awg0.conf')]:
         initial_config(original,stage/name,staging='MDNEXT_MIGRATION_STAGING=1' in (ROOT/'backend/.env').read_text().splitlines())

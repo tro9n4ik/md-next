@@ -77,8 +77,7 @@ async def sync_config(db):
             return False, "Не удалось применить MTProto. Проверьте установку компонента и свободный TCP-порт."
 
 
-async def collect_deltas(db):
-    """Курсор в БД сохраняю в одной транзакции с начислением трафика."""
+async def fetch_traffic_stats():
     async with httpx.AsyncClient(trust_env=False, timeout=3) as client:
         response = await client.get(f"http://127.0.0.1:{STATS_PORT}/stats")
         response.raise_for_status()
@@ -87,6 +86,11 @@ async def collect_deltas(db):
         data = response.json()
     if not isinstance(data.get("started_at"), str) or not isinstance(data.get("users"), dict):
         raise ValueError("Некорректная статистика MTProto")
+    return data
+
+
+async def collect_deltas(db, data):
+    """Сохраняет курсор в той же транзакции, что и начисление трафика."""
     cursor = await db.get(Setting, "mtproto.traffic_cursor")
     previous = json.loads(cursor.value) if cursor else {}
     counters, deltas = {}, {}
