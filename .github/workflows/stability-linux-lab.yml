@@ -28,3 +28,24 @@ jobs:
       - run: python -m pip install paramiko==5.1.0
       - run: python tests/linux-lab/ssh_cleanup.py
       - run: sudo bash tests/linux-lab/sqlite_permissions.sh
+  services:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nginx libnginx-mod-stream
+          test -f /usr/lib/nginx/modules/ngx_stream_module.so
+      - run: python -m pip install -r requirements-dev.txt
+        working-directory: backend
+      - run: >-
+          python -m pytest -v
+          tests/test_nginx_proxy_protocol.py
+          tests/test_node_secrets.py::test_migrates_existing_secrets_and_reads_old_backup
+          tests/test_runtime_command_timeouts.py
+          tests/test_cluster_failover.py::test_auto_failover_failback_and_direct_when_all_nodes_fail
+        working-directory: backend
