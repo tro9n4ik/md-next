@@ -54,6 +54,12 @@ test -f /etc/sysctl.d/90-md-next-awg.conf
 ip rule show | grep '^10086:' >/dev/null
 iptables -S MDNEXT_AWG_OUT > /dev/null
 test -f /var/lib/md-next/awg-routing-owned
+mss_count() {
+  iptables -t mangle -S FORWARD | awk '/MD-Next AWG MSS/ {n++} END {print n+0}'
+}
+test "$(mss_count)" = 2
+systemctl restart xray
+test "$(mss_count)" = 2
 test -n "$(find backups -name '*.mdbackup' -print -quit)"
 ENV_HASH="$(sha256sum .env)"
 # A foreign policy must survive both forms of removal.
@@ -70,6 +76,7 @@ test "$(sha256sum .env)" = "$ENV_HASH"
 test -n "$(find backups -name '*.mdbackup' -print -quit)"
 if ip rule show | grep '^10086:' >/dev/null; then exit 1; fi
 if iptables -S MDNEXT_AWG_OUT 2>/dev/null; then exit 1; fi
+test "$(mss_count)" = 0
 test ! -e /etc/sysctl.d/90-md-next-awg.conf
 test ! -e /etc/systemd/system/xray.service.d/30-md-next-awg-routing.conf
 ip rule show | grep '^12345:' >/dev/null
