@@ -28,6 +28,8 @@ func run() error {
 	keyFile := flag.String("key-file", "", "private file with a 32-byte hexadecimal key")
 	state := flag.String("state", "", "private persistent receiver key-use directory")
 	profile := flag.String("cpu-profile", "", "optional private CPU profile for an isolated benchmark")
+	offload := flag.Bool("tun-offload", false, "experimental Linux TUN GSO/GRO adapter")
+	udpGSO := flag.Bool("udp-gso", false, "experimental Linux UDP segmentation with bucketed padding")
 	flag.Parse()
 	if *profile != "" {
 		file, err := os.OpenFile(*profile, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
@@ -58,7 +60,7 @@ func run() error {
 	if err != nil || len(key) != 32 {
 		return fmt.Errorf("invalid key")
 	}
-	device, err := transport.OpenTUN(*deviceName)
+	device, err := transport.OpenPacketTUN(*deviceName, *offload)
 	if err != nil {
 		return err
 	}
@@ -88,6 +90,7 @@ waitForInterface:
 		Bind: net.ParseIP(*bind), Peer: net.ParseIP(*peer), Direction: *direction,
 		Base: *base, Ports: *ports, Interval: 20 * time.Second, Grace: 15 * time.Second,
 		Key: key, State: *state,
+		UDPGSO: *udpGSO,
 	})
 }
 

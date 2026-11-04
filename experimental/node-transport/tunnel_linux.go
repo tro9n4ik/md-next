@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os"
 	"sync"
 	"syscall"
 	"time"
@@ -17,10 +16,11 @@ import (
 )
 
 const batchSize = 32
+const sendPacketCapacity = 128
 
 type frame struct {
 	packet [2048]byte
-	plain  [2048]byte
+	plain  [65535 + 32]byte
 	size   int
 }
 
@@ -36,6 +36,7 @@ type TunnelConfig struct {
 	State     string
 	Key       []byte
 	Direction string
+	UDPGSO    bool
 }
 
 // ValidIP rejects incomplete frames before writing to TUN.
@@ -92,16 +93,17 @@ func socket(address *net.UDPAddr) (*net.UDPConn, error) {
 
 // RunTunnel owns the TUN descriptor until shutdown. Routing is configured by
 // the isolated test harness, never implicitly by the daemon.
-func RunTunnel(ctx context.Context, device *os.File, config TunnelConfig) error {
+func RunTunnel(ctx context.Context, device PacketDevice, config TunnelConfig) error {
 	if config.Bind.To4() == nil || config.Peer.To4() == nil || config.Interval < 20*time.Second ||
 		config.Interval > 30*time.Second || config.Grace < 10*time.Second || config.Grace > 15*time.Second ||
-		config.Ports < 2 || config.Ports > 128 || config.Base < 1024 || config.Base+config.Ports > 65536 {
+		device.BatchSize() < 1 || device.BatchSize() > sendPacketCapacity || config.Ports < 2 || config.Ports > 128 || config.Base < 1024 || config.Base+config.Ports > 65536 {
 		return errors.New("invalid IPv4 peer, port range, interval or grace period")
 	}
 	sender, err := NewSender(config.Key, config.Direction, config.Interval)
 	if err != nil {
 		return err
 	}
+	sender.segmentPadding = config.UDPGSO
 	direction := "uplink"
 	if config.Direction == direction {
 		direction = "downlink"
@@ -137,21 +139,24 @@ func RunTunnel(ctx context.Context, device *os.File, config TunnelConfig) error 
 		workers.Add(1)
 		go func() { defer workers.Done(); fn() }()
 	}
-	rawTUN, err := device.SyscallConn()
-	if err != nil {
-		return err
-	}
 	start(func() {
 		connection := ipv4.NewPacketConn(egress)
-		var messages [batchSize]ipv4.Message
-		var buffers [batchSize][1][]byte
-		var items [batchSize]*frame
-		var addresses [batchSize]net.UDPAddr
+		var messages [sendPacketCapacity]ipv4.Message
+		var buffers [sendPacketCapacity][1][]byte
+		items := make([]*frame, device.BatchSize())
+		readBuffers := make([][]byte, len(items))
+		sizes := make([]int, len(items))
+		var addresses [sendPacketCapacity]net.UDPAddr
 		var scratch [2048]byte
+		var segments segmentBatch
 		portSlot := int64(-1)
 		port := 0
-		for i := range messages {
+		var deadlineRefresh time.Time
+		for i := range items {
 			items[i] = framePool.Get().(*frame)
+			readBuffers[i] = items[i].plain[:2048]
+		}
+		for i := range messages {
 			messages[i].Buffers = buffers[i][:]
 			messages[i].Addr = &addresses[i]
 			addresses[i].IP = config.Peer
@@ -162,38 +167,12 @@ func RunTunnel(ctx context.Context, device *os.File, config TunnelConfig) error 
 			}
 		}()
 		for ctx.Err() == nil {
-			count := 0
-			var readErr error
-			err := rawTUN.Read(func(fd uintptr) bool {
-				for count < batchSize {
-					n, e := syscall.Read(int(fd), items[count].plain[:])
-					if e == syscall.EINTR {
-						continue
-					}
-					if e == syscall.EAGAIN || e == syscall.EWOULDBLOCK {
-						return count > 0
-					}
-					if e != nil {
-						readErr = e
-						return true
-					}
-					if n == 0 {
-						readErr = errors.New("TUN returned EOF")
-						return true
-					}
-					items[count].size = n
-					count++
-				}
-				return true
-			})
+			count, err := device.ReadPackets(readBuffers, sizes)
 			if err != nil {
 				report(err)
 				return
 			}
-			if readErr != nil {
-				report(readErr)
-				return
-			}
+
 			now := time.Now()
 			slot := now.Unix() / int64(config.Interval/time.Second)
 			if slot != portSlot {
@@ -204,33 +183,55 @@ func RunTunnel(ctx context.Context, device *os.File, config TunnelConfig) error 
 				}
 				portSlot = slot
 			}
-			valid := 0
-			for i := 0; i < count; i++ {
-				item := items[i]
-				if !ValidIP(item.plain[:item.size]) {
-					continue
-				}
-				packet, e := sender.SealInto(item.packet[:0], scratch[:], item.plain[:item.size], now)
-				if e != nil {
-					report(e)
-					return
-				}
-				buffers[valid][0] = packet
-				addresses[valid].Port = port
-				valid++
+			burst := batchSize
+			if config.UDPGSO {
+				burst = sendPacketCapacity
 			}
-			egress.SetWriteDeadline(time.Now().Add(time.Second))
-			for sent := 0; sent < valid; {
-				n, e := connection.WriteBatch(messages[sent:valid], 0)
-				if e != nil {
-					report(e)
-					return
+			for offset := 0; offset < count; offset += burst {
+				end := min(offset+burst, count)
+				valid := 0
+				for i := offset; i < end; i++ {
+					item := items[i]
+					if !ValidIP(item.plain[:sizes[i]]) {
+						continue
+					}
+					// This goroutine exclusively owns the Sender's mutable state.
+					packet, e := sender.sealOwned(item.packet[:0], scratch[:], item.plain[:sizes[i]], now)
+					if e != nil {
+						report(e)
+						return
+					}
+					buffers[valid][0] = packet
+					addresses[valid].Port = port
+					valid++
 				}
-				if n == 0 {
-					report(errors.New("UDP batch made no progress"))
-					return
+				if !now.Before(deadlineRefresh) {
+					if e := egress.SetWriteDeadline(now.Add(time.Second)); e != nil {
+						report(e)
+						return
+					}
+					deadlineRefresh = now.Add(250 * time.Millisecond)
 				}
-				sent += n
+				toSend := messages[:valid]
+				if config.UDPGSO {
+					toSend, err = segments.pack(toSend)
+					if err != nil {
+						report(err)
+						return
+					}
+				}
+				for sent := 0; sent < len(toSend); {
+					n, e := connection.WriteBatch(toSend[sent:min(sent+batchSize, len(toSend))], 0)
+					if e != nil {
+						report(e)
+						return
+					}
+					if n == 0 {
+						report(errors.New("UDP batch made no progress"))
+						return
+					}
+					sent += n
+				}
 			}
 		}
 	})
@@ -248,15 +249,27 @@ func RunTunnel(ctx context.Context, device *os.File, config TunnelConfig) error 
 		if err != nil {
 			return err
 		}
+		if config.UDPGSO {
+			if err := enableGRO(conn); err != nil {
+				conn.Close()
+				return err
+			}
+		}
 		listeners[port] = listener{conn: conn}
 		start(func() {
 			packetConn := ipv4.NewPacketConn(conn)
 			var messages [batchSize]ipv4.Message
 			var buffers [batchSize][1][]byte
 			var items [batchSize]*frame
+			var toTUN [batchSize][]byte
+			var control [batchSize][64]byte
 			for i := range messages {
 				items[i] = framePool.Get().(*frame)
 				buffers[i][0] = items[i].packet[:MaxPacket+1]
+				if config.UDPGSO {
+					buffers[i][0] = make([]byte, 65535)
+					messages[i].OOB = control[i][:]
+				}
 				messages[i].Buffers = buffers[i][:]
 			}
 			defer func() {
@@ -272,19 +285,45 @@ func RunTunnel(ctx context.Context, device *os.File, config TunnelConfig) error 
 					}
 					return
 				}
+				valid := 0
+				flush := func() error {
+					if valid == 0 {
+						return nil
+					}
+					err := device.WritePackets(toTUN[:valid], 16)
+					valid = 0
+					return err
+				}
+				now := time.Now()
 				for i := 0; i < n; i++ {
-					peer, ok := messages[i].Addr.(*net.UDPAddr)
+					message := &messages[i]
+					peer, ok := message.Addr.(*net.UDPAddr)
 					if !ok || !peer.IP.Equal(config.Peer) {
 						continue
 					}
-					packet, err := receiver.OpenInto(items[i].plain[:0], items[i].packet[:messages[i].N], time.Now())
-					if err != nil || !ValidIP(packet) {
+					size, e := datagramSize(message)
+					if e != nil {
 						continue
 					}
-					if _, err = device.Write(packet); err != nil {
-						report(err)
-						return
+					for offset := 0; offset < message.N; offset += size {
+						end := min(offset+size, message.N)
+						packet, e := receiver.OpenInto(items[valid].plain[14:14], buffers[i][0][offset:end], now)
+						if e != nil || !ValidIP(packet) {
+							continue
+						}
+						toTUN[valid] = items[valid].plain[:16+len(packet)]
+						valid++
+						if valid == batchSize {
+							if e := flush(); e != nil {
+								report(e)
+								return
+							}
+						}
 					}
+				}
+				if e := flush(); e != nil {
+					report(e)
+					return
 				}
 			}
 		})

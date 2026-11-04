@@ -71,20 +71,24 @@ func (k *keys) aead(slot int64, salt []byte) (cipher.AEAD, error) {
 }
 
 type Sender struct {
-	mu          sync.Mutex
-	keys        keys
-	salt        [16]byte
-	sequence    uint64
-	cachedSlot  int64
-	cachedID    [8]byte
-	cachedAEAD  cipher.AEAD
-	nonce       [12]byte
-	random      [4096]byte
-	randomUsed  int
-	randomReady bool
+	mu             sync.Mutex
+	keys           keys
+	salt           [16]byte
+	sequence       uint64
+	cachedSlot     int64
+	cachedID       [8]byte
+	cachedAEAD     cipher.AEAD
+	nonce          [12]byte
+	random         [4096]byte
+	randomUsed     int
+	randomReady    bool
+	segmentPadding bool
+	bucketLength   int
+	bucketCount    int
+	buckets        [5]int
 }
 
-// Called under Sender.mu; buffered CSPRNG bytes are used once, only for padding.
+// Caller serializes access; buffered CSPRNG bytes are used once, only for padding.
 func (s *Sender) paddingRandom(dst []byte) error {
 	for len(dst) > 0 {
 		if !s.randomReady || s.randomUsed == len(s.random) {
@@ -119,6 +123,11 @@ func (s *Sender) Seal(payload []byte, now time.Time) ([]byte, error) {
 func (s *Sender) SealInto(dst, scratch, payload []byte, now time.Time) ([]byte, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.sealOwned(dst, scratch, payload, now)
+}
+
+// sealOwned requires the mutex or exclusive ownership of this Sender.
+func (s *Sender) sealOwned(dst, scratch, payload []byte, now time.Time) ([]byte, error) {
 	if len(payload) > MaxPayload || now.Unix() < 0 {
 		return nil, ErrPacket
 	}
@@ -149,17 +158,50 @@ func (s *Sender) SealInto(dst, scratch, payload []byte, now time.Time) ([]byte, 
 	binary.BigEndian.PutUint32(header[9:13], uint32(s.sequence))
 	copy(header[13:], s.salt[:])
 	var random [1]byte
-	for {
-		if err := s.paddingRandom(random[:]); err != nil {
-			return nil, err
+	padding := 0
+	if s.segmentPadding {
+		if s.bucketCount == 0 || s.bucketLength != len(payload) {
+			s.bucketLength, s.bucketCount = len(payload), 0
+			minimum := HeaderSize + 16 + 2 + len(payload) + 16
+			maximum := min(MaxPacket, HeaderSize+16+2+len(payload)+128)
+			for size := (minimum + 31) / 32 * 32; size <= maximum; size += 32 {
+				s.buckets[s.bucketCount] = size
+				s.bucketCount++
+			}
+			if maximum == MaxPacket && (s.bucketCount == 0 || s.buckets[s.bucketCount-1] != maximum) {
+				s.buckets[s.bucketCount] = maximum
+				s.bucketCount++
+			}
+			if s.bucketCount == 0 {
+				return nil, ErrPacket
+			}
 		}
-		if random[0] < 226 {
-			break
+		choice := 0
+		if s.bucketCount > 1 {
+			for {
+				if err := s.paddingRandom(random[:]); err != nil {
+					return nil, err
+				}
+				if int(random[0]) < 256-256%s.bucketCount {
+					break
+				}
+			}
+			choice = int(random[0]) % s.bucketCount
 		}
-	}
-	padding := 16 + int(random[0]%113)
-	if maximum := MaxPacket - HeaderSize - 16 - 2 - len(payload); padding > maximum {
-		padding = maximum
+		padding = s.buckets[choice] - HeaderSize - 16 - 2 - len(payload)
+	} else {
+		for {
+			if err := s.paddingRandom(random[:]); err != nil {
+				return nil, err
+			}
+			if random[0] < 226 {
+				break
+			}
+		}
+		padding = 16 + int(random[0]%113)
+		if maximum := MaxPacket - HeaderSize - 16 - 2 - len(payload); padding > maximum {
+			padding = maximum
+		}
 	}
 	plain := scratch[:2+len(payload)+padding]
 	binary.BigEndian.PutUint16(plain, uint16(len(payload)))

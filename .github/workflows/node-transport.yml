@@ -17,6 +17,7 @@ jobs:
       - run: go vet ./...
       - run: go test -race ./...
       - run: go test -run '^$' -fuzz FuzzOpen -fuzztime 5s
+      - run: go test -run '^$' -fuzz FuzzDatagramSize -fuzztime 5s
       - run: go test -run '^$' -bench BenchmarkReuseRoundTrip -benchmem
       - run: go test -c -o /tmp/mdnt-tests
       - run: sudo ip netns add mdnt-read-ci && sudo ip netns exec mdnt-read-ci env MDNEXT_ISOLATED_NETNS=1 /tmp/mdnt-tests -test.run TestIsolatedTUNReadsIPv4 -test.v
@@ -26,3 +27,6 @@ jobs:
       - run: sudo sysctl -w net.core.rmem_max=8388608 net.core.wmem_max=8388608
       - run: go build -o /tmp/mdnt-tunnel ./cmd/mdnt-tunnel
       - run: sudo python3 tests/tunnel_namespace.py --run --binary /tmp/mdnt-tunnel
+      - run: sudo python3 tests/tunnel_namespace.py --run --binary /tmp/mdnt-tunnel --duration 30 --offload --tcp
+      - run: go build -race -o /tmp/mdnt-tunnel-race ./cmd/mdnt-tunnel
+      - run: sudo python3 tests/tunnel_namespace.py --run --binary /tmp/mdnt-tunnel-race --duration 30 --rate 10M --offload --tcp
