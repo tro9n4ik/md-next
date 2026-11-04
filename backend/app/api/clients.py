@@ -135,8 +135,11 @@ async def get_clients(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    is_admin = current_user.role == "admin"
+    if exit_node_id is not None and not is_admin:
+        raise HTTPException(403, detail="Фильтр по выходу доступен только администратору")
     query = select(Client)
-    if current_user.role != "admin" and not current_user.view_all_clients:
+    if not is_admin and not current_user.view_all_clients:
         query = query.where(Client.created_by_id == current_user.id)
     if group_id is not None:
         query = query.where(Client.group_id.is_(None) if group_id == 0 else Client.group_id == group_id)
@@ -158,14 +161,18 @@ async def get_clients(
             profiles_by_client.setdefault(profile.client_id, []).append(profile)
     clients.sort(key=lambda c: _client_sort_key(c, sort, profiles_by_client.get(c.id, [])), reverse=order == "desc")
     groups = {group.id: group for group in (await db.execute(select(ClientGroup))).scalars().all()}
-    from app.services.client_exit import client_exit_summary, common_exit
-    nodes = {node.id: node for node in (await db.execute(select(Node))).scalars()}
-    common = await common_exit(db, nodes)
+    routes = {}
+    if is_admin and clients:
+        from app.services.client_exit import client_exit_summary, common_exit
+
+        nodes = {node.id: node for node in (await db.execute(select(Node))).scalars()}
+        common = await common_exit(db, nodes)
+        routes = {client.id: {"exit_route": client_exit_summary(client, nodes, common)} for client in clients}
     return [
         {
             "id": c.id, "name": c.name, "phone": c.phone, "email": c.email,
             "group_id": c.group_id,
-            "exit_route": client_exit_summary(c, nodes, common),
+            **routes.get(c.id, {}),
             "group": {"id": groups[c.group_id].id, "name": groups[c.group_id].name, "color": groups[c.group_id].color} if c.group_id in groups else None,
             "last_seen_at": utc(c.last_seen_at).isoformat() if c.last_seen_at else None,
             "can_change_group": current_user.role == "admin" or (current_user.can_issue_subscriptions and c.created_by_id == current_user.id),
