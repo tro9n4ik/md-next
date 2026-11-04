@@ -86,7 +86,8 @@ def main():
             def watch():
                 while not stopped.wait(1):
                     for i, ns in enumerate(namespaces):
-                        ports[i].add(execute(ns, "ss", "-ulnH").stdout)
+                        rows = execute(ns, "ss", "-ulnH").stdout.splitlines()
+                        ports[i].add(tuple(sorted(row.split()[3] for row in rows)))
             watcher = threading.Thread(target=watch)
             watcher.start()
             ping = launch(a, "ping", "-i", "0.2", "-c", str(args.duration*5), "-W", "1", "172.29.231.2", stdout=subprocess.PIPE, text=True)
@@ -104,6 +105,8 @@ def main():
             result = {"duration": elapsed, "received": data["end"]["sum_received"], "cpu_percent_one_core": percentages,
                 "port_states": [len(values) for values in ports], "ping_received":len(rtt),
                 "rtt_median_ms":statistics.median(rtt) if rtt else None, "rtt_max_ms":max(rtt) if rtt else None}
+            result["kernel_udp"] = [execute(ns, "cat", "/proc/net/snmp").stdout for ns in namespaces]
+            result["tun_counters"] = [json.loads(execute(ns, "ip", "-s", "-j", "link", "show", "mdnt0").stdout)[0].get("stats64") for ns in namespaces]
             print(json.dumps(result), flush=True)
             assert result["received"]["lost_percent"] <= 0.5, "Потери выше критерия 0,5%"
             assert all(len(values) >= 2 for values in ports), "Ротация не наблюдалась"

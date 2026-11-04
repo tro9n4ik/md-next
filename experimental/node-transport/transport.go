@@ -69,14 +69,34 @@ func (k *keys) aead(slot int64, salt []byte) (cipher.AEAD, error) {
 }
 
 type Sender struct {
-	mu         sync.Mutex
-	keys       keys
-	salt       [16]byte
-	sequence   uint64
-	cachedSlot int64
-	cachedID   [8]byte
-	cachedAEAD cipher.AEAD
-	nonce      [12]byte
+	mu          sync.Mutex
+	keys        keys
+	salt        [16]byte
+	sequence    uint64
+	cachedSlot  int64
+	cachedID    [8]byte
+	cachedAEAD  cipher.AEAD
+	nonce       [12]byte
+	random      [4096]byte
+	randomUsed  int
+	randomReady bool
+}
+
+// Called under Sender.mu; buffered CSPRNG bytes are used once, only for padding.
+func (s *Sender) paddingRandom(dst []byte) error {
+	for len(dst) > 0 {
+		if !s.randomReady || s.randomUsed == len(s.random) {
+			if _, err := rand.Read(s.random[:]); err != nil {
+				return err
+			}
+			s.randomUsed = 0
+			s.randomReady = true
+		}
+		n := copy(dst, s.random[s.randomUsed:])
+		s.randomUsed += n
+		dst = dst[n:]
+	}
+	return nil
 }
 
 func NewSender(master []byte, direction string, interval time.Duration) (*Sender, error) {
@@ -128,7 +148,7 @@ func (s *Sender) SealInto(dst, scratch, payload []byte, now time.Time) ([]byte, 
 	copy(header[13:], s.salt[:])
 	var random [1]byte
 	for {
-		if _, err := rand.Read(random[:]); err != nil {
+		if err := s.paddingRandom(random[:]); err != nil {
 			return nil, err
 		}
 		if random[0] < 226 {
@@ -142,7 +162,7 @@ func (s *Sender) SealInto(dst, scratch, payload []byte, now time.Time) ([]byte, 
 	plain := scratch[:2+len(payload)+padding]
 	binary.BigEndian.PutUint16(plain, uint16(len(payload)))
 	copy(plain[2:], payload)
-	if _, err := rand.Read(plain[2+len(payload):]); err != nil {
+	if err := s.paddingRandom(plain[2+len(payload):]); err != nil {
 		return nil, err
 	}
 	binary.BigEndian.PutUint64(s.nonce[4:], s.sequence)

@@ -174,6 +174,8 @@ func RunTunnel(ctx context.Context, device *os.File, config TunnelConfig) error 
 		var buffers [batchSize][1][]byte
 		var items [batchSize]*frame
 		var addresses [batchSize]net.UDPAddr
+		portSlot := int64(-1)
+		port := 0
 		for i := range messages {
 			messages[i].Buffers = buffers[i][:]
 			messages[i].Addr = &addresses[i]
@@ -195,7 +197,15 @@ func RunTunnel(ctx context.Context, device *os.File, config TunnelConfig) error 
 					break gather
 				}
 			}
-			port, err := sender.Port(time.Now(), config.Base, config.Ports)
+			now := time.Now()
+			slot := now.Unix() / int64(config.Interval/time.Second)
+			var err error
+			if slot != portSlot {
+				port, err = sender.Port(now, config.Base, config.Ports)
+				if err == nil {
+					portSlot = slot
+				}
+			}
 			if err == nil {
 				for i := 0; i < count; i++ {
 					buffers[i][0] = items[i].packet[:items[i].size]
