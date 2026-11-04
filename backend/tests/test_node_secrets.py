@@ -70,7 +70,7 @@ def test_migrates_existing_secrets_and_reads_old_backup(tmp_path, monkeypatch):
     assert migrated != "legacy-secret"
     restored = backups.read_backup(blob, password)["tables"]["nodes"][0]["secret"]
     assert restored != "legacy-secret"
-    assert restored.startswith("fernet:v1:")
+    assert restored.startswith("fernet:host:v2:")
 
     with closing(sqlite3.connect("md_next.db")) as db, db:
         db.execute(
@@ -106,7 +106,8 @@ def test_migrates_existing_secrets_and_reads_old_backup(tmp_path, monkeypatch):
                 )
                 assert result["ok"]
                 rollback_blob = (backups.BACKUP_DIR / result["rollback_copy"]).read_bytes()
-                assert backups.read_backup(rollback_blob, password)["tables"]["nodes"][0]["secret"] == migrated
+                rollback_secret = backups.read_backup(rollback_blob, password)["tables"]["nodes"][0]["secret"]
+                assert decrypt_node_secret(rollback_secret) == decrypt_node_secret(migrated)
             async with AsyncSession(engine) as db:
                 assert (await db.get(Node, 1)).secret == "legacy-secret"
                 assert await db.scalar(text("SELECT secret FROM nodes")) != "legacy-secret"

@@ -265,15 +265,26 @@ def clean_install_files(files):
     return result
 
 
-def upgrade_database(path,env_blob=b''):
+def upgrade_database(path,env_blob=b'',*,migrate=True):
     import io
     from dotenv import dotenv_values
     values=dotenv_values(stream=io.StringIO(env_blob.decode('utf-8')),interpolate=False)
     environment=dict(os.environ)
     for key in ('JWT_SECRET_KEY','XRAY_PRIVATE_KEY','XRAY_PUBLIC_KEY','SERVER_HOST','XRAY_SERVER_NAME','PANEL_PUBLIC_URL'):
         if values.get(key) is not None:environment[key]=values[key]
-    result=subprocess.run([str(ROOT/'backend/venv/bin/alembic'),'-x','url=sqlite+aiosqlite:///'+str(path),'upgrade','head'],
-                          cwd=ROOT/'backend',env=environment,capture_output=True,text=True,timeout=300)
+    if migrate:
+        result=subprocess.run([str(ROOT/'backend/venv/bin/alembic'),'-x','url=sqlite+aiosqlite:///'+str(path),'upgrade','head'],
+                              cwd=ROOT/'backend',env=environment,capture_output=True,text=True,timeout=300)
+        if result.returncode:raise events.MigrationError('MIG_SCHEMA')
+    code = """import sqlite3,sys
+from app.services.crypto import decrypt_node_secret,encrypt_node_secret
+with sqlite3.connect(sys.argv[1]) as db:
+    rows=db.execute("SELECT id,secret FROM nodes").fetchall()
+    for identifier,secret in rows:
+        db.execute("UPDATE nodes SET secret=? WHERE id=?",(encrypt_node_secret(decrypt_node_secret(secret)),identifier))
+"""
+    result = subprocess.run([str(ROOT/'backend/venv/bin/python'), '-c', code, str(path)],
+                            cwd=ROOT/'backend', env=environment, capture_output=True, text=True, timeout=120)
     if result.returncode:raise events.MigrationError('MIG_SCHEMA')
 
 
@@ -299,6 +310,11 @@ def restore(blob, password, *, rollback=False):
             raise RuntimeError('Манифест базы не совпадает со снимком')
         if portable:
             upgrade_database(db_file,files['opt/md-next/backend/.env'])
+            database=db_file.read_bytes()
+        elif inventory['revision'] == '0021_bind_node_secrets':
+            # Восстановление той же сборки и откат также получают переносимые
+            # секреты. Схему при откате не повышаем, только привязываем ключи.
+            upgrade_database(db_file,files['opt/md-next/backend/.env'],migrate=False)
             database=db_file.read_bytes()
     current = ROOT/'backend/md_next.db'
     target_db = current.resolve()

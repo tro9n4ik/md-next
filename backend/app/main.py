@@ -204,6 +204,7 @@ app.include_router(cdn_router)
 async def root():
     return {"status": "ok", "message": "MD-Next API работает"}
 
+@app.get("/api/v1/health")
 @app.get("/health")
 async def health_check():
     try:

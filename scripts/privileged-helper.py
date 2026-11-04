@@ -77,7 +77,7 @@ def validate_xray(data):
 
 def validate_awg(data):
     text = data.decode('utf8')
-    interface = {'PrivateKey', 'Address', 'ListenPort', 'Jc', 'Jmin', 'Jmax', 'S1', 'S2', 'S3', 'S4',
+    interface = {'PrivateKey', 'Address', 'ListenPort', 'MTU', 'Jc', 'Jmin', 'Jmax', 'S1', 'S2', 'S3', 'S4',
                  'H1', 'H2', 'H3', 'H4', 'HeaderProtectionKey', 'ContentPaddingAddition', 'RandomTrailers', 'DisableCookies'}
     section, seen = None, set()
     for line in text.splitlines():
@@ -95,6 +95,8 @@ def validate_awg(data):
             if not re.fullmatch(r'[A-Za-z0-9+/]{43}=', value): raise ValueError('Invalid key')
         elif key in {'RandomTrailers', 'DisableCookies'}:
             if value not in {'on', 'off'}: raise ValueError('Invalid switch')
+        elif key == 'MTU':
+            if value != '1380': raise ValueError('Invalid managed MTU')
         elif not value.isdecimal(): raise ValueError('Invalid number')
     return text
 

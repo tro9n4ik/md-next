@@ -56,11 +56,11 @@ ip rule show | grep '^10086:' >/dev/null
 iptables -S MDNEXT_AWG_OUT > /dev/null
 test -f /var/lib/md-next/awg-routing-owned
 mss_count() {
-  iptables -t mangle -S FORWARD | awk '/MD-Next AWG MSS/ {n++} END {print n+0}'
+  nft list chain inet mdnext_mss forward 2>/dev/null | awk '/maxseg size set/ {n++} END {print n+0}'
 }
-test "$(mss_count)" = 2
+test "$(mss_count)" = 4
 systemctl restart xray
-test "$(mss_count)" = 2
+test "$(mss_count)" = 4
 test -n "$(find backups -name '*.mdbackup' -print -quit)"
 ENV_HASH="$(sha256sum .env)"
 # A foreign policy must survive both forms of removal.

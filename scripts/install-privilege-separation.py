@@ -72,7 +72,7 @@ def protect_code():
 
 def helper_sources():
     return {'boot-services.py': ROOT/'scripts/boot-services.py', 'migration-session.py': ROOT/'scripts/migration-session.py', 'migration-components.py': ROOT/'scripts/migration-components.py', 'migration-events.py': ROOT/'scripts/migration-events.py', 'migration-target.py': ROOT/'scripts/migration-target.py', 'migration-ssh.py': ROOT/'scripts/migration-ssh.py', 'migration-control.py': ROOT/'scripts/migration-control.py', 'prepare-migration-target.sh': ROOT/'scripts/prepare-migration-target.sh', 'migrate-panel.py': ROOT/'scripts/migrate-panel.py', 'migration-bundle.py': ROOT/'backend/app/services/migration_bundle.py', 'mtproto-runtime.py': ROOT/'scripts/mtproto-runtime.py', 'privileged-helper.py': ROOT/'scripts/privileged-helper.py', 'update-panel.py': ROOT/'scripts/update-panel.py',
-              'awg-routing.py': ROOT/'scripts/awg-routing.py', 'warp_registration.py': ROOT/'backend/app/services/warp_registration.py',
+              'awg-routing.py': ROOT/'scripts/awg-routing.py', 'network-latch.py': ROOT/'scripts/network-latch.py', 'network-mtu.py': ROOT/'scripts/network-mtu.py', 'network-policy.py': ROOT/'backend/app/services/network_policy.py', 'node-crypto.py': ROOT/'backend/app/services/crypto.py', 'warp_registration.py': ROOT/'backend/app/services/warp_registration.py',
               'warp-uplink-runtime.py': ROOT/'scripts/warp-uplink-runtime.py',
               'nginx.py': ROOT/'backend/app/services/nginx.py', 'app/services/shell.py': ROOT/'backend/app/services/shell.py',
               'app/services/privileges.py': ROOT/'backend/app/services/privileges.py'}
