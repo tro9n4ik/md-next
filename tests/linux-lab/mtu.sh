@@ -26,8 +26,8 @@ ip -n "$router" addr add 192.0.2.1/24 dev awg0
 ip -n "$client" addr add 192.0.2.2/24 dev client0
 ip -n "$router" addr add 198.51.100.1/24 dev mdawg
 ip -n "$server" addr add 198.51.100.2/24 dev server0
-ip -n "$router" link set awg0 up
-ip -n "$router" link set mdawg up
+ip -n "$router" link set awg0 mtu 1280 up
+ip -n "$router" link set mdawg mtu 1280 up
 ip -n "$client" link set client0 up
 ip -n "$server" link set server0 up
 ip -n "$client" route add default via 192.0.2.1
@@ -62,6 +62,7 @@ measure() {
   if ip netns exec "$client" curl --noproxy '*' -kfSs --max-time 5 \
       https://198.51.100.2/ -o "$scratch/https"; then
     echo "$label HTTPS OK ($(wc -c < "$scratch/https") bytes)"
+    [[ $label != blocked ]]
   else
     echo "$label HTTPS FAILED"
     [[ $label == blocked ]]
@@ -74,7 +75,7 @@ with open(sys.argv[2]) as stream:
     report = json.load(stream)
 rate = report["end"]["sum_received"]["bits_per_second"]
 print(f"{sys.argv[1]} TCP {rate / 1e6:.1f} Mbit/s")
-assert sys.argv[1] == "blocked" or rate > 0
+assert (rate == 0) if sys.argv[1] == "blocked" else (rate > 0)
 PY
   else
     echo "$label TCP FAILED"
@@ -93,21 +94,31 @@ ip -n "$server" route add default via 198.51.100.1
 ip netns exec "$router" iptables -A OUTPUT -p icmp --icmp-type fragmentation-needed -j DROP
 measure blocked
 
-for _ in 1 2; do
-  for pair in 'awg0 mdawg' 'mdawg awg0'; do
-    read -r ingress egress <<< "$pair"
-    rule=(-i "$ingress" -o "$egress" -p tcp --tcp-flags SYN,RST SYN -m tcpmss --mss 1241:65535 -j TCPMSS --set-mss 1240)
-    ip netns exec "$router" iptables -t mangle -C FORWARD "${rule[@]}" 2>/dev/null ||
-      ip netns exec "$router" iptables -t mangle -A FORWARD "${rule[@]}"
-  done
-done
+printf '%s\n' '{"inbounds":[{"protocol":"tun","tag":"awg-in","settings":{"name":"mdawg"}}]}' > "$scratch/xray.json"
+apply_routes() {
+  ip netns exec "$router" python3 - "$scratch" "$1" <<'PY'
+import importlib.util
+from pathlib import Path
+import sys
+
+spec = importlib.util.spec_from_file_location("routing", "scripts/awg-routing.py")
+routing = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(routing)
+scratch = Path(sys.argv[1])
+routing.STATE = scratch / "awg-owned"
+if sys.argv[2] == "remove":
+    routing.remove_owned()
+else:
+    routing.apply(scratch / "xray.json")
+PY
+}
+
+apply_routes install
+apply_routes update
 [[ $(ip netns exec "$router" iptables -t mangle -S FORWARD | grep -c -- '-j TCPMSS') == 2 ]]
 measure clamped
 probe_mtu clamped
-for pair in 'awg0 mdawg' 'mdawg awg0'; do
-  read -r ingress egress <<< "$pair"
-  ip netns exec "$router" iptables -t mangle -D FORWARD -i "$ingress" -o "$egress" \
-    -p tcp --tcp-flags SYN,RST SYN -m tcpmss --mss 1241:65535 -j TCPMSS --set-mss 1240
-done
+apply_routes remove
 [[ $(ip netns exec "$router" iptables -t mangle -S FORWARD) == '-P FORWARD ACCEPT' ]]
+[[ ! -e "$scratch/awg-owned" ]]
 echo 'MSS_RULES_IDEMPOTENT_AND_REMOVED'
