@@ -21,6 +21,18 @@ helper = importlib.util.module_from_spec(spec);spec.loader.exec_module(helper)
     {'operation': 'warp-uplink-prepare', 'node_id': '../other', 'port': 40000},
     {'operation': 'warp-uplink-prepare', 'node_id': 1, 'port': True},
     {'operation': 'warp-uplink-prepare', 'node_id': 1, 'port': 65536},
+    {'operation': 'unexpected', 'args': ['systemctl', 'is-active', 'nginx']},
+    {'operation': 'command', 'args': []},
+    {'operation': 'command', 'args': 'systemctl is-active nginx'},
+    {'operation': 'command', 'args': ['systemctl', 'is-active', 1]},
+    {'operation': 'command', 'args': ['systemctl', 'is-active', 'nginx ssh']},
+    {'operation': 'command', 'args': ['systemctl', 'is-active', 'nginx\nssh']},
+    {'operation': 'command', 'args': ['systemctl', 'is-active', '--user']},
+    {'operation': 'command', 'args': ['systemctl', 'is-active', 'nginx\0']},
+    {'operation': 'command', 'args': ['xray', 'run', '-test', '-format', 'json', '-config',
+                                      str(helper.STAGE / '..' / 'xray.json.tmp.outside')]},
+    {'operation': 'nginx', 'kind': 'path', 'value': '/' + 'a' * 201},
+    {'operation': 'nginx', 'kind': 'sni', 'value': 123},
 ])
 def test_caller_cannot_choose_root_executable_paths_or_unrelated_services(case, monkeypatch):
     def forbidden(*args): raise AssertionError('A system command was reached')
