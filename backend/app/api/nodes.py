@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from app.services.input_validation import validate_host
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import update, delete, or_, insert, func, literal
+from sqlalchemy import update, delete, or_, insert, func, literal, text
 
 from app.db.database import get_db
 from app.models.node import Node
@@ -171,6 +171,12 @@ class NodeReorder(BaseModel):
 
 @router.post("/reorder")
 async def reorder_nodes(data: NodeReorder, db: AsyncSession = Depends(get_db), current_user = Depends(require_admin)):
+    from app.services.cluster import _route_lock
+    async with _route_lock:
+        return await _reorder_nodes(data, db, current_user)
+
+
+async def _reorder_nodes(data, db, current_user):
     nodes = (await db.execute(select(Node).order_by(Node.id))).scalars().all()
     expected = {node.id for node in nodes}
     if len(data.ids) != len(set(data.ids)) or set(data.ids) != expected:
@@ -235,18 +241,16 @@ async def _delete_node(node_id, db, current_user):
     """
     Удалить ноду из кластера и пересобрать конфигурацию Xray (требует авторизации)
     """
+    # Регистрация тоже меняет список нод. Фиксируем порядок до чтения зависимостей.
+    await db.execute(text("BEGIN IMMEDIATE"))
     node_res = await db.execute(select(Node).where(Node.id == node_id))
     node = node_res.scalar_one_or_none()
     if not node:
         raise HTTPException(status_code=404, detail="Нода не найдена")
 
     from app.models.client import Client
-    from sqlalchemy import func
-    assigned = (await db.execute(select(func.count()).select_from(Client).where(Client.exit_node_id == node_id))).scalar_one()
-    if assigned:
-        raise HTTPException(409, detail=f"За нодой закреплены клиенты: {assigned}. Сначала измените их выход в разделе «Клиенты».")
-
     from app.models.routing import RoutingRule
+    from app.services.client_exit import selectable
     linked_rules = (await db.execute(
         select(RoutingRule.id).where(
             RoutingRule.target_node_id == node_id,
@@ -261,48 +265,47 @@ async def _delete_node(node_id, db, current_user):
             "в разделе «Маршрутизация». Отключённые правила также сохраняют привязку."
         ))
 
-    # Сбрасываем node_id у инвайтов, связанных с этой нодой
+    setting = await db.get(Setting, "active_node_id")
+    remaining = (await db.execute(select(Node).where(Node.id != node_id).order_by(Node.priority, Node.id))).scalars().all()
+    next_active_node = None
+    if setting and setting.value == str(node_id):
+        next_active_node = next((candidate for candidate in remaining
+                                 if candidate.is_active and candidate.status == "healthy"
+                                 and selectable(candidate)), None)
+        if next_active_node is None and (await get_failover_settings(db))["fallback_action"] == "keep":
+            raise HTTPException(409, detail="Сначала выберите доступную ноду. Настройки запрещают автоматический прямой выход.")
+        setting.value = str(next_active_node.id) if next_active_node else "direct:auto"
+    elif setting and setting.value.isdigit():
+        next_active_node = next((candidate for candidate in remaining if candidate.id == int(setting.value)), None)
+
+    await db.execute(update(Client).where(Client.exit_node_id == node_id).values(exit_node_id=None))
     await db.execute(
         update(NodeInvite)
         .where(NodeInvite.node_id == node_id)
         .values(node_id=None)
     )
-
-    # Проверяем, была ли эта нода активной нодой каскада
-    setting_res = await db.execute(select(Setting).where(Setting.key == "active_node_id"))
-    setting = setting_res.scalar_one_or_none()
-    is_active_cascade = False
-    if setting and setting.value == str(node_id):
-        is_active_cascade = True
-        setting.value = ""
+    await db.execute(update(RoutingRule).where(
+        RoutingRule.target_node_id == node_id, RoutingRule.action != "proxy",
+    ).values(target_node_id=None))
+    await db.execute(update(Setting).where(
+        Setting.key.in_(("warp.node_id", "telegram_node_id")), Setting.value == str(node_id),
+    ).values(value=str(next_active_node.id) if next_active_node else ""))
+    for priority, candidate in enumerate(remaining):
+        candidate.priority = priority
 
     await db.delete(node)
     await db.flush()
 
-    # Определение следующей активной ноды для Xray
-    next_active_node = None
-    if is_active_cascade:
-        next_node_res = await db.execute(
-            select(Node).where(Node.is_enabled.is_(True), Node.is_active.is_(True), Node.status == "healthy").order_by(Node.priority, Node.id)
-        )
-        next_active_node = next_node_res.scalars().first()
-        if next_active_node and setting:
-            setting.value = str(next_active_node.id)
-    elif setting and setting.value:
-        try:
-            curr_id = int(setting.value)
-            curr_node_res = await db.execute(select(Node).where(Node.id == curr_id))
-            next_active_node = curr_node_res.scalar_one_or_none()
-        except ValueError:
-            next_active_node = None
-
-    # Загружаем клиентов VLESS для генерации конфига Xray
-    success, reason = await ClientService.sync_xray_clients(db, active_node=next_active_node)
-    if not success:
+    try:
+        success, reason = await ClientService.sync_xray_clients(db, active_node=next_active_node)
+        if not success:
+            raise HTTPException(status_code=502, detail=f"Ошибка перестройки конфигурации Xray: {reason}")
+        await db.commit()
+    except Exception:
         await db.rollback()
-        raise HTTPException(status_code=502, detail=f"Ошибка перестройки конфигурации Xray: {reason}")
+        await ClientService.restore_committed_configs(db)
+        raise
 
-    await db.commit()
     log_event("info", "node", "Узел удалён", {"node_id": node_id, "name": node.name})
     return None
 

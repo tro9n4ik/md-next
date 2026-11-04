@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.main import app
 from app.models.client import Client, ClientProfile
@@ -63,7 +63,7 @@ async def test_assign_reset_and_common_switch_preserve_identity(auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_options_counts_no_node_credentials_and_delete_guard(auth_headers):
+async def test_options_counts_no_node_credentials(auth_headers):
     cid = await seed()
     with patch("app.api.clients._sync_protocols", new=AsyncMock()):
         await request("PUT", f"/api/v1/clients/{cid}/exit-route", auth_headers, json={"node_id": 2})
@@ -74,10 +74,70 @@ async def test_options_counts_no_node_credentials_and_delete_guard(auth_headers)
     assert (await request("GET", "/api/v1/clients?exit_node_id=0", auth_headers)).json() == []
     assert not data["nodes"][2]["selectable"]
     assert all(secret not in response.text for secret in ["192.0.2.", "example-node-", "public_key", "short_id"])
-    response = await request("DELETE", "/api/v1/nodes/2", auth_headers)
-    assert response.status_code == 409 and "клиенты: 1" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("apply_ok", [True, False])
+async def test_delete_active_node_clears_links_and_switches_atomically(auth_headers, monkeypatch, apply_ok):
+    from app.db.database import get_db
+    from app.models.node_invite import NodeInvite
+
+    async def database_with_foreign_keys():
+        async with TestingSessionLocal() as db:
+            await db.execute(text("PRAGMA foreign_keys=ON"))
+            yield db
+
+    monkeypatch.setitem(app.dependency_overrides, get_db, database_with_foreign_keys)
+    cid = await seed()
     async with TestingSessionLocal() as db:
-        assert await db.get(Node, 2) and (await db.get(Client, cid)).exit_node_id == 2
+        (await db.get(Client, cid)).exit_node_id = 1
+        (await db.get(Node, 1)).priority = 0
+        (await db.get(Node, 2)).priority = 1
+        (await db.get(Node, 3)).priority = 2
+        db.add_all([
+            NodeInvite(id=1, name="used", token_hash="synthetic-hash",
+                       expires_at=datetime.now(timezone.utc), node_id=1),
+            Setting(key="warp.node_id", value="1"),
+        ])
+        await db.commit()
+
+    async def apply(db, *, active_node):
+        assert await db.scalar(text("PRAGMA foreign_keys")) == 1
+        assert active_node.id == 2
+        assert (await db.get(Client, cid)).exit_node_id is None
+        return apply_ok, "test result"
+
+    with patch("app.api.nodes.ClientService.sync_xray_clients", new=AsyncMock(side_effect=apply)), \
+         patch("app.api.nodes.ClientService.restore_committed_configs", new=AsyncMock()):
+        response = await request("DELETE", "/api/v1/nodes/1", auth_headers)
+    assert response.status_code == (204 if apply_ok else 502)
+    async with TestingSessionLocal() as db:
+        assert (await db.get(Node, 1) is None) == apply_ok
+        client = await db.get(Client, cid)
+        assert client.exit_node_id == (None if apply_ok else 1)
+        assert client.sub_token == "same-subscription"
+        assert (await db.get(NodeInvite, 1)).node_id == (None if apply_ok else 1)
+        assert (await db.get(Node, 2)).priority == (0 if apply_ok else 1)
+        assert (await db.get(Setting, "active_node_id")).value == ("2" if apply_ok else "1")
+        assert (await db.get(Setting, "warp.node_id")).value == ("2" if apply_ok else "1")
+        assert (await db.execute(text("PRAGMA foreign_key_check"))).all() == []
+
+
+@pytest.mark.asyncio
+async def test_delete_active_node_respects_keep_route_policy(auth_headers):
+    cid = await seed()
+    async with TestingSessionLocal() as db:
+        (await db.get(Client, cid)).exit_node_id = 1
+        (await db.get(Node, 2)).is_enabled = False
+        db.add(Setting(key="failover.fallback_action", value="keep"))
+        await db.commit()
+    with patch("app.api.nodes.ClientService.sync_xray_clients", new=AsyncMock()) as sync:
+        response = await request("DELETE", "/api/v1/nodes/1", auth_headers)
+        assert response.status_code == 409
+        sync.assert_not_awaited()
+    async with TestingSessionLocal() as db:
+        assert (await db.get(Client, cid)).exit_node_id == 1
+        assert await db.get(Node, 1) is not None
 
 
 @pytest.mark.asyncio

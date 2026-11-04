@@ -266,6 +266,9 @@ export const NodesManager: React.FC = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['nodes'] });
       queryClient.invalidateQueries({ queryKey: ['clusterRoute'] });
+      queryClient.invalidateQueries({ queryKey: ['clients'] });
+      queryClient.invalidateQueries({ queryKey: ['clientExitRoute'] });
+      queryClient.invalidateQueries({ queryKey: ['clientExitOptions'] });
       setNodeToDelete(null);
       setDeleteError(null);
     },
@@ -372,7 +375,7 @@ export const NodesManager: React.FC = () => {
     </details>
 
     {nodeToDelete && <Drawer title="Удаление ноды" busy={deleteNodeMutation.isPending} onClose={() => { setNodeToDelete(null); setDeleteError(null); }}>
-      <p className="text-sm leading-6">Удалить ноду <strong>{nodeToDelete.name}</strong> ({nodeToDelete.host})? Конфигурация Xray будет перестроена.</p>
+      <p className="text-sm leading-6">Удалить ноду <strong>{nodeToDelete.name}</strong> ({nodeToDelete.host})? Закреплённые за ней клиенты перейдут на общий выход. Конфигурация Xray будет перестроена.</p>
       {deleteError && <p role="alert" className="mt-4 text-sm text-red-700">{deleteError}</p>}
       <div className="mt-6 flex justify-end gap-3"><button className="ui-button ui-button-secondary" disabled={deleteNodeMutation.isPending} onClick={() => { setNodeToDelete(null); setDeleteError(null); }}>Отмена</button><button className="ui-button ui-button-danger" disabled={deleteNodeMutation.isPending} onClick={() => deleteNodeMutation.mutate(nodeToDelete.id)}>{deleteNodeMutation.isPending ? 'Удаление…' : 'Удалить'}</button></div>
     </Drawer>}

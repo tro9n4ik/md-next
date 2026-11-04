@@ -24,6 +24,12 @@ async def get_routing_rules(db: AsyncSession = Depends(get_db)):
 
 @router.post("/rules", response_model=RoutingRuleResponse, status_code=status.HTTP_201_CREATED)
 async def create_routing_rule(rule_data: RoutingRuleCreate, db: AsyncSession = Depends(get_db)):
+    from app.services.cluster import _route_lock
+    async with _route_lock:
+        return await _create_routing_rule(rule_data, db)
+
+
+async def _create_routing_rule(rule_data: RoutingRuleCreate, db: AsyncSession):
     try:
         validate_rule_value(rule_data.domain_or_ip)
     except ValueError as exc:
