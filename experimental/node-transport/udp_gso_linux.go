@@ -31,7 +31,9 @@ func datagramSize(message *ipv4.Message) (int, error) {
 	}
 	size, found := message.N, false
 	for control := message.OOB[:message.NN]; len(control) > 0; {
-		if len(control) < unix.CmsgLen(0) { return 0,ErrPacket }
+		if len(control) < unix.CmsgLen(0) {
+			return 0, ErrPacket
+		}
 		header, data, remaining, err := unix.ParseOneSocketControlMessage(control)
 		if err != nil {
 			return 0, ErrPacket
