@@ -2,6 +2,7 @@
 """Install scoped edge defenses on an existing MD-Next server (root, Linux)."""
 from pathlib import Path
 import datetime
+import ipaddress
 import os
 import shutil
 import subprocess
@@ -99,6 +100,21 @@ def main():
     except Exception:
         CONF.write_text(original)
         raise
+    configure_fail2ban()
+    for name in ('index.html', 'welcome.txt', 'checklist.txt'):
+        source = ROOT / 'backend/app/static/fake' / name
+        target = static / name
+        if source.resolve() != target.resolve():
+            shutil.copy2(source, target)
+    print(f'Security installed; nginx backup: {backup}')
+
+
+def configure_fail2ban():
+    connection = os.environ.get('SSH_CONNECTION', '').split()
+    peer = str(ipaddress.ip_address(connection[0])) if connection else ''
+    port = int(connection[3]) if len(connection) == 4 else 22
+    if not 1 <= port <= 65535:
+        raise ValueError('Invalid SSH port')
     shutil.copy2(ROOT / 'scripts/panel-ban.py', '/usr/local/sbin/md-next-panel-ban.py')
     write('/etc/fail2ban/filter.d/md-next-panel.conf', '''[Definition]
 failregex = ^<HOST> \\[.*\\] POST 401$
@@ -108,10 +124,6 @@ ignoreregex =
 actionban = /usr/bin/python3 /usr/local/sbin/md-next-panel-ban.py ban <ip>
 actionunban = /usr/bin/python3 /usr/local/sbin/md-next-panel-ban.py unban <ip>
 ''')
-    peer = os.environ.get('SSH_CONNECTION', '').split(' ')[0]
-    import ipaddress
-    if peer:
-        peer = str(ipaddress.ip_address(peer))
     write('/etc/fail2ban/jail.d/md-next-security.local', f'''[DEFAULT]
 ignoreip = 127.0.0.1/8 ::1 {peer}
 bantime = 15m
@@ -122,7 +134,7 @@ maxretry = 6
 enabled = true
 backend = systemd
 banaction = nftables-multiport
-port = ssh
+port = {port}
 
 [md-next-panel]
 enabled = true
@@ -160,12 +172,12 @@ action = md-next-panel
         time.sleep(0.5)
     else:
         raise RuntimeError('Fail2ban actions not ready: inspect journalctl -u fail2ban')
-    for name in ('index.html', 'welcome.txt', 'checklist.txt'):
-        source = ROOT / 'backend/app/static/fake' / name
-        target = static / name
-        if source.resolve() != target.resolve():
-            shutil.copy2(source, target)
-    print(f'Security installed; nginx backup: {backup}')
-
 if __name__ == '__main__':
-    main()
+    import sys
+    if sys.argv[1:] == ['--fail2ban-only']:
+        if os.geteuid() != 0:
+            raise SystemExit('root required')
+        subprocess.run(['nginx', '-t'], check=True)
+        configure_fail2ban()
+    else:
+        main()
