@@ -13,6 +13,12 @@ TABLE = '10086'
 PRIORITY = '10086'
 CHAIN = 'MDNEXT_AWG_OUT'
 STATE = Path('/var/lib/md-next/awg-routing-owned')
+MSS_RULES = tuple(
+    ('FORWARD', '-i', ingress, '-o', egress, '-p', 'tcp',
+     '--tcp-flags', 'SYN,RST', 'SYN', '-m', 'comment', '--comment', 'MD-Next AWG MSS',
+     '-j', 'TCPMSS', '--clamp-mss-to-pmtu')
+    for ingress, egress in (('awg0', TUN), (TUN, 'awg0'))
+)
 
 
 def run(*args, check=True):
@@ -22,13 +28,19 @@ def run(*args, check=True):
     return result
 
 
-def firewall_rule(*args):
-    if run('iptables', '-w', '5', '-C', *args, check=False).returncode:
-        run('iptables', '-w', '5', '-I', *args)
+def firewall_rule(*args, table=None):
+    prefix = ('iptables', '-w', '5')
+    if table:
+        prefix += ('-t', table)
+    if run(*prefix, '-C', *args, check=False).returncode:
+        run(*prefix, '-I', *args)
 
 
 def remove():
     # Удаляются только точные правила, которыми управляет MD-Next.
+    for rule in MSS_RULES:
+        if not run('iptables', '-w', '5', '-t', 'mangle', '-C', *rule, check=False).returncode:
+            run('iptables', '-w', '5', '-t', 'mangle', '-D', *rule)
     args = ('FORWARD', '-i', 'awg0', '-j', CHAIN)
     if not run('iptables', '-w', '5', '-C', *args, check=False).returncode:
         run('iptables', '-w', '5', '-D', *args)
@@ -104,6 +116,9 @@ def apply(config_path):
                 subnet = str(ipaddress.ip_network(f"{address['local']}/{address['prefixlen']}", strict=False))
                 run('ip', 'route', 'replace', subnet, 'dev', 'awg0', 'table', TABLE)
     run('ip', 'route', 'replace', 'default', 'dev', TUN, 'metric', '10', 'table', TABLE)
+    # Учитываем MTU маршрутов ядра в обе стороны, включая SYN+ACK.
+    for rule in MSS_RULES:
+        firewall_rule(*rule, table='mangle')
     run('sysctl', '-w', 'net.ipv4.ip_forward=1')
 
 
