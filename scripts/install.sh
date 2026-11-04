@@ -221,7 +221,7 @@ User=root
 WorkingDirectory=/opt/md-next/backend
 Environment="PATH=/opt/md-next/backend/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 EnvironmentFile=/opt/md-next/backend/.env
-ExecStart=/opt/md-next/backend/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+ExecStart=/opt/md-next/backend/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-proxy-headers
 Restart=always
 
 [Install]

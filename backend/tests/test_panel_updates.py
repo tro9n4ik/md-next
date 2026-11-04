@@ -70,7 +70,7 @@ def test_activation_preserves_uploaded_placeholder(tmp_path, monkeypatch):
     updater.backup.mkdir()
     monkeypatch.setattr(module, 'snapshot_database', lambda *args: None)
     monkeypatch.setattr(module, 'identities', lambda *args: [(1, 'unchanged')])
-    monkeypatch.setattr(module.subprocess, 'check_output', lambda *args: b'backend/app/static/fake/index.html\0backend/app/static/fake/welcome.txt\0backend/new.py\0')
+    monkeypatch.setattr(module.subprocess, 'check_output', lambda *args, **kwargs: b'backend/app/static/fake/index.html\0backend/app/static/fake/welcome.txt\0backend/new.py\0')
     monkeypatch.setattr(updater, 'run', lambda *args, **kwargs: None)
     monkeypatch.setattr(updater, 'wait_ready', lambda: None)
     original_umask = os.umask(0o077)

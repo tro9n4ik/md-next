@@ -10,6 +10,8 @@ import sys
 
 STATE = Path('/var/lib/md-next-security/panel-bans.json')
 MAP = Path('/etc/nginx/md-next-panel-bans.map')
+NGINX_TEST_TIMEOUT = 10
+NGINX_RELOAD_TIMEOUT = 20
 
 def main():
     operation, address = sys.argv[1:]
@@ -27,12 +29,20 @@ def main():
         temporary = MAP.with_suffix('.tmp')
         temporary.write_text(candidate)
         os.replace(temporary, MAP)
+        reload = ['systemctl', 'reload', 'nginx']
         try:
-            subprocess.run(['nginx', '-t'], check=True, capture_output=True)
-            subprocess.run(['systemctl', 'reload', 'nginx'], check=True)
-        except Exception:
+            subprocess.run(['nginx', '-t'], check=True, capture_output=True, timeout=NGINX_TEST_TIMEOUT)
+            subprocess.run(reload, check=True, timeout=NGINX_RELOAD_TIMEOUT)
+        except Exception as error:
             temporary.write_text(previous)
             os.replace(temporary, MAP)
+            if isinstance(error, subprocess.TimeoutExpired):
+                if error.cmd == reload:
+                    try:
+                        subprocess.run(reload, check=True, timeout=NGINX_RELOAD_TIMEOUT)
+                    except (OSError, subprocess.SubprocessError):
+                        raise RuntimeError('Время ожидания Nginx истекло. Файл восстановлен, применение не подтверждено.') from None
+                raise RuntimeError('Время ожидания Nginx истекло. Файл блокировок восстановлен.') from None
             raise
         temporary = STATE.with_suffix('.tmp')
         temporary.write_text(json.dumps(sorted(banned)))

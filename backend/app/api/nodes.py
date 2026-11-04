@@ -1,3 +1,4 @@
+import asyncio
 import os
 import hashlib
 import secrets
@@ -5,6 +6,8 @@ from uuid import UUID
 import datetime
 import logging
 import shlex
+import time
+from collections import deque
 from typing import List, Optional, Literal
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import PlainTextResponse
@@ -12,7 +15,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from app.services.input_validation import validate_host
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import update, delete, or_
+from sqlalchemy import update, delete, or_, insert, func, literal, text
 
 from app.db.database import get_db
 from app.models.node import Node
@@ -23,9 +26,71 @@ from app.services.xray import XrayService
 from app.services.cluster import apply_active_node, get_failover_settings, is_manual_direct_route
 from app.services.client_service import ClientService
 from app.services.events import log_event
+from app.services.request_ip import request_ip
 
 router = APIRouter(prefix="/api/v1/nodes", tags=["Узлы"])
 logger = logging.getLogger(__name__)
+
+NODE_REGISTRATION_WINDOW = 60
+NODE_REGISTRATION_IP_LIMIT = 20
+NODE_REGISTRATION_FAILURE_LIMIT = 120
+NODE_REGISTRATION_LOG_THRESHOLD = 3
+NODE_REGISTRATION_MIN_FAILURE_TIME = 0.05
+NODE_PENDING_INVITE_LIMIT = 100
+INVALID_NODE_TOKEN = "Токен подключения недействителен"
+
+_registration_window = -1
+_registration_attempts: dict[str, int] = {}
+_registration_ip_failures: dict[str, int] = {}
+_registration_failures: deque[float] = deque()
+_registration_pending = 0
+
+
+async def limit_node_registration(request: Request):
+    global _registration_window, _registration_pending
+    started = time.perf_counter()
+    window = int(started // NODE_REGISTRATION_WINDOW)
+    if window != _registration_window:
+        _registration_attempts.clear()
+        _registration_ip_failures.clear()
+        _registration_window = window
+    while _registration_failures and _registration_failures[0] <= started - NODE_REGISTRATION_WINDOW:
+        _registration_failures.popleft()
+
+    ip = request_ip(request)
+    attempts = _registration_attempts.get(ip, 0)
+    if (attempts >= NODE_REGISTRATION_IP_LIMIT
+            or len(_registration_failures) + _registration_pending >= NODE_REGISTRATION_FAILURE_LIMIT):
+        raise HTTPException(status_code=429, detail="Слишком много запросов")
+
+    _registration_attempts[ip] = attempts + 1
+    _registration_pending += 1
+    try:
+        try:
+            yield
+        finally:
+            _registration_pending -= 1
+    except HTTPException as exc:
+        if exc.status_code == 401:
+            _registration_failures.append(time.perf_counter())
+            failures = _registration_ip_failures.get(ip, 0) + 1
+            _registration_ip_failures[ip] = failures
+            if failures == NODE_REGISTRATION_LOG_THRESHOLD:
+                log_event("warning", "node_invite", "Повторные неудачные проверки токена подключения",
+                          {"attempts": failures})
+            deadline = started + NODE_REGISTRATION_MIN_FAILURE_TIME
+            while (remaining := deadline - time.perf_counter()) > 0:
+                await asyncio.sleep(remaining)
+        raise
+
+
+def active_invite_conditions(now):
+    return (
+        NodeInvite.used_at.is_(None),
+        NodeInvite.revoked.is_(False),
+        NodeInvite.expires_at > now,
+    )
+
 
 class NodeRegister(BaseModel):
     token: str = Field(min_length=1, max_length=256)
@@ -106,6 +171,12 @@ class NodeReorder(BaseModel):
 
 @router.post("/reorder")
 async def reorder_nodes(data: NodeReorder, db: AsyncSession = Depends(get_db), current_user = Depends(require_admin)):
+    from app.services.cluster import _route_lock
+    async with _route_lock:
+        return await _reorder_nodes(data, db, current_user)
+
+
+async def _reorder_nodes(data, db, current_user):
     nodes = (await db.execute(select(Node).order_by(Node.id))).scalars().all()
     expected = {node.id for node in nodes}
     if len(data.ids) != len(set(data.ids)) or set(data.ids) != expected:
@@ -170,18 +241,16 @@ async def _delete_node(node_id, db, current_user):
     """
     Удалить ноду из кластера и пересобрать конфигурацию Xray (требует авторизации)
     """
+    # Регистрация тоже меняет список нод. Фиксируем порядок до чтения зависимостей.
+    await db.execute(text("BEGIN IMMEDIATE"))
     node_res = await db.execute(select(Node).where(Node.id == node_id))
     node = node_res.scalar_one_or_none()
     if not node:
         raise HTTPException(status_code=404, detail="Нода не найдена")
 
     from app.models.client import Client
-    from sqlalchemy import func
-    assigned = (await db.execute(select(func.count()).select_from(Client).where(Client.exit_node_id == node_id))).scalar_one()
-    if assigned:
-        raise HTTPException(409, detail=f"За нодой закреплены клиенты: {assigned}. Сначала измените их выход в разделе «Клиенты».")
-
     from app.models.routing import RoutingRule
+    from app.services.client_exit import selectable
     linked_rules = (await db.execute(
         select(RoutingRule.id).where(
             RoutingRule.target_node_id == node_id,
@@ -196,48 +265,47 @@ async def _delete_node(node_id, db, current_user):
             "в разделе «Маршрутизация». Отключённые правила также сохраняют привязку."
         ))
 
-    # Сбрасываем node_id у инвайтов, связанных с этой нодой
+    setting = await db.get(Setting, "active_node_id")
+    remaining = (await db.execute(select(Node).where(Node.id != node_id).order_by(Node.priority, Node.id))).scalars().all()
+    next_active_node = None
+    if setting and setting.value == str(node_id):
+        next_active_node = next((candidate for candidate in remaining
+                                 if candidate.is_active and candidate.status == "healthy"
+                                 and selectable(candidate)), None)
+        if next_active_node is None and (await get_failover_settings(db))["fallback_action"] == "keep":
+            raise HTTPException(409, detail="Сначала выберите доступную ноду. Настройки запрещают автоматический прямой выход.")
+        setting.value = str(next_active_node.id) if next_active_node else "direct:auto"
+    elif setting and setting.value.isdigit():
+        next_active_node = next((candidate for candidate in remaining if candidate.id == int(setting.value)), None)
+
+    await db.execute(update(Client).where(Client.exit_node_id == node_id).values(exit_node_id=None))
     await db.execute(
         update(NodeInvite)
         .where(NodeInvite.node_id == node_id)
         .values(node_id=None)
     )
-
-    # Проверяем, была ли эта нода активной нодой каскада
-    setting_res = await db.execute(select(Setting).where(Setting.key == "active_node_id"))
-    setting = setting_res.scalar_one_or_none()
-    is_active_cascade = False
-    if setting and setting.value == str(node_id):
-        is_active_cascade = True
-        setting.value = ""
+    await db.execute(update(RoutingRule).where(
+        RoutingRule.target_node_id == node_id, RoutingRule.action != "proxy",
+    ).values(target_node_id=None))
+    await db.execute(update(Setting).where(
+        Setting.key.in_(("warp.node_id", "telegram_node_id")), Setting.value == str(node_id),
+    ).values(value=str(next_active_node.id) if next_active_node else ""))
+    for priority, candidate in enumerate(remaining):
+        candidate.priority = priority
 
     await db.delete(node)
     await db.flush()
 
-    # Определение следующей активной ноды для Xray
-    next_active_node = None
-    if is_active_cascade:
-        next_node_res = await db.execute(
-            select(Node).where(Node.is_enabled.is_(True), Node.is_active.is_(True), Node.status == "healthy").order_by(Node.priority, Node.id)
-        )
-        next_active_node = next_node_res.scalars().first()
-        if next_active_node and setting:
-            setting.value = str(next_active_node.id)
-    elif setting and setting.value:
-        try:
-            curr_id = int(setting.value)
-            curr_node_res = await db.execute(select(Node).where(Node.id == curr_id))
-            next_active_node = curr_node_res.scalar_one_or_none()
-        except ValueError:
-            next_active_node = None
-
-    # Загружаем клиентов VLESS для генерации конфига Xray
-    success, reason = await ClientService.sync_xray_clients(db, active_node=next_active_node)
-    if not success:
+    try:
+        success, reason = await ClientService.sync_xray_clients(db, active_node=next_active_node)
+        if not success:
+            raise HTTPException(status_code=502, detail=f"Ошибка перестройки конфигурации Xray: {reason}")
+        await db.commit()
+    except Exception:
         await db.rollback()
-        raise HTTPException(status_code=502, detail=f"Ошибка перестройки конфигурации Xray: {reason}")
+        await ClientService.restore_committed_configs(db)
+        raise
 
-    await db.commit()
     log_event("info", "node", "Узел удалён", {"node_id": node_id, "name": node.name})
     return None
 
@@ -252,16 +320,18 @@ async def create_node_invite(
     """
     plain_token = secrets.token_urlsafe(32)
     token_hash = _hash_token(plain_token)
-    expires_at = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=max(1, data.ttl_hours))
-
-    invite = NodeInvite(
-        name=data.name,
-        token_hash=token_hash,
-        expires_at=expires_at
-    )
-    db.add(invite)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    expires_at = now + datetime.timedelta(hours=max(1, data.ttl_hours))
+    pending = select(func.count()).select_from(NodeInvite).where(*active_invite_conditions(now)).scalar_subquery()
+    statement = insert(NodeInvite).from_select(
+        ["name", "token_hash", "expires_at", "revoked"],
+        select(literal(data.name), literal(token_hash), literal(expires_at), literal(False))
+        .where(pending < NODE_PENDING_INVITE_LIMIT),
+    ).returning(NodeInvite)
+    invite = (await db.execute(statement)).scalar_one_or_none()
+    if invite is None:
+        raise HTTPException(status_code=429, detail="Достигнут лимит действующих приглашений")
     await db.commit()
-    await db.refresh(invite)
     log_event("info", "node_invite", "Создано приглашение для нового узла", {"invite_id": invite.id, "name": invite.name})
 
     return NodeInviteResponse(
@@ -321,7 +391,7 @@ async def revoke_node_invite(
     log_event("info", "node_invite", "Приглашение для узла отозвано", {"invite_id": invite.id, "name": invite.name})
     return None
 
-@router.get("/join")
+@router.get("/join", dependencies=[Depends(limit_node_registration)])
 async def join_node_script(token: str, request: Request, db: AsyncSession = Depends(get_db)):
     """
     Публичный эндпоинт, отдающий bash-скрипт подключения для валидного одноразового токена
@@ -330,18 +400,11 @@ async def join_node_script(token: str, request: Request, db: AsyncSession = Depe
     token_hash = _hash_token(token)
     now = datetime.datetime.now(datetime.timezone.utc)
 
-    result = await db.execute(select(NodeInvite).where(NodeInvite.token_hash == token_hash))
-    invite = result.scalar_one_or_none()
-
-    if not invite or invite.revoked or invite.used_at is not None:
-        raise HTTPException(status_code=401, detail="Токен подключения недействителен или уже использован")
-
-    exp_at = invite.expires_at
-    if exp_at.tzinfo is None:
-        exp_at = exp_at.replace(tzinfo=datetime.timezone.utc)
-
-    if exp_at < now:
-        raise HTTPException(status_code=401, detail="Срок действия токена подключения истёк")
+    result = await db.execute(select(NodeInvite.id).where(
+        NodeInvite.token_hash == token_hash, *active_invite_conditions(now),
+    ))
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=401, detail=INVALID_NODE_TOKEN)
 
     panel_url = os.getenv("PANEL_PUBLIC_URL")
     if not panel_url:
@@ -366,7 +429,7 @@ async def join_node_script(token: str, request: Request, db: AsyncSession = Depe
 
     return PlainTextResponse(content, media_type="text/plain")
 
-@router.post("/register", status_code=status.HTTP_201_CREATED)
+@router.post("/register", status_code=status.HTTP_201_CREATED, dependencies=[Depends(limit_node_registration)])
 async def register_node(node_data: NodeRegister, db: AsyncSession = Depends(get_db)):
     """
     Публичный эндпоинт для регистрации новой ноды из скрипта join-node.sh (по одноразовому токену)
@@ -379,15 +442,14 @@ async def register_node(node_data: NodeRegister, db: AsyncSession = Depends(get_
         update(NodeInvite)
         .where(
             NodeInvite.token_hash == input_hash,
-            NodeInvite.used_at.is_(None),
-            NodeInvite.revoked == False,
-            NodeInvite.expires_at > now
+            *active_invite_conditions(now),
         )
         .values(used_at=now)
     )
     res = await db.execute(stmt)
     if res.rowcount == 0:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Одноразовый токен недействителен, отозван или уже использован")
+        await db.rollback()
+        raise HTTPException(status_code=401, detail=INVALID_NODE_TOKEN)
 
     invite_res = await db.execute(select(NodeInvite).where(NodeInvite.token_hash == input_hash))
     invite = invite_res.scalar_one()

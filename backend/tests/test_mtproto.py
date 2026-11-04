@@ -200,17 +200,17 @@ async def test_collector_cursor_survives_restart_and_rollback():
     client.__aenter__.return_value.get.return_value = response
     async with TestingSessionLocal() as db:
         with patch.object(mtproto.httpx, "AsyncClient", return_value=client):
-            assert await mtproto.collect_deltas(db) == {1: (100, 50)}
+            assert await mtproto.collect_deltas(db, await mtproto.fetch_traffic_stats()) == {1: (100, 50)}
             await db.commit()
-            assert await mtproto.collect_deltas(db) == {1: (0, 0)}
+            assert await mtproto.collect_deltas(db, await mtproto.fetch_traffic_stats()) == {1: (0, 0)}
             await db.rollback()
             response._content = json.dumps({**payload, "users": {"p1": {"bytes_in": 125, "bytes_out": 90}}}).encode()
-            assert await mtproto.collect_deltas(db) == {1: (25, 40)}
+            assert await mtproto.collect_deltas(db, await mtproto.fetch_traffic_stats()) == {1: (25, 40)}
             await db.rollback()
-            assert await mtproto.collect_deltas(db) == {1: (25, 40)}
+            assert await mtproto.collect_deltas(db, await mtproto.fetch_traffic_stats()) == {1: (25, 40)}
             await db.commit()
             response._content = json.dumps({"started_at": "start-b", "users": {"p1": {"bytes_in": 10, "bytes_out": 5}}}).encode()
-            assert await mtproto.collect_deltas(db) == {1: (10, 5)}
+            assert await mtproto.collect_deltas(db, await mtproto.fetch_traffic_stats()) == {1: (10, 5)}
 
 
 @pytest.mark.asyncio

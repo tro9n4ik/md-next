@@ -123,7 +123,8 @@ def main():
         if path.is_symlink(): raise RuntimeError('Unexpected state directory symlink')
         path.mkdir(mode=0o700, exist_ok=True);os.chown(path, uid, gid)
     # API may create journals, but cannot replace the root-owned database with a symlink.
-    os.chown(data, 0, gid);data.chmod(0o1770)
+    # SQLite создаёт WAL и SHM рядом с базой. Наследуем группу каталога.
+    os.chown(data, 0, gid);data.chmod(0o3770)
     if (data/'md_next.db').is_symlink(): raise RuntimeError('Unexpected data file symlink')
     for original, name in [(Path('/usr/local/etc/xray/config.json'), 'xray.json'), (Path('/etc/amnezia/amneziawg/awg0.conf'), 'awg0.conf')]:
         initial_config(original,stage/name,staging='MDNEXT_MIGRATION_STAGING=1' in (ROOT/'backend/.env').read_text().splitlines())
@@ -154,6 +155,10 @@ def main():
         env.write_text('\n'.join(lines+[key+'='+value for key, value in values.items()])+'\n')
         os.chown(env, 0, gid);env.chmod(0o640)
         unit = (backup/'backend.service').read_text().replace('User=root', 'User=md-next\nGroup=md-next\nUMask=0077\nEnvironment=PYTHONDONTWRITEBYTECODE=1\nPrivateTmp=true\nProtectHome=true')
+        unit = unit.replace(
+            'ExecStart=/opt/md-next/backend/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000\n',
+            'ExecStart=/opt/md-next/backend/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-proxy-headers\n',
+        )
         UNIT.write_text(unit)
         route_unit = Path('/etc/systemd/system/xray.service.d/30-md-next-awg-routing.conf')
         route_unit.write_text('[Service]\nExecStartPost=-+/usr/bin/python3 /usr/local/lib/md-next/awg-routing.py --config /usr/local/etc/xray/config.json\n')

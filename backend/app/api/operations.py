@@ -21,6 +21,7 @@ from app.services.events import log_event
 from app.services.diagnostics import run_diagnostics
 from app.services.templates import SubscriptionTemplate, get_templates
 from app.services import backups
+from app.services.crypto import decrypt_node_secret
 
 router = APIRouter(prefix='/api/v1/operations', tags=['Обслуживание'], dependencies=[Depends(get_current_user)])
 restore_lock = asyncio.Lock()
@@ -183,8 +184,13 @@ async def restore_preview(request:PreviewRequest, db=Depends(get_db),user=Depend
     for table,rows in data['tables'].items():
         current=(await db.execute(text(f'SELECT COUNT(*) FROM {table}'))).scalar()
         key='key' if table=='settings' else 'id'
-        before={str(r[key]):r for r in current_data['tables'][table]}
-        after={str(r[key]):r for r in rows}
+        def comparable(row):
+            if table == 'nodes':
+                return {**row, 'secret': decrypt_node_secret(row['secret'])}
+            return row
+
+        before={str(r[key]):comparable(r) for r in current_data['tables'][table]}
+        after={str(r[key]):comparable(r) for r in rows}
         counts.append({'table':table,'current':current,'backup':len(rows),
             'added':len(after.keys()-before.keys()),'removed':len(before.keys()-after.keys()),
             'changed':sum(before[k]!=after[k] for k in before.keys()&after.keys())})
@@ -217,12 +223,15 @@ async def restore(request:RestoreRequest,db=Depends(get_db),user=Depends(get_cur
         try:
             # Clear bindings rather than reviving stale one-time codes from a backup.
             await db.execute(text('DELETE FROM telegram_links'))
+            # Связи приглашений с нодами проверяются после замены строк.
+            await db.execute(text('PRAGMA defer_foreign_keys=ON'))
             for table in reversed(backups.TABLES): await db.execute(text(f'DELETE FROM {table}'))
             for table in backups.TABLES:
                 for row in preview['data']['tables'][table]:
                     columns=list(row)
                     stmt=text(f"INSERT INTO {table} ({','.join(columns)}) VALUES ({','.join(':'+k for k in columns)})")
                     await db.execute(stmt,row)
+            await db.execute(text('UPDATE node_invites SET node_id=NULL WHERE node_id NOT IN (SELECT id FROM nodes)'))
             await db.flush()
             new_settings=await get_profile_settings(db)
             if new_settings['profiles.path.vless_xhttp_tls']!=old_settings['profiles.path.vless_xhttp_tls']:
