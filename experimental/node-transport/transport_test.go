@@ -317,3 +317,36 @@ func BenchmarkRoundTrip(b *testing.B) {
 		}
 	}
 }
+
+func TestSealIntoHonorsWireMTU(t *testing.T) {
+	sender, receiver := pair(t)
+	var encoded, scratch, decoded [2048]byte
+	payload := make([]byte, MaxPayload)
+	for i := 0; i < 100; i++ {
+		packet, err := sender.SealInto(encoded[:0], scratch[:], payload, testNow)
+		if err != nil || len(packet) > MaxPacket {
+			t.Fatalf("wire MTU: %d %v", len(packet), err)
+		}
+		result, err := receiver.OpenInto(decoded[:0], packet, testNow)
+		if err != nil || len(result) != MaxPayload {
+			t.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkReuseRoundTrip(b *testing.B) {
+	sender, receiver := pair(b)
+	var encoded, scratch, decoded [2048]byte
+	payload := make([]byte, MaxPayload)
+	b.SetBytes(MaxPayload)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		packet, err := sender.SealInto(encoded[:0], scratch[:], payload, testNow)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if _, err = receiver.OpenInto(decoded[:0], packet, testNow); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

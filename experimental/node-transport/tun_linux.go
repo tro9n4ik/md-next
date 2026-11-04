@@ -16,7 +16,7 @@ func OpenTUN(name string) (*os.File, error) {
 	if !regexp.MustCompile(`^[A-Za-z0-9_-]{1,15}$`).MatchString(name) {
 		return nil, errors.New("invalid TUN name")
 	}
-	f, err := os.OpenFile("/dev/net/tun", os.O_RDWR|syscall.O_CLOEXEC, 0)
+	fd, err := syscall.Open("/dev/net/tun", syscall.O_RDWR|syscall.O_CLOEXEC|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -26,10 +26,11 @@ func OpenTUN(name string) (*os.File, error) {
 		Padding [22]byte
 	}{Flags: 0x0001 | 0x1000}
 	copy(request.Name[:], name)
-	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), uintptr(0x400454ca), uintptr(unsafe.Pointer(&request)))
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), uintptr(0x400454ca), uintptr(unsafe.Pointer(&request)))
 	if errno != 0 {
-		f.Close()
+		syscall.Close(fd)
 		return nil, errno
 	}
-	return f, nil
+	// Register with Go's poller only after the descriptor is attached to TUN.
+	return os.NewFile(uintptr(fd), "/dev/net/tun"), nil
 }

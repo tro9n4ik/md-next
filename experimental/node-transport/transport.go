@@ -12,14 +12,13 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"math/big"
 	"sync"
 	"time"
 )
 
 const (
-	MaxPayload  = 1024
-	MaxPacket   = 1200
+	MaxPayload  = 1380
+	MaxPacket   = 1452
 	HeaderSize  = 29 // flags(1), CID(8), PN(4), session salt(16)
 	MaxSessions = 1024
 )
@@ -77,6 +76,7 @@ type Sender struct {
 	cachedSlot int64
 	cachedID   [8]byte
 	cachedAEAD cipher.AEAD
+	nonce      [12]byte
 }
 
 func NewSender(master []byte, direction string, interval time.Duration) (*Sender, error) {
@@ -89,9 +89,12 @@ func NewSender(master []byte, direction string, interval time.Duration) (*Sender
 	return s, err
 }
 
-func nonce(sequence uint32) (n [12]byte) { binary.BigEndian.PutUint64(n[4:], uint64(sequence)); return }
-
 func (s *Sender) Seal(payload []byte, now time.Time) ([]byte, error) {
+	return s.SealInto(make([]byte, 0, MaxPacket), make([]byte, 2048), payload, now)
+}
+
+// SealInto reuses caller-owned buffers. Neither may overlap payload.
+func (s *Sender) SealInto(dst, scratch, payload []byte, now time.Time) ([]byte, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(payload) > MaxPayload || now.Unix() < 0 {
@@ -115,32 +118,52 @@ func (s *Sender) Seal(payload []byte, now time.Time) ([]byte, error) {
 		s.cachedID = s.keys.id(slot)
 	}
 	id := s.cachedID
-	header := make([]byte, HeaderSize, MaxPacket)
+	if cap(dst) < MaxPacket || len(scratch) < 2048 {
+		return nil, ErrPacket
+	}
+	header := dst[:HeaderSize]
 	header[0] = 0x43
 	copy(header[1:9], id[:])
 	binary.BigEndian.PutUint32(header[9:13], uint32(s.sequence))
 	copy(header[13:], s.salt[:])
-	size, err := rand.Int(rand.Reader, big.NewInt(113))
-	if err != nil {
-		return nil, err
+	var random [1]byte
+	for {
+		if _, err := rand.Read(random[:]); err != nil {
+			return nil, err
+		}
+		if random[0] < 226 {
+			break
+		}
 	}
-	plain := make([]byte, 2+len(payload)+16+int(size.Int64()))
+	padding := 16 + int(random[0]%113)
+	if maximum := MaxPacket - HeaderSize - 16 - 2 - len(payload); padding > maximum {
+		padding = maximum
+	}
+	plain := scratch[:2+len(payload)+padding]
 	binary.BigEndian.PutUint16(plain, uint16(len(payload)))
 	copy(plain[2:], payload)
-	if _, err = rand.Read(plain[2+len(payload):]); err != nil {
+	if _, err := rand.Read(plain[2+len(payload):]); err != nil {
 		return nil, err
 	}
-	n := nonce(uint32(s.sequence))
+	binary.BigEndian.PutUint64(s.nonce[4:], s.sequence)
 	// Consume the counter before returning any ciphertext, never wrap under a key.
 	s.sequence++
-	return s.cachedAEAD.Seal(header, n[:], plain, header), nil
+	return s.cachedAEAD.Seal(header, s.nonce[:], plain, header), nil
 }
 
 func (s *Sender) Port(now time.Time, base, count int) (int, error) {
+	return s.keys.port(now, base, count)
+}
+
+func (r *Receiver) Port(now time.Time, base, count int) (int, error) {
+	return r.keys.port(now, base, count)
+}
+
+func (k *keys) port(now time.Time, base, count int) (int, error) {
 	if base < 1024 || count < 1 || count > 1024 || base+count > 65536 || now.Unix() < 0 {
 		return 0, errors.New("invalid hopping range")
 	}
-	digest := mac(s.keys.hop, now.Unix()/s.keys.interval)
+	digest := mac(k.hop, now.Unix()/k.interval)
 	return base + int(binary.BigEndian.Uint64(digest[:8])%uint64(count)), nil
 }
 
@@ -185,6 +208,7 @@ type Receiver struct {
 	epoch   int64
 	ids     map[[8]byte]int64
 	windows map[[24]byte]*window
+	nonce   [12]byte
 }
 
 func NewReceiver(master []byte, direction string, interval time.Duration) (*Receiver, error) {
@@ -196,6 +220,11 @@ func NewReceiver(master []byte, direction string, interval time.Duration) (*Rece
 }
 
 func (r *Receiver) Open(packet []byte, now time.Time) ([]byte, error) {
+	return r.OpenInto(nil, packet, now)
+}
+
+// OpenInto releases plaintext only after authentication and replay checks.
+func (r *Receiver) OpenInto(dst, packet []byte, now time.Time) ([]byte, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if len(packet) < HeaderSize+16+18 || len(packet) > MaxPacket || packet[0] != 0x43 || now.Unix() < 0 {
@@ -240,8 +269,8 @@ func (r *Receiver) Open(packet []byte, now time.Time) ([]byte, error) {
 		}
 	}
 	number := binary.BigEndian.Uint32(packet[9:13])
-	n := nonce(number)
-	plain, err := aead.Open(nil, n[:], packet[HeaderSize:], packet[:HeaderSize])
+	binary.BigEndian.PutUint64(r.nonce[4:], uint64(number))
+	plain, err := aead.Open(dst[:0], r.nonce[:], packet[HeaderSize:], packet[:HeaderSize])
 	if err != nil {
 		return nil, ErrPacket
 	}

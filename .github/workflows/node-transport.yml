@@ -1,7 +1,7 @@
 name: Экспериментальный транспорт Go
 on:
   push:
-    branches: [feature/node-transport-go]
+    branches: [feature/node-transport-go, feature/node-transport-go-hardening]
     paths: ['experimental/node-transport/**', '.github/workflows/node-transport.yml']
 permissions:
   contents: read
@@ -16,3 +16,13 @@ jobs:
       - run: go version
       - run: go vet ./...
       - run: go test -race ./...
+      - run: go test -run '^$' -fuzz FuzzOpen -fuzztime 5s
+      - run: go test -run '^$' -bench BenchmarkReuseRoundTrip -benchmem
+      - run: go test -c -o /tmp/mdnt-tests
+      - run: sudo ip netns add mdnt-read-ci && sudo ip netns exec mdnt-read-ci env MDNEXT_ISOLATED_NETNS=1 /tmp/mdnt-tests -test.run TestIsolatedTUNReadsIPv4 -test.v
+      - if: always()
+        run: sudo ip netns del mdnt-read-ci || true
+      - run: sudo apt-get update && sudo apt-get install -y iperf3 iproute2 iputils-ping
+      - run: sudo sysctl -w net.core.rmem_max=8388608 net.core.wmem_max=8388608
+      - run: go build -o /tmp/mdnt-tunnel ./cmd/mdnt-tunnel
+      - run: sudo python3 tests/tunnel_namespace.py --run --binary /tmp/mdnt-tunnel
