@@ -1,3 +1,4 @@
+import asyncio
 import os
 import hashlib
 import secrets
@@ -5,6 +6,8 @@ from uuid import UUID
 import datetime
 import logging
 import shlex
+import time
+from collections import deque
 from typing import List, Optional, Literal
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import PlainTextResponse
@@ -12,7 +15,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from app.services.input_validation import validate_host
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import update, delete, or_
+from sqlalchemy import update, delete, or_, insert, func, literal
 
 from app.db.database import get_db
 from app.models.node import Node
@@ -23,9 +26,71 @@ from app.services.xray import XrayService
 from app.services.cluster import apply_active_node, get_failover_settings, is_manual_direct_route
 from app.services.client_service import ClientService
 from app.services.events import log_event
+from app.services.request_ip import request_ip
 
 router = APIRouter(prefix="/api/v1/nodes", tags=["Узлы"])
 logger = logging.getLogger(__name__)
+
+NODE_REGISTRATION_WINDOW = 60
+NODE_REGISTRATION_IP_LIMIT = 20
+NODE_REGISTRATION_FAILURE_LIMIT = 120
+NODE_REGISTRATION_LOG_THRESHOLD = 3
+NODE_REGISTRATION_MIN_FAILURE_TIME = 0.05
+NODE_PENDING_INVITE_LIMIT = 100
+INVALID_NODE_TOKEN = "Токен подключения недействителен"
+
+_registration_window = -1
+_registration_attempts: dict[str, int] = {}
+_registration_ip_failures: dict[str, int] = {}
+_registration_failures: deque[float] = deque()
+_registration_pending = 0
+
+
+async def limit_node_registration(request: Request):
+    global _registration_window, _registration_pending
+    started = time.perf_counter()
+    window = int(started // NODE_REGISTRATION_WINDOW)
+    if window != _registration_window:
+        _registration_attempts.clear()
+        _registration_ip_failures.clear()
+        _registration_window = window
+    while _registration_failures and _registration_failures[0] <= started - NODE_REGISTRATION_WINDOW:
+        _registration_failures.popleft()
+
+    ip = request_ip(request)
+    attempts = _registration_attempts.get(ip, 0)
+    if (attempts >= NODE_REGISTRATION_IP_LIMIT
+            or len(_registration_failures) + _registration_pending >= NODE_REGISTRATION_FAILURE_LIMIT):
+        raise HTTPException(status_code=429, detail="Слишком много запросов")
+
+    _registration_attempts[ip] = attempts + 1
+    _registration_pending += 1
+    try:
+        try:
+            yield
+        finally:
+            _registration_pending -= 1
+    except HTTPException as exc:
+        if exc.status_code == 401:
+            _registration_failures.append(time.perf_counter())
+            failures = _registration_ip_failures.get(ip, 0) + 1
+            _registration_ip_failures[ip] = failures
+            if failures == NODE_REGISTRATION_LOG_THRESHOLD:
+                log_event("warning", "node_invite", "Повторные неудачные проверки токена подключения",
+                          {"attempts": failures})
+            deadline = started + NODE_REGISTRATION_MIN_FAILURE_TIME
+            while (remaining := deadline - time.perf_counter()) > 0:
+                await asyncio.sleep(remaining)
+        raise
+
+
+def active_invite_conditions(now):
+    return (
+        NodeInvite.used_at.is_(None),
+        NodeInvite.revoked.is_(False),
+        NodeInvite.expires_at > now,
+    )
+
 
 class NodeRegister(BaseModel):
     token: str = Field(min_length=1, max_length=256)
@@ -252,16 +317,18 @@ async def create_node_invite(
     """
     plain_token = secrets.token_urlsafe(32)
     token_hash = _hash_token(plain_token)
-    expires_at = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=max(1, data.ttl_hours))
-
-    invite = NodeInvite(
-        name=data.name,
-        token_hash=token_hash,
-        expires_at=expires_at
-    )
-    db.add(invite)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    expires_at = now + datetime.timedelta(hours=max(1, data.ttl_hours))
+    pending = select(func.count()).select_from(NodeInvite).where(*active_invite_conditions(now)).scalar_subquery()
+    statement = insert(NodeInvite).from_select(
+        ["name", "token_hash", "expires_at", "revoked"],
+        select(literal(data.name), literal(token_hash), literal(expires_at), literal(False))
+        .where(pending < NODE_PENDING_INVITE_LIMIT),
+    ).returning(NodeInvite)
+    invite = (await db.execute(statement)).scalar_one_or_none()
+    if invite is None:
+        raise HTTPException(status_code=429, detail="Достигнут лимит действующих приглашений")
     await db.commit()
-    await db.refresh(invite)
     log_event("info", "node_invite", "Создано приглашение для нового узла", {"invite_id": invite.id, "name": invite.name})
 
     return NodeInviteResponse(
@@ -321,7 +388,7 @@ async def revoke_node_invite(
     log_event("info", "node_invite", "Приглашение для узла отозвано", {"invite_id": invite.id, "name": invite.name})
     return None
 
-@router.get("/join")
+@router.get("/join", dependencies=[Depends(limit_node_registration)])
 async def join_node_script(token: str, request: Request, db: AsyncSession = Depends(get_db)):
     """
     Публичный эндпоинт, отдающий bash-скрипт подключения для валидного одноразового токена
@@ -330,18 +397,11 @@ async def join_node_script(token: str, request: Request, db: AsyncSession = Depe
     token_hash = _hash_token(token)
     now = datetime.datetime.now(datetime.timezone.utc)
 
-    result = await db.execute(select(NodeInvite).where(NodeInvite.token_hash == token_hash))
-    invite = result.scalar_one_or_none()
-
-    if not invite or invite.revoked or invite.used_at is not None:
-        raise HTTPException(status_code=401, detail="Токен подключения недействителен или уже использован")
-
-    exp_at = invite.expires_at
-    if exp_at.tzinfo is None:
-        exp_at = exp_at.replace(tzinfo=datetime.timezone.utc)
-
-    if exp_at < now:
-        raise HTTPException(status_code=401, detail="Срок действия токена подключения истёк")
+    result = await db.execute(select(NodeInvite.id).where(
+        NodeInvite.token_hash == token_hash, *active_invite_conditions(now),
+    ))
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=401, detail=INVALID_NODE_TOKEN)
 
     panel_url = os.getenv("PANEL_PUBLIC_URL")
     if not panel_url:
@@ -366,7 +426,7 @@ async def join_node_script(token: str, request: Request, db: AsyncSession = Depe
 
     return PlainTextResponse(content, media_type="text/plain")
 
-@router.post("/register", status_code=status.HTTP_201_CREATED)
+@router.post("/register", status_code=status.HTTP_201_CREATED, dependencies=[Depends(limit_node_registration)])
 async def register_node(node_data: NodeRegister, db: AsyncSession = Depends(get_db)):
     """
     Публичный эндпоинт для регистрации новой ноды из скрипта join-node.sh (по одноразовому токену)
@@ -379,15 +439,14 @@ async def register_node(node_data: NodeRegister, db: AsyncSession = Depends(get_
         update(NodeInvite)
         .where(
             NodeInvite.token_hash == input_hash,
-            NodeInvite.used_at.is_(None),
-            NodeInvite.revoked == False,
-            NodeInvite.expires_at > now
+            *active_invite_conditions(now),
         )
         .values(used_at=now)
     )
     res = await db.execute(stmt)
     if res.rowcount == 0:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Одноразовый токен недействителен, отозван или уже использован")
+        await db.rollback()
+        raise HTTPException(status_code=401, detail=INVALID_NODE_TOKEN)
 
     invite_res = await db.execute(select(NodeInvite).where(NodeInvite.token_hash == input_hash))
     invite = invite_res.scalar_one()

@@ -30,6 +30,7 @@ from app.services.routing_rules import validate_rule_value
 from app.services.client_limits import access_allowed, expiry_for_period, limit_info, refresh_period, utc
 from app.services.subscription_metadata import cdn_announcement
 from app.services.client_activity import client_activity
+from app.services.request_ip import request_ip
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/clients", tags=["Клиенты"], dependencies=[Depends(get_current_user)])
@@ -489,7 +490,7 @@ async def subscription_dns(token: str, request: Request, db: AsyncSession = Depe
 @subscription_router.get("/{token}", response_class=Response)
 async def get_subscription(token: str, request: Request, format: Literal["raw", "page"] | None = None, db: AsyncSession = Depends(get_db)):
     now = time.time()
-    ip = request.headers.get("X-Real-IP") or (request.client.host if request.client else "unknown")
+    ip = request_ip(request)
     attempts = [stamp for stamp in SUBSCRIPTION_REQUESTS.get(ip, []) if now - stamp < SUBSCRIPTION_WINDOW]
     if len(attempts) >= SUBSCRIPTION_LIMIT:
         raise HTTPException(status_code=429, detail="Слишком много запросов")

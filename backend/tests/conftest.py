@@ -1,5 +1,6 @@
 import os
 import tempfile
+from collections import deque
 from pathlib import Path
 
 test_directory = tempfile.TemporaryDirectory(prefix="md-next-pytest-")
@@ -31,6 +32,19 @@ test_engine = create_async_engine(
 )
 
 TestingSessionLocal = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+
+
+@pytest.fixture(autouse=True)
+def reset_node_registration_limits():
+    from app.api import nodes
+
+    with pytest.MonkeyPatch.context() as registration:
+        registration.setattr(nodes, "_registration_window", -1)
+        registration.setattr(nodes, "_registration_attempts", {})
+        registration.setattr(nodes, "_registration_ip_failures", {})
+        registration.setattr(nodes, "_registration_failures", deque())
+        yield
+
 
 # Переопределяем AsyncSessionLocal и engine глобально в модуле базы данных для тестов
 db_module.engine = test_engine

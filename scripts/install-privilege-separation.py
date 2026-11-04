@@ -155,6 +155,10 @@ def main():
         env.write_text('\n'.join(lines+[key+'='+value for key, value in values.items()])+'\n')
         os.chown(env, 0, gid);env.chmod(0o640)
         unit = (backup/'backend.service').read_text().replace('User=root', 'User=md-next\nGroup=md-next\nUMask=0077\nEnvironment=PYTHONDONTWRITEBYTECODE=1\nPrivateTmp=true\nProtectHome=true')
+        unit = unit.replace(
+            'ExecStart=/opt/md-next/backend/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000\n',
+            'ExecStart=/opt/md-next/backend/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-proxy-headers\n',
+        )
         UNIT.write_text(unit)
         route_unit = Path('/etc/systemd/system/xray.service.d/30-md-next-awg-routing.conf')
         route_unit.write_text('[Service]\nExecStartPost=-+/usr/bin/python3 /usr/local/lib/md-next/awg-routing.py --config /usr/local/etc/xray/config.json\n')
