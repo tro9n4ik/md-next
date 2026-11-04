@@ -144,7 +144,7 @@ class Updater:
         self.run(['git', '-C', str(repository), '-c', 'credential.helper=', 'fetch', '--depth=1', 'origin', self.request['commit']], env=git_env, timeout=180)
         git_env.pop('MDNEXT_UPDATE_TOKEN', None)
         self.run(['git', '-C', str(repository), 'checkout', '--detach', 'FETCH_HEAD'])
-        actual = subprocess.check_output(['git', '-C', str(repository), 'rev-parse', 'HEAD'], text=True).strip()
+        actual = subprocess.check_output(['git', '-C', str(repository), 'rev-parse', 'HEAD'], text=True, timeout=15).strip()
         if actual != self.request['commit']:
             raise RuntimeError('Downloaded revision differs from requested revision')
         self.new_venv = self.root / 'venv-releases' / ('update-' + actual[:12] + '-' + str(int(time.time())))
@@ -181,6 +181,7 @@ class Updater:
         snapshot_database(self.root / 'backend/md_next.db', self.backup / 'md_next.db')
 
     def activate(self, repository):
+        files = subprocess.check_output(['git', '-C', str(repository), 'ls-files', '-z'], timeout=15).decode().split('\0')
         self.phase('installing', 'Применяем обновление. Панель кратковременно перезапускается.')
         self.activated = True
         self.run(['systemctl', 'stop', 'md-next-backend'])
@@ -196,7 +197,6 @@ class Updater:
         else:
             raise RuntimeError('Previous runtime missing')
         venv.symlink_to(self.new_venv, target_is_directory=True)
-        files = subprocess.check_output(['git', '-C', str(repository), 'ls-files', '-z']).decode().split('\0')
         preserve_placeholder = (self.root / 'backend/app/static/fake/index.html').exists()
         for name in filter(None, files):
             relative = Path(name)
