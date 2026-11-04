@@ -188,7 +188,8 @@ def test_final_restore_reuses_verified_adguard_binary(tmp_path,monkeypatch):
                             lambda *a:None,lambda *a,**kw:SimpleNamespace(returncode=0))
 
 
-def test_preparation_finishes_before_source_backup(source_tree,tmp_path,monkeypatch):
+@pytest.mark.parametrize("reconnect", [None, "target-machine", "different-machine"])
+def test_preparation_finishes_before_source_backup(source_tree,tmp_path,monkeypatch,reconnect):
     import paramiko
     worker=load_script('migration-ssh.py')
     monkeypatch.setattr(worker,'ROOT',source_tree/'opt/md-next');monkeypatch.setattr(worker,'STATE',tmp_path/'state')
@@ -198,18 +199,39 @@ def test_preparation_finishes_before_source_backup(source_tree,tmp_path,monkeypa
         order.append('backup');raise ValueError('synthetic stop before transfer')
     monkeypatch.setattr(worker,'load_runtime',lambda:SimpleNamespace(library=lambda:SimpleNamespace(capture=capture)))
     connection=SimpleNamespace(close=lambda:None)
-    monkeypatch.setattr(worker,'connect_target',lambda request:(connection,connection))
+    closed = []
+    recovered = SimpleNamespace(close=lambda: closed.append("transport"))
+    recovered_socket = SimpleNamespace(close=lambda: closed.append("socket"))
+    connections = []
+
+    def connect(request, **kwargs):
+        connections.append(kwargs)
+        if len(connections) == 1:
+            return connection, connection
+        return recovered_socket, recovered
+
+    monkeypatch.setattr(worker,'connect_target',connect)
     monkeypatch.setattr(worker,'latest_build',lambda:'b'*40)
     sftp=SimpleNamespace(put=lambda *a:None,close=lambda:None)
     monkeypatch.setattr(paramiko.SFTPClient,'from_transport',lambda *a:sftp)
     read=worker.Path.read_text
     monkeypatch.setattr(worker.Path,'read_text',lambda path,*a,**kw:'source-machine' if path.as_posix()=='/etc/machine-id' else read(path,*a,**kw))
+    cleanup = []
+
     def execute(transport,command,**kw):
-        if 'machine-id' in command:return 'target-machine'
+        if 'machine-id' in command:
+            return reconnect if transport is recovered else 'target-machine'
         if 'mktemp' in command:return '/root/mdnext-transfer-test'
         if command.startswith('bash '):order.append('clean-install')
+        if command == 'rm -rf -- /root/mdnext-transfer-test':
+            cleanup.append(transport)
+            if transport is connection and reconnect:
+                raise OSError("SSH disconnected")
         return ''
     monkeypatch.setattr(worker,'execute',execute)
     request={'action':'prepare','host':'8.8.8.8','port':22,'fingerprint':'SHA256:'+'a'*43,'ssh_password':'synthetic','password':PASSWORD,'email':'admin@example.com','confirm':True}
     with pytest.raises(RuntimeError):worker.run(request)
     assert order==['clean-install','backup']
+    assert connections == ([{}, {"timeout": 5}] if reconnect else [{}])
+    assert cleanup == ([connection, recovered] if reconnect == "target-machine" else [connection])
+    assert closed == (["transport", "socket"] if reconnect else [])

@@ -145,6 +145,28 @@ def connect_target(request,timeout=15):
         transport.close();sock.close();raise
 
 
+def cleanup_transfer(request, transport, directory, target_id):
+    command = 'rm -rf -- ' + shlex.quote(directory)
+    try:
+        execute(transport, command, timeout=15)
+        return
+    except Exception:
+        # The original transport can be unusable after a failed upload.
+        pass
+    try:
+        sock, recovered = connect_target(request, timeout=5)
+        try:
+            actual = execute(recovered, 'cat /etc/machine-id', timeout=10).strip()
+            if not target_id or actual != target_id:
+                raise events.MigrationError('MIG_TARGET_BINDING')
+            execute(recovered, command, timeout=15)
+        finally:
+            recovered.close()
+            sock.close()
+    except Exception:
+        print('Не удалось удалить временный каталог переноса на целевом VPS.', file=sys.stderr)
+
+
 def reboot_target(request,sock,transport):
     before=execute(transport,'cat /proc/sys/kernel/random/boot_id').strip()
     machine=execute(transport,'cat /etc/machine-id').strip()
@@ -225,7 +247,8 @@ def run(request):
     try:
         # Never prepare this same machine even when addressed through a second public IP.
         local_id=Path('/etc/machine-id').read_text().strip()
-        if execute(transport,'cat /etc/machine-id').strip()==local_id:raise events.MigrationError('MIG_SAME_SERVER')
+        target_id=execute(transport,'cat /etc/machine-id').strip()
+        if target_id==local_id:raise events.MigrationError('MIG_SAME_SERVER')
         try:commit=(ROOT/'DEPLOYED_COMMIT').read_text().strip()
         except OSError as error:raise events.MigrationError('MIG_BUILD') from error
         if not re.fullmatch('[0-9a-f]{40}',commit):raise events.MigrationError('MIG_BUILD')
@@ -346,8 +369,7 @@ def run(request):
             status('cancelled','Целевой сервер возвращён в изолированное исходное состояние; исходные службы возобновлены. Проверьте DNS и подключения.',request)
     finally:
         if remote_dir and re.fullmatch('/root/mdnext-transfer-[A-Za-z0-9]+',remote_dir):
-            try:execute(transport,'rm -rf -- '+shlex.quote(remote_dir),timeout=15)
-            except Exception:pass
+            cleanup_transfer(request, transport, remote_dir, target_id)
         transport.close();sock.close()
 
 
