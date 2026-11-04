@@ -19,7 +19,7 @@ def test_awg_tun_shares_node_and_warp_rules_without_system_default_route():
         'routing_rules': [{'type': 'field', 'domain': ['domain:google.com'], 'outboundTag': 'warp'}],
     }))
     inbound = next(i for i in config['inbounds'] if i.get('tag') == 'awg-in')
-    assert inbound['settings'] == {'name': 'mdawg', 'mtu': 1400}
+    assert inbound['settings'] == {'name': 'mdawg', 'mtu': 1380}
     assert inbound['sniffing']['routeOnly'] is True
     assert config['outbounds'][0]['tag'] == 'node-1'
     assert config['routing']['rules'][-1]['outboundTag'] == 'node-1'
@@ -36,7 +36,7 @@ def test_policy_applies_only_to_awg_and_keeps_blackhole(tmp_path):
         if args[:4] == ('ip','-j','route','show'): return SimpleNamespace(returncode=0, stdout='[]')
         if args[:4] == ('ip','-j','-4','address'): return SimpleNamespace(returncode=0, stdout='[{"addr_info":[{"local":"10.8.0.1","prefixlen":24}]}]')
         return SimpleNamespace(returncode=1 if '-C' in args or '-S' in args else 0, stdout='')
-    with patch.object(routes, 'STATE', tmp_path/'owned'), patch.object(routes, 'run', side_effect=fake):
+    with patch.object(routes, 'STATE', tmp_path/'owned'), patch.object(routes, 'run', side_effect=fake), patch.object(routes.mtu, 'apply'):
         routes.apply(config)
     assert ('ip','rule','add','priority','10086','iif','awg0','lookup','10086') in calls
     assert ('ip','route','replace','blackhole','default','metric','32760','table','10086') in calls

@@ -167,6 +167,36 @@ def cleanup_transfer(request, transport, directory, target_id):
         print('Не удалось удалить временный каталог переноса на целевом VPS.', file=sys.stderr)
 
 
+def arm_network(transport, sftp, directory):
+    target = directory + "/network-latch.py"
+    sftp.put(str(LIB / "network-latch.py"), target)
+    sftp.chmod(target, 0o600)
+    result = json.loads(execute(transport, "/usr/bin/python3 " + shlex.quote(target) + " arm"))
+    token = result.get("token", "")
+    if not re.fullmatch("[a-f0-9]{32}", token):
+        raise RuntimeError("Не удалось включить страховку сети")
+    return token
+
+
+def confirm_network(request, token):
+    # Новая SSH-сессия проверяет доступ извне, а не только живое старое соединение.
+    sock, transport = connect_target(request, timeout=5)
+    try:
+        env = (ROOT / "backend/.env").read_text()
+        match = re.search(r"(?m)^PANEL_PUBLIC_URL=(.+)$", env)
+        url = match.group(1).strip().strip('"').strip("'").rstrip("/") if match else ""
+        from urllib.parse import urlsplit
+        if urlsplit(url).scheme != "https" or not urlsplit(url).hostname:
+            raise RuntimeError("Нет HTTPS-адреса контроллера")
+        code = "import urllib.request; r=urllib.request.urlopen(" + repr(url + "/api/v1/health") + ",timeout=10); assert r.status==200"
+        execute(transport, "/usr/bin/python3 -c " + shlex.quote(code), timeout=15)
+        restore = "/var/lib/md-next/network-latch/" + token + "/restore.py"
+        execute(transport, "/usr/bin/python3 " + shlex.quote(restore) + " confirm " + token, timeout=25)
+    finally:
+        transport.close()
+        sock.close()
+
+
 def reboot_target(request,sock,transport):
     before=execute(transport,'cat /proc/sys/kernel/random/boot_id').strip()
     machine=execute(transport,'cat /etc/machine-id').strip()
@@ -244,6 +274,7 @@ def run(request):
     status('connecting','Проверяем ключ SSH нового VPS.',request)
     sock,transport=connect_target(request)
     remote_dir=None
+    latch_token=None
     try:
         # Never prepare this same machine even when addressed through a second public IP.
         local_id=Path('/etc/machine-id').read_text().strip()
@@ -335,6 +366,7 @@ def run(request):
                 remote_dir=execute(transport,'umask 077; mktemp -d /root/mdnext-transfer-XXXXXXXX').strip()
                 if not re.fullmatch('/root/mdnext-transfer-[A-Za-z0-9]+',remote_dir):raise RuntimeError('Invalid remote directory')
             with tempfile.TemporaryDirectory(prefix='mdnext-transfer-',dir=STATE) as folder:
+                latch_token=arm_network(transport,sftp,remote_dir)
                 bundle=Path(folder)/'transfer.mdmove';runtime.write(bundle,blob)
                 # Keep the final encrypted snapshot for disaster recovery.
                 if frozen:runtime.write(STATE/'final.mdmove',blob)
@@ -343,15 +375,22 @@ def run(request):
                 remote_cli(transport,'restore',request['password'],'--file '+shlex.quote(remote))
             status('verifying','Проверяем конфигурации VPN и HTTPS на новом VPS.',request)
             remote_cli(transport,'verify',request['password'])
+            confirm_network(request,latch_token)
+            latch_token=None
             if not frozen:write_json(STATE/'target-ready.json',binding)
             status('awaiting_activation' if frozen else 'prepared',
                    'Финальный снимок перенесён. Исходная панель изолирована. Проверьте протоколы на новом IP и подтвердите активацию.' if frozen else
                    'Пробный перенос выполнен. Новый VPS изолирован; исходная панель работает. Проверьте протоколы, затем выполните финальную синхронизацию.',request)
         elif request['action']=='activate':
             if not (STATE/'source-fenced.json').exists():raise RuntimeError('Исходная панель не остановлена')
+            remote_dir=execute(transport,'umask 077; mktemp -d /root/mdnext-transfer-XXXXXXXX').strip()
+            if not re.fullmatch('/root/mdnext-transfer-[A-Za-z0-9]+',remote_dir):raise RuntimeError('Invalid remote directory')
+            latch_token=arm_network(transport,sftp,remote_dir)
             remote_cli(transport,'verify',request['password'])
             write_json(STATE/'source-activated.json',{'state':'activation_started',**binding})
             remote_cli(transport,'activate',request['password'],'--confirm-cutover --confirm-protocol-tests')
+            confirm_network(request,latch_token)
+            latch_token=None
             write_json(STATE/'source-activated.json',binding)
             finish_session()
             status('activated','Новый VPS активирован. Переключите DNS вручную и проверьте подключения. Автоматический обратный перенос после активации запрещён.',request)

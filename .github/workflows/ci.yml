@@ -50,3 +50,9 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - run: for script in scripts/*.sh; do bash -n "$script"; done
+  network:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: sudo apt-get update && sudo apt-get install -y nftables iptables tcpdump iproute2 iputils-ping
+      - run: sudo python3 scripts/test-network-mtu.py --run

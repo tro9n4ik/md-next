@@ -21,7 +21,8 @@ from app.db.database import get_db
 from app.models.node import Node
 from app.models.node_invite import NodeInvite
 from app.models.setting import Setting
-from app.api.auth import require_admin
+from app.api.auth import get_current_user, require_admin
+from app.schemas.node import NodePublicResponse, NodeAdminResponse
 from app.services.xray import XrayService
 from app.services.cluster import apply_active_node, get_failover_settings, is_manual_direct_route
 from app.services.client_service import ClientService
@@ -114,19 +115,17 @@ class NodeRegister(BaseModel):
     def valid_host(cls, value: str) -> str:
         return validate_host(value)
 
-class NodeResponse(BaseModel):
-    id: int
-    name: str
-    host: str
-    port: int
-    protocol: str
-    country_code: str | None = None
-    is_active: bool
-    is_enabled: bool = True
-    status: str = "healthy"
-    ping_ms: int
-    last_seen: Optional[datetime.datetime] = None
-    priority: int = 0
+NodeResponse = NodeAdminResponse
+
+
+def node_response(node, user):
+    model = NodeAdminResponse if user.role == "admin" else NodePublicResponse
+    values = {key: getattr(node, key) for key in (
+        "id", "name", "country_code", "status", "last_seen",
+        "host", "port", "protocol", "is_active", "is_enabled", "ping_ms", "priority",
+    )}
+    values["is_online"] = bool(node.is_enabled and node.is_active and node.status == "healthy")
+    return model.model_validate(values)
 
 class NodeInviteCreate(BaseModel):
     name: str = "Новый узел"
@@ -157,14 +156,14 @@ class NodeInviteItem(BaseModel):
 def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
-@router.get("", response_model=List[NodeResponse])
-async def get_nodes(db: AsyncSession = Depends(get_db), current_user = Depends(require_admin)):
+@router.get("", response_model=list[NodeAdminResponse | NodePublicResponse])
+async def get_nodes(db: AsyncSession = Depends(get_db), current_user = Depends(get_current_user)):
     """
     Получить список всех узлов кластера (требует авторизации)
     """
     result = await db.execute(select(Node).order_by(Node.priority, Node.id))
     nodes = result.scalars().all()
-    return nodes
+    return [node_response(node, current_user) for node in nodes]
 
 class NodeReorder(BaseModel):
     ids: List[int]
@@ -224,7 +223,7 @@ async def _toggle_node_enabled(node_id, db, current_user):
     await db.commit()
     await db.refresh(node)
     log_event("info", "node", "Узел включён" if node.is_enabled else "Узел отключён", {"node_id": node.id, "name": node.name})
-    return node
+    return node_response(node, current_user)
 
 @router.delete("/{node_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_node(
@@ -513,3 +512,11 @@ async def register_node(node_data: NodeRegister, db: AsyncSession = Depends(get_
     log_event("info", "node_invite", "Приглашение использовано, узел подключён", {"invite_id": invite.id, "node_id": target_node.id, "name": target_node.name, "host": target_node.host})
 
     return {"status": "connected", "node_id": target_node.id, "secret": node_secret}
+
+
+@router.get("/{node_id}", response_model=NodeAdminResponse | NodePublicResponse)
+async def read_node(node_id: int, db: AsyncSession = Depends(get_db), user=Depends(get_current_user)):
+    node = await db.get(Node, node_id)
+    if node is None:
+        raise HTTPException(404, detail="Нода не найдена")
+    return node_response(node, user)
