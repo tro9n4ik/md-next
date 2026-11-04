@@ -2,6 +2,7 @@
 package transport
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hkdf"
@@ -12,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"sync"
 	"time"
 )
@@ -183,8 +185,42 @@ func (k *keys) port(now time.Time, base, count int) (int, error) {
 	if base < 1024 || count < 1 || count > 1024 || base+count > 65536 || now.Unix() < 0 {
 		return 0, errors.New("invalid hopping range")
 	}
-	digest := mac(k.hop, now.Unix()/k.interval)
-	return base + int(binary.BigEndian.Uint64(digest[:8])%uint64(count)), nil
+	slot := now.Unix() / k.interval
+	if count == 1 {
+		return base, nil
+	}
+	if count == 2 {
+		return base + (int(slot&1) ^ int(mac(k.hop, 0)[0]&1)), nil
+	}
+	block := slot / int64(count)
+	order := k.portOrder(block, count)
+	// Swapping only the first two entries leaves the last entry unchanged.
+	// The preceding block's final port is therefore computable without recursion.
+	if block > 0 && order[0].index == k.portOrder(block-1, count)[count-1].index {
+		order[0], order[1] = order[1], order[0]
+	}
+	return base + order[int(slot%int64(count))].index, nil
+}
+
+type portRank struct {
+	index  int
+	digest [32]byte
+}
+
+func (k *keys) portOrder(block int64, count int) []portRank {
+	order := make([]portRank, count)
+	var input [16]byte
+	binary.BigEndian.PutUint64(input[:8], uint64(block))
+	binary.BigEndian.PutUint32(input[8:12], uint32(count))
+	for i := range order {
+		order[i].index = i
+		binary.BigEndian.PutUint32(input[12:], uint32(i))
+		h := hmac.New(sha256.New, k.hop)
+		h.Write(input[:])
+		h.Sum(order[i].digest[:0])
+	}
+	sort.Slice(order, func(i, j int) bool { return bytes.Compare(order[i].digest[:], order[j].digest[:]) < 0 })
+	return order
 }
 
 type window struct {

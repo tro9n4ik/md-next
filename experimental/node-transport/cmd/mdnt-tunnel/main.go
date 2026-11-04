@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"runtime/pprof"
 	"strings"
 	"syscall"
 	"time"
@@ -26,7 +27,19 @@ func run() error {
 	ports := flag.Int("ports", 32, "number of ports")
 	keyFile := flag.String("key-file", "", "private file with a 32-byte hexadecimal key")
 	state := flag.String("state", "", "private persistent receiver key-use directory")
+	profile := flag.String("cpu-profile", "", "optional private CPU profile for an isolated benchmark")
 	flag.Parse()
+	if *profile != "" {
+		file, err := os.OpenFile(*profile, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+		if err = pprof.StartCPUProfile(file); err != nil {
+			return err
+		}
+		defer pprof.StopCPUProfile()
+	}
 	if *state == "" {
 		return fmt.Errorf("state directory required")
 	}

@@ -290,9 +290,22 @@ func RunTunnel(ctx context.Context, device *os.File, config TunnelConfig) error 
 		})
 		return nil
 	}
+	rotateSlot := int64(-1)
+	active, next := 0, 0
 	rotate := func(now time.Time) error {
-		active, _ := receiver.Port(now, config.Base, config.Ports)
-		next, _ := receiver.Port(now.Add(config.Interval), config.Base, config.Ports)
+		slot := now.Unix() / int64(config.Interval/time.Second)
+		if slot != rotateSlot {
+			var err error
+			active, err = receiver.Port(now, config.Base, config.Ports)
+			if err != nil {
+				return err
+			}
+			next, err = receiver.Port(now.Add(config.Interval), config.Base, config.Ports)
+			if err != nil {
+				return err
+			}
+			rotateSlot = slot
+		}
 		for _, port := range []int{active, next} {
 			if err := listen(port); err != nil {
 				return fmt.Errorf("listen port %d: %w", port, err)

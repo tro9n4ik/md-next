@@ -24,6 +24,8 @@ def main():
     parser.add_argument("--binary", default="./mdnt-tunnel")
     parser.add_argument("--duration", type=int, default=120)
     parser.add_argument("--rate", default="300M")
+    parser.add_argument("--profile-dir", help="existing private directory for optional CPU profiles")
+    parser.add_argument("--strict-performance", action="store_true", help="also enforce CPU <=15%% and RTT deviation <=20ms")
     args = parser.parse_args()
     if not args.run:
         print("План: два namespace, veth, TUN MTU1380, UDP iperf120с, RTT/CPU/порты, очистка.")
@@ -70,7 +72,8 @@ def main():
                 state.mkdir(mode=0o700)
                 log = (root / f"peer{index}.log").open("w+")
                 streams.append(log)
-                process = launch(ns, binary, "--tun", "mdnt0", "--bind", f"10.250.231.{index}",
+                profile = ["--cpu-profile", str(Path(args.profile_dir).resolve() / f"peer{index}.pprof")] if args.profile_dir else []
+                process = launch(ns, binary, *profile, "--tun", "mdnt0", "--bind", f"10.250.231.{index}",
                     "--peer", f"10.250.231.{3-index}", "--direction", "uplink" if index == 1 else "downlink",
                     "--key-file", str(key), "--state", str(state), stdout=log, stderr=log)
                 peers.append(process)
@@ -107,9 +110,17 @@ def main():
                 "rtt_median_ms":statistics.median(rtt) if rtt else None, "rtt_max_ms":max(rtt) if rtt else None}
             result["kernel_udp"] = [execute(ns, "cat", "/proc/net/snmp").stdout for ns in namespaces]
             result["tun_counters"] = [json.loads(execute(ns, "ip", "-s", "-j", "link", "show", "mdnt0").stdout)[0].get("stats64") for ns in namespaces]
+            result["criteria"] = {
+                "loss": result["received"]["lost_percent"] <= 0.5,
+                "rotation": all(len(values) >= 2 for values in ports),
+                "cpu": all(value <= 15 for value in percentages),
+                "rtt": bool(rtt) and max(rtt)-statistics.median(rtt) <= 20,
+            }
             print(json.dumps(result), flush=True)
-            assert result["received"]["lost_percent"] <= 0.5, "Потери выше критерия 0,5%"
-            assert all(len(values) >= 2 for values in ports), "Ротация не наблюдалась"
+            assert result["criteria"]["loss"], "Потери выше критерия 0,5%"
+            assert result["criteria"]["rotation"], "Ротация не наблюдалась"
+            if args.strict_performance:
+                assert result["criteria"]["cpu"] and result["criteria"]["rtt"], "CPU или RTT выше критериев ТЗ"
         finally:
             stopped.set()
             if watcher:

@@ -334,6 +334,22 @@ func TestSealIntoHonorsWireMTU(t *testing.T) {
 	}
 }
 
+func TestHoppingDoesNotRepeatAdjacentPorts(t *testing.T) {
+	sender, receiver := pair(t)
+	for _, count := range []int{2, 3, 5, 32} {
+		previous := -1
+		for slot := 0; slot < count*3+2; slot++ {
+			now := time.Unix(int64(slot)*sender.keys.interval, 0)
+			port, err := sender.Port(now, 39000, count)
+			other, e := receiver.Port(now, 39000, count)
+			if err != nil || e != nil || port != other || port == previous || port < 39000 || port >= 39000+count {
+				t.Fatalf("count %d slot %d port %d previous %d: %v %v", count, slot, port, previous, err, e)
+			}
+			previous = port
+		}
+	}
+}
+
 func BenchmarkReuseRoundTrip(b *testing.B) {
 	sender, receiver := pair(b)
 	var encoded, scratch, decoded [2048]byte
