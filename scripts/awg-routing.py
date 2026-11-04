@@ -5,6 +5,7 @@ import ipaddress
 import json
 import subprocess
 import time
+import importlib.util
 from pathlib import Path
 
 TUN = 'mdawg'
@@ -13,6 +14,9 @@ TABLE = '10086'
 PRIORITY = '10086'
 CHAIN = 'MDNEXT_AWG_OUT'
 STATE = Path('/var/lib/md-next/awg-routing-owned')
+spec = importlib.util.spec_from_file_location("network_mtu", Path(__file__).with_name("network-mtu.py"))
+mtu = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mtu)
 MSS_RULES = tuple(
     ('FORWARD', '-i', ingress, '-o', egress, '-p', 'tcp',
      '--tcp-flags', 'SYN,RST', 'SYN', '-m', 'comment', '--comment', 'MD-Next AWG MSS',
@@ -38,6 +42,7 @@ def firewall_rule(*args, table=None):
 
 def remove():
     # Удаляются только точные правила, которыми управляет MD-Next.
+    mtu.remove()
     for rule in MSS_RULES:
         if not run('iptables', '-w', '5', '-t', 'mangle', '-C', *rule, check=False).returncode:
             run('iptables', '-w', '5', '-t', 'mangle', '-D', *rule)
@@ -116,9 +121,11 @@ def apply(config_path):
                 subnet = str(ipaddress.ip_network(f"{address['local']}/{address['prefixlen']}", strict=False))
                 run('ip', 'route', 'replace', subnet, 'dev', 'awg0', 'table', TABLE)
     run('ip', 'route', 'replace', 'default', 'dev', TUN, 'metric', '10', 'table', TABLE)
-    # Учитываем MTU маршрутов ядра в обе стороны, включая SYN+ACK.
+    mtu.apply()
+    # Снимаем правила прежнего выпуска после успешного применения новых.
     for rule in MSS_RULES:
-        firewall_rule(*rule, table='mangle')
+        if not run('iptables', '-w', '5', '-t', 'mangle', '-C', *rule, check=False).returncode:
+            run('iptables', '-w', '5', '-t', 'mangle', '-D', *rule)
     run('sysctl', '-w', 'net.ipv4.ip_forward=1')
 
 

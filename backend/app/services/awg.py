@@ -16,6 +16,7 @@ from app.models.client import Client, ClientProfile
 from app.services.client_limits import access_allowed
 from app.services.events import log_event
 from app.services.shell import run_cmd
+from app.services.network_policy import TUNNEL_MTU
 
 logger = logging.getLogger(__name__)
 
@@ -209,6 +210,7 @@ class AWGService:
                 f"PrivateKey = {settings['server_private_key']}",
                 f"Address = {settings['server_ip']}/24",
                 f"ListenPort = {settings['port']}",
+                f"MTU = {TUNNEL_MTU}",
                 *(f"{key} = {value}" for key, value in protocol.items()),
                 ""
             ]
@@ -322,6 +324,7 @@ class AWGService:
         conf = f"""[Interface]
 PrivateKey = {private_key}
 Address = {address}
+MTU = {TUNNEL_MTU}
 DNS = {dns}
 {protocol_lines}
 

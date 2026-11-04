@@ -46,6 +46,16 @@ def test_schema_upgrade_uses_disposable_database(tmp_path,monkeypatch):
     assert calls[0][0][0][-2:]==['upgrade','head']
 
 
+def test_same_version_restore_rebinds_without_schema_upgrade(tmp_path,monkeypatch):
+    runtime=load_script('migrate-panel.py');calls=[]
+    monkeypatch.setattr(runtime.subprocess,'run',lambda *a,**kw:calls.append((a,kw)) or SimpleNamespace(returncode=0))
+    path=tmp_path/'copy.db'
+    runtime.upgrade_database(path,b'JWT_SECRET_KEY=synthetic-restored-key\n',migrate=False)
+    assert len(calls)==1
+    assert calls[0][0][0][1]=='-c'
+    assert calls[0][1]['env']['JWT_SECRET_KEY']=='synthetic-restored-key'
+
+
 def test_latest_build_requires_signed_commit_and_both_workflows(monkeypatch):
     worker=load_script('migration-ssh.py');sha='a'*40
     def respond(request,**kw):

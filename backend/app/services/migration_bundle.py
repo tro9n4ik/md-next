@@ -6,6 +6,7 @@ import os
 import re
 import secrets
 import sqlite3
+import importlib.util
 import time
 from datetime import datetime, timezone
 from contextlib import closing
@@ -148,6 +149,24 @@ def inventory_database(path):
         return {'revision': revision, 'tables': counts}
 
 
+def portable_secrets(database, environment):
+    import io
+    from dotenv import dotenv_values
+    installation_secret = dotenv_values(stream=io.StringIO(environment), interpolate=False).get("JWT_SECRET_KEY")
+    source = Path(__file__).with_name("node-crypto.py")
+    if not source.is_file():
+        source = Path(__file__).with_name("crypto.py")
+    spec = importlib.util.spec_from_file_location("migration_crypto", source)
+    crypto = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(crypto)
+    with closing(sqlite3.connect(database)) as db, db:
+        tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "nodes" in tables:
+            for identifier, secret in db.execute("SELECT id, secret FROM nodes").fetchall():
+                value = crypto.portable_node_secret(secret, installation_secret=installation_secret)
+                db.execute("UPDATE nodes SET secret=? WHERE id=?", (value, identifier))
+
+
 def capture(root, password, *, frozen=False, portable=False):
     import tempfile
     root = Path(root).resolve()
@@ -201,6 +220,7 @@ def capture(root, password, *, frozen=False, portable=False):
     memory_guard(total+db_source.stat().st_size)
     with tempfile.TemporaryDirectory(prefix='mdnext-move-') as temp:
         saved = Path(temp)/'snapshot.db'; snapshot(db_source.resolve(), saved)
+        portable_secrets(saved, env)
         memory_guard(total+saved.stat().st_size)
         metadata = inventory_database(saved)
         components={}

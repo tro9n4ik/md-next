@@ -19,6 +19,7 @@ from app.models.node import Node
 from app.services.shell import run_cmd
 from app.services.warp_node import warp_outbound
 from app.services.awg_routing import sync_awg_routing
+from app.services.network_policy import TUNNEL_MTU
 
 NODE_TAG_PREFIX = "node-"
 NODE_BALANCER_TAG = "node-balancer"
@@ -252,7 +253,7 @@ class XrayService:
         if options.get("awg_routing"):
             config["inbounds"].append({
                 "tag": "awg-in", "protocol": "tun",
-                "settings": {"name": "mdawg", "mtu": 1400},
+                "settings": {"name": "mdawg", "mtu": TUNNEL_MTU},
             })
         for inbound in config["inbounds"]:
             if inbound["protocol"] in {"vless", "hysteria", "tun"}:

@@ -230,7 +230,7 @@ EOF
 }
 
 install_awg_routing() {
-  apt-get install -y -qq iproute2 iptables
+  apt-get install -y -qq iproute2 iptables nftables
   mkdir -p /etc/sysctl.d
   printf '%s\n' 'net.ipv4.ip_forward=1' > /etc/sysctl.d/90-md-next-awg.conf
   sysctl -p /etc/sysctl.d/90-md-next-awg.conf

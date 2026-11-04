@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
-from app.services.crypto import NODE_SECRET_PREFIX, decrypt_node_secret, encrypt_node_secret
+from app.services.crypto import NODE_SECRET_PREFIX, decrypt_node_secret, encrypt_node_secret, portable_node_secret
 
 MAGIC = b'MDNEXT1\n'
 TABLES = ('nodes', 'clients', 'client_profiles', 'routing_rules', 'settings')
@@ -36,6 +36,8 @@ def export_data():
         snapshot.row_factory = sqlite3.Row
         revision = snapshot.execute('SELECT version_num FROM alembic_version').fetchone()[0]
         data = {table:[dict(row) for row in snapshot.execute(f'SELECT * FROM {table}')] for table in TABLES}
+        for row in data["nodes"]:
+            row["secret"] = portable_node_secret(row["secret"])
         # Binding/notification keys must not be revived after restoring an old snapshot.
         data['settings'] = [r for r in data['settings'] if not r['key'].startswith(('notify.', 'telegram.invite.'))]
         return {'format':1,'revision':revision,'instance':instance_id(), 'created_at':datetime.now(timezone.utc).isoformat(), 'tables':data}
@@ -73,18 +75,18 @@ def read_backup(blob,password):
     with sqlite3.connect('md_next.db') as db:
         revision = db.execute('SELECT version_num FROM alembic_version').fetchone()[0]
         source_revision = data.get('revision')
-        old_node_secrets = source_revision == '0019_client_exit_node' and revision == '0020_encrypt_node_secrets'
+        old_node_secrets = source_revision in {'0019_client_exit_node', '0020_encrypt_node_secrets'} and revision in {'0020_encrypt_node_secrets', '0021_bind_node_secrets'}
         if source_revision != revision and not old_node_secrets:
             raise ValueError('Версия схемы копии не совпадает с текущей')
         for table,rows in data['tables'].items():
             columns = {r[1] for r in db.execute(f'PRAGMA table_info({table})')}
             if not isinstance(rows,list) or any(not isinstance(r,dict) or set(r)!=columns for r in rows):
                 raise ValueError('Структура копии повреждена')
-    if revision == '0020_encrypt_node_secrets':
+    if revision in {'0020_encrypt_node_secrets', '0021_bind_node_secrets'}:
         for row in data['tables']['nodes']:
             stored = row['secret']
             plain = decrypt_node_secret(stored)
-            if plain and not stored.startswith(NODE_SECRET_PREFIX):
+            if plain:
                 row['secret'] = encrypt_node_secret(plain)
     return data
 
