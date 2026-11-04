@@ -121,7 +121,6 @@ func RunTunnel(ctx context.Context, device *os.File, config TunnelConfig) error 
 	}
 	defer egress.Close()
 	defer device.Close()
-	outbound := make(chan *frame, 256)
 	failures := make(chan error, 1)
 	report := func(err error) {
 		if ctx.Err() != nil {
@@ -138,95 +137,100 @@ func RunTunnel(ctx context.Context, device *os.File, config TunnelConfig) error 
 		workers.Add(1)
 		go func() { defer workers.Done(); fn() }()
 	}
-	start(func() {
-		defer close(outbound)
-		var scratch [2048]byte
-		for ctx.Err() == nil {
-			item := framePool.Get().(*frame)
-			n, err := device.Read(item.plain[:])
-			if err != nil {
-				framePool.Put(item)
-				report(err)
-				return
-			}
-			if !ValidIP(item.plain[:n]) {
-				framePool.Put(item)
-				continue
-			}
-			packet, err := sender.SealInto(item.packet[:0], scratch[:], item.plain[:n], time.Now())
-			if err != nil {
-				framePool.Put(item)
-				report(err)
-				return
-			}
-			item.size = len(packet)
-			select {
-			case outbound <- item:
-			case <-ctx.Done():
-				framePool.Put(item)
-				return
-			}
-		}
-	})
+	rawTUN, err := device.SyscallConn()
+	if err != nil {
+		return err
+	}
 	start(func() {
 		connection := ipv4.NewPacketConn(egress)
 		var messages [batchSize]ipv4.Message
 		var buffers [batchSize][1][]byte
 		var items [batchSize]*frame
 		var addresses [batchSize]net.UDPAddr
+		var scratch [2048]byte
 		portSlot := int64(-1)
 		port := 0
 		for i := range messages {
+			items[i] = framePool.Get().(*frame)
 			messages[i].Buffers = buffers[i][:]
 			messages[i].Addr = &addresses[i]
 			addresses[i].IP = config.Peer
 		}
-		for item := range outbound {
-			items[0] = item
-			count := 1
-		gather:
-			for count < batchSize {
-				select {
-				case next, ok := <-outbound:
-					if !ok {
-						break gather
+		defer func() {
+			for _, item := range items {
+				framePool.Put(item)
+			}
+		}()
+		for ctx.Err() == nil {
+			count := 0
+			var readErr error
+			err := rawTUN.Read(func(fd uintptr) bool {
+				for count < batchSize {
+					n, e := syscall.Read(int(fd), items[count].plain[:])
+					if e == syscall.EINTR {
+						continue
 					}
-					items[count] = next
+					if e == syscall.EAGAIN || e == syscall.EWOULDBLOCK {
+						return count > 0
+					}
+					if e != nil {
+						readErr = e
+						return true
+					}
+					if n == 0 {
+						readErr = errors.New("TUN returned EOF")
+						return true
+					}
+					items[count].size = n
 					count++
-				default:
-					break gather
 				}
+				return true
+			})
+			if err != nil {
+				report(err)
+				return
+			}
+			if readErr != nil {
+				report(readErr)
+				return
 			}
 			now := time.Now()
 			slot := now.Unix() / int64(config.Interval/time.Second)
-			var err error
 			if slot != portSlot {
 				port, err = sender.Port(now, config.Base, config.Ports)
-				if err == nil {
-					portSlot = slot
+				if err != nil {
+					report(err)
+					return
 				}
+				portSlot = slot
 			}
-			if err == nil {
-				for i := 0; i < count; i++ {
-					buffers[i][0] = items[i].packet[:items[i].size]
-					addresses[i].Port = port
-				}
-				egress.SetWriteDeadline(time.Now().Add(time.Second))
-				for sent := 0; sent < count && err == nil; {
-					var n int
-					n, err = connection.WriteBatch(messages[sent:count], 0)
-					if n == 0 && err == nil {
-						err = errors.New("UDP batch made no progress")
-					}
-					sent += n
-				}
-			}
+			valid := 0
 			for i := 0; i < count; i++ {
-				framePool.Put(items[i])
-				items[i] = nil
+				item := items[i]
+				if !ValidIP(item.plain[:item.size]) {
+					continue
+				}
+				packet, e := sender.SealInto(item.packet[:0], scratch[:], item.plain[:item.size], now)
+				if e != nil {
+					report(e)
+					return
+				}
+				buffers[valid][0] = packet
+				addresses[valid].Port = port
+				valid++
 			}
-			if err != nil && ctx.Err() == nil {
-				report(err)
+			egress.SetWriteDeadline(time.Now().Add(time.Second))
+			for sent := 0; sent < valid; {
+				n, e := connection.WriteBatch(messages[sent:valid], 0)
+				if e != nil {
+					report(e)
+					return
+				}
+				if n == 0 {
+					report(errors.New("UDP batch made no progress"))
+					return
+				}
+				sent += n
 			}
 		}
 	})

@@ -93,7 +93,7 @@ def main():
             ping = launch(a, "ping", "-i", "0.2", "-c", str(args.duration*5), "-W", "1", "172.29.231.2", stdout=subprocess.PIPE, text=True)
             start = time.monotonic()
             before = [cpu(peer) for peer in peers]
-            client = launch(a, "iperf3", "-c", "172.29.231.2", "-u", "-b", args.rate, "-l", "1200", "-t", str(args.duration), "-J", stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            client = launch(a, "iperf3", "-c", "172.29.231.2", "-u", "-b", args.rate, "-w", "8M", "-l", "1200", "-t", str(args.duration), "-J", stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             output, errors = client.communicate(timeout=args.duration+20)
             elapsed = time.monotonic()-start
             percentages = [100*(cpu(peer)-value)/elapsed for peer,value in zip(peers,before)]

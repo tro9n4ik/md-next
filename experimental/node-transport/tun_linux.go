@@ -11,7 +11,7 @@ import (
 )
 
 // OpenTUN creates only a device. It never changes addresses, routes or firewall.
-// The prototype supports inner IPv4 with MTU 1024; IPv6 forwarding is not ready.
+// The forwarder requires an explicit UP interface with MTU 1380.
 func OpenTUN(name string) (*os.File, error) {
 	if !regexp.MustCompile(`^[A-Za-z0-9_-]{1,15}$`).MatchString(name) {
 		return nil, errors.New("invalid TUN name")
