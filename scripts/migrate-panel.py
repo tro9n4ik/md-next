@@ -217,6 +217,25 @@ def validate_components():
         if result.returncode:raise events.MigrationError(code,exit_code=result.returncode)
 
 
+def has_panel_security():
+    return (FILESYSTEM/'etc/nginx/conf.d/md-next-security.conf').is_file()
+
+
+def prepare_fail2ban():
+    if not has_panel_security():
+        return
+    packages = ('fail2ban', 'python3-systemd', 'nftables')
+    installed = command('dpkg-query', '-W', '-f=${db:Status-Status}\\n', *packages, check=False)
+    if installed.returncode == 0 and installed.stdout.splitlines() == ['installed'] * len(packages):
+        return
+    environment = {**os.environ, 'DEBIAN_FRONTEND': 'noninteractive'}
+    try:
+        subprocess.run(['apt-get', '-o', 'DPkg::Lock::Timeout=120', 'install', '-y', *packages],
+                       env=environment, check=True, capture_output=True, timeout=300)
+    except (OSError, subprocess.SubprocessError) as error:
+        raise events.MigrationError('MIG_FAIL2BAN') from error
+
+
 def clean_install_files(files):
     # Системные файлы принадлежат чистому билду, данные — исходной установке.
     result={name:data for name,data in files.items()
@@ -452,6 +471,7 @@ asyncio.run(main())
             domain=urlsplit(env.get('PANEL_PUBLIC_URL','')).hostname
             if not domain:raise RuntimeError('Не задан домен панели')
             command('curl','--fail','--silent','--show-error','--noproxy','*','--max-time','15','--resolve',domain+':443:127.0.0.1','https://'+domain+'/')
+            prepare_fail2ban()
             database=(ROOT/'backend/md_next.db').resolve()
             write(STATE/'verified.json',json.dumps({'at':time.time(),'database':database_digest(),'configuration':configuration_digest()}).encode())
             print('Проверены применение VPN и HTTPS панели. До активации проверьте каждый протокол с внешнего устройства, направив его на новый IP.');return
@@ -466,6 +486,10 @@ asyncio.run(main())
                 raise RuntimeError('Повторите verify и подтвердите внешнюю проверку протоколов')
             command('nginx','-t')
             command('/usr/local/bin/xray','run','-test','-config','/usr/local/etc/xray/config.json')
+            if has_panel_security():
+                result = command('/usr/bin/python3', str(ROOT/'scripts/install-security.py'), '--fail2ban-only', check=False)
+                if result.returncode:
+                    raise events.MigrationError('MIG_FAIL2BAN', exit_code=result.returncode)
             if manifest.get('components',{}).get('adguard'):
                 command('systemctl','enable','md-next-adguard')
             write(STATE/'activated',b'Activation started; automatic rollback forbidden.\n')
