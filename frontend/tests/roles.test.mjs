@@ -37,7 +37,8 @@ function fixture(clientOverrides = {}) {
   const client = { id: 123, name: 'Issued client', phone: '', email: '', is_active: true, access_allowed: true,
     expires_at: null, profiles: [], connected_protocols: [], monthly_traffic_used: 0, monthly_traffic_limit: 0,
     cdn_monthly_traffic_used: 0, cdn_monthly_traffic_limit: 0, traffic_total: 0, connection_status: 'offline', can_delete: false, can_pause: false, ...clientOverrides };
-  query.setQueryData(['clients', '', 'all', 'created', 'desc', '', ''], [client]);
+  query.setQueryData(['clients', '', 'all', 'created', 'desc', '', '', true], [client]);
+  query.setQueryData(['clients', '', 'all', 'created', 'desc', '', '', false], [client]);
   query.setQueryData(['clientProfiles', 123], { client, access: [], adblock_enabled: false,
     profiles: [{ id: 456, kind: 'vless_reality_tcp', label: 'Reality TCP', data: 'vless://test-profile', is_enabled: true, key_available: true }],
     subscription_url: 'https://vpn.example/sub/test-subscription' });
@@ -118,7 +119,9 @@ test('В списке клиентов есть маршрут и фильтр �
   assert.match(html, /Фильтр по выходу/);
   assert.match(html, /Своя нода/);
   assert.match(html, /Нидерланды/);
-  assert.doesNotMatch(render(ClientsTable, subadmin, exitFixture(2)), /Фильтр по выходу|Изменить выход клиента/);
+  const limited = render(ClientsTable, subadmin, exitFixture(2), '/?exit=2');
+  assert.match(limited, /Issued client/);
+  assert.doesNotMatch(limited, /Фильтр по выходу|Изменить выход клиента|Нидерланды|Своя нода/);
 });
 
 test('Канал к нодам отделён от пресетов и объясняет маршрут и границы ускорения', () => {

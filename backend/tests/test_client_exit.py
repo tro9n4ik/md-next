@@ -172,6 +172,30 @@ async def test_route_validation_and_subadmin_cannot_assign(auth_headers):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("view_all", [False, True])
+async def test_subadmin_client_list_does_not_disclose_exit_nodes(auth_headers, view_all):
+    from test_subadmins import account
+
+    cid = await seed()
+    user_id, headers = await account(auth_headers, "route-reader", view_all=view_all)
+    async with TestingSessionLocal() as db:
+        client = await db.get(Client, cid)
+        client.created_by_id = user_id
+        client.exit_node_id = 2
+        db.add(Client(name="Общий выход", phone="", email="", created_by_id=user_id))
+        await db.commit()
+
+    admin = await request("GET", "/api/v1/clients", auth_headers)
+    assert {row["exit_route"]["node"]["id"] for row in admin.json()} == {1, 2}
+    limited = await request("GET", "/api/v1/clients", headers)
+    assert limited.status_code == 200
+    assert len(limited.json()) == 2
+    assert all("exit_route" not in row for row in limited.json())
+    for node_id in (0, 2, 99):
+        assert (await request("GET", f"/api/v1/clients?exit_node_id={node_id}", headers)).status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_new_client_can_be_pinned_at_creation(auth_headers):
     await seed()
     with patch("app.api.clients._sync_protocols", new=AsyncMock()):

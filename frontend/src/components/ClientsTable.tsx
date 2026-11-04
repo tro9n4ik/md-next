@@ -74,7 +74,7 @@ const ClientsTable: React.FC<{ description?: string }> = ({ description = 'По�
   const sort = (params.get('sort') || 'created') as SortField;
   const order = params.get('order') || 'desc';
   const groupFilter = params.get('group') || '';
-  const exitFilter = params.get('exit') || '';
+  const exitFilter = isAdmin ? params.get('exit') || '' : '';
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -91,7 +91,7 @@ const ClientsTable: React.FC<{ description?: string }> = ({ description = 'По�
     refetchInterval: 15000,
   });
   const clientsQuery = useQuery<Client[]>({
-    queryKey: ['clients', q, status, sort, order, groupFilter, exitFilter],
+    queryKey: ['clients', q, status, sort, order, groupFilter, exitFilter, isAdmin],
     enabled: !createModalOpen,
     refetchInterval: 15000,
     queryFn: async () => {
@@ -216,7 +216,7 @@ const ClientsTable: React.FC<{ description?: string }> = ({ description = 'По�
         {rows.map(client => <tr key={client.id}>
           <td data-label="Клиент"><div className="client-identity"><span className={`client-avatar group-${client.group?.color || 'slate'}`}>{client.name.charAt(0).toUpperCase()}</span><div><b>{client.name}</b><span className="client-contact">{client.email || client.phone || `ID ${client.id}`}</span></div></div>
             <div className={`client-group-badge group-${client.group?.color || 'slate'}`}><i />{(isAdmin || (canIssue && client.can_change_group)) ? <select aria-label={`Группа клиента ${client.name}`} value={client.group_id ?? ''} disabled={assignGroup.isPending || groups.isError || groups.isLoading} onChange={event => { setError(''); assignGroup.mutate({ id: client.id, groupId: event.target.value }); }}><option value="">Без группы</option>{groups.data?.groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select> : <span>{client.group?.name || 'Без группы'}</span>}</div>
-            <div className="client-route-cell">{isAdmin ? <button type="button" aria-label={`Изменить выход клиента ${client.name}`} onClick={() => navigate(`/clients/${client.id}/access`)}><ExitRouteBadge route={client.exit_route} /></button> : <ExitRouteBadge route={client.exit_route} />}</div>
+            {isAdmin && <div className="client-route-cell"><button type="button" aria-label={`Изменить выход клиента ${client.name}`} onClick={() => navigate(`/clients/${client.id}/access`)}><ExitRouteBadge route={client.exit_route} /></button></div>}
           </td>
           <td data-label="Активность и доступ"><span className={`client-presence ${client.connection_status === 'online' ? 'is-online' : ''}`}><i />{client.connection_status === 'online' ? 'Онлайн' : client.connection_status === 'unknown' ? 'Нет данных' : client.last_seen_at ? 'Был онлайн' : 'Офлайн'}</span>
             <p className="client-last-seen">{client.last_seen_at ? <time dateTime={client.last_seen_at}>{lastOnlineLabel(client.last_seen_at)}</time> : 'Активность ещё не зафиксирована'}</p>
