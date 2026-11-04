@@ -5,7 +5,21 @@ set -euo pipefail
 base=ac93907814ef71962a47ddc4330b85ec0058d4f2
 candidate=a41183d11f58b540346cc818e3107c89b6c6edb9
 scratch=$(mktemp -d)
-trap 'rm -rf -- "$scratch"' EXIT
+monitor=
+cleanup() {
+  if [[ -n $monitor ]]; then kill "$monitor" 2>/dev/null || true; fi
+  rm -rf -- "$scratch"
+}
+trap cleanup EXIT
+(
+  while sleep 20; do
+    echo 'VM_HEARTBEAT'
+    free -m | head -2
+    systemctl show md-next-backend xray --property=Id,ActiveState,SubState --no-pager
+    ip route show default
+  done
+) &
+monitor=$!
 
 git init -q "$scratch/base"
 git -C "$scratch/base" fetch --depth=1 https://github.com/tro9n4ik/md-next.git "$base"

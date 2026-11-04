@@ -21,3 +21,8 @@ jobs:
           mem: 6144
           copyback: false
           run: MDNEXT_DISPOSABLE_VM=1 bash tests/linux-lab/update_mss.sh
+      - name: Диагностика хоста виртуальной машины
+        if: failure()
+        run: |
+          free -m
+          sudo dmesg | grep -Ei 'oom|killed process|qemu|kvm' | tail -15 || true
