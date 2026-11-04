@@ -6,6 +6,7 @@ import { Copy, Check, Plus, Trash2, AlertTriangle, ArrowRight, ArrowUp, ArrowDow
 import CountryFlag from './ui/CountryFlag';
 import Drawer from './ui/Drawer';
 import { apiFetch } from '../utils/api';
+import { panelPolling, panelPollNotice } from '../utils/panelPolling';
 
 interface NodeData {
   id: number;
@@ -94,25 +95,19 @@ export const NodesManager: React.FC = () => {
   const [routeCheckState, setRouteCheckState] = useState<{ key: string; result: RouteCheckResult } | null>(null);
   const [now, setNow] = useState(Date.now);
 
-  const { data: nodes = [], isPending: nodesLoading, isError: nodesError, refetch: reloadNodes } = useQuery<NodeData[]>({
+  const nodesQuery = useQuery({
     queryKey: ['nodes'],
-    queryFn: async () => {
-      const res = await apiFetch('/api/v1/nodes');
-      if (!res.ok) throw new Error('Не удалось загрузить список узлов');
-      return res.json();
-    },
-    refetchInterval: 15000
+    ...panelPolling<NodeData[]>('/api/v1/nodes'),
   });
+  const { data: nodes = [], isPending: nodesLoading, refetch: reloadNodes } = nodesQuery;
+  const nodesNotice = panelPollNotice(nodesQuery);
 
-  const { data: route, isError: routeError, refetch: reloadRoute } = useQuery<RouteData>({
+  const routeQuery = useQuery({
     queryKey: ['clusterRoute'],
-    queryFn: async () => {
-      const res = await apiFetch('/api/v1/cluster/route');
-      if (!res.ok) throw new Error('Не удалось загрузить схему маршрута');
-      return res.json();
-    },
-    refetchInterval: 15000,
+    ...panelPolling<RouteData>('/api/v1/cluster/route'),
   });
+  const { data: route, refetch: reloadRoute } = routeQuery;
+  const routeNotice = panelPollNotice(routeQuery);
 
   const { data: failoverSettings, isError: failoverError, refetch: reloadFailover } = useQuery<FailoverSettings>({
     queryKey: ['clusterFailover'],
@@ -306,8 +301,8 @@ export const NodesManager: React.FC = () => {
   return <div className="nodes-workspace">
     <header className="dashboard-heading"><div><div className="dashboard-eyebrow">ВАША СЕТЬ БЕЗ ПЕРЕРЫВОВ</div><h1>Узлы</h1><p>Серверы, активный выход и резервирование</p></div><div className="page-actions"><button className="ui-button ui-button-secondary" onClick={() => { void reloadNodes(); void reloadRoute(); void reloadFailover(); }} disabled={nodesLoading}><RefreshCw size={16} />Обновить</button><button onClick={() => { createInviteMutation.reset(); setCreateModalOpen(true); }} className="ui-button ui-button-primary"><Plus size={17} />Добавить ноду</button></div></header>
     <div className="nodes-summary">
-      <section className="node-summary-card"><span className="node-summary-icon"><Server size={21} /></span><div><h2>Всего узлов</h2><b>{nodesError || nodesLoading ? '—' : nodes.length}</b><p>Подключённые серверы</p></div></section>
-      <section className="node-summary-card"><span className="node-summary-icon"><Globe size={21} /></span><div><h2>Доступны</h2><b>{nodesError || nodesLoading ? '—' : <>{nodes.filter(node => node.is_enabled && node.is_active && node.status === 'healthy').length}<span> / {nodes.length}</span></>}</b><p>{nodesError ? 'Данные недоступны' : 'По последней проверке'}</p></div></section>
+      <section className="node-summary-card"><span className="node-summary-icon"><Server size={21} /></span><div><h2>Всего узлов</h2><b>{!nodesQuery.data ? '—' : nodes.length}</b><p>Подключённые серверы</p></div></section>
+      <section className="node-summary-card"><span className="node-summary-icon"><Globe size={21} /></span><div><h2>Доступны</h2><b>{!nodesQuery.data ? '—' : <>{nodes.filter(node => node.is_enabled && node.is_active && node.status === 'healthy').length}<span> / {nodes.length}</span></>}</b><p>{nodesNotice ? 'Обновление не получено' : 'По последней проверке'}</p></div></section>
       <section className="node-summary-card"><span className="node-summary-icon"><ShieldCheck size={21} /></span><div><h2>Автопереключение</h2><b className="node-mode-label">{failoverError ? 'Нет данных' : failoverSettings ? failoverSettings.mode === 'auto' ? 'Включено' : 'Ручной режим' : 'Загрузка…'}</b><p>{route?.next_candidate ? `Резерв: ${route.next_candidate.name}` : 'Резерв не выбран'}</p></div></section>
     </div>
     <section className="ui-card ui-panel node-route-card">
@@ -315,23 +310,23 @@ export const NodesManager: React.FC = () => {
       <div className="node-current-route">
         <div className="node-route-stop"><span className="node-stop-icon"><Users size={22} /></span><div><b>Клиенты</b><small>VPN-подключения</small></div></div><ArrowRight className="node-flow-arrow" size={20} />
         <div className="node-route-stop"><span className="node-stop-icon"><Server size={22} /></span><div><b>Основной сервер</b><small>{route?.server.hostname || 'Нет данных'}</small></div></div><ArrowRight className="node-flow-arrow" size={20} />
-        <div className="node-route-stop node-route-stop-active"><span className="node-stop-icon">{route?.active_node && activeCountry ? <CountryFlag code={activeCountry} /> : <Globe size={22} />}</span><div><small>Текущий выход</small><b>{route ? route.active_node?.name || 'Прямой выход' : routeError ? 'Нет данных' : 'Загрузка…'}</b><small>{route?.active_node ? `${route.active_node.status === 'healthy' ? 'Доступна' : 'Недоступна'} · ${route.active_node.ping_ms > 0 ? `${route.active_node.ping_ms} мс` : 'Задержка неизвестна'}` : route ? 'Через сервер панели' : 'Получаем маршрут'}</small></div></div>
+        <div className="node-route-stop node-route-stop-active"><span className="node-stop-icon">{route?.active_node && activeCountry ? <CountryFlag code={activeCountry} /> : <Globe size={22} />}</span><div><small>Текущий выход</small><b>{route ? route.active_node?.name || 'Прямой выход' : routeNotice ? 'Нет данных' : 'Загрузка…'}</b><small>{route?.active_node ? `${route.active_node.status === 'healthy' ? 'Доступна' : 'Недоступна'} · ${route.active_node.ping_ms > 0 ? `${route.active_node.ping_ms} мс` : 'Задержка неизвестна'}` : route ? 'Через сервер панели' : 'Получаем маршрут'}</small></div></div>
       </div>
       <div className="node-route-caption"><span>{route?.active_node ? route.active_node.ip : route ? route.server.public_ip || route.server.hostname : 'Ожидание данных'}</span><span>{route ? route.failover_mode === 'auto' ? 'Автопереключение включено' : 'Ручной режим' : 'Получаем маршрут'}</span></div>
-      {routeError && <p role="alert" className="mt-3 text-sm text-red-700">Не удалось загрузить маршрут. <button className="underline" onClick={() => reloadRoute()}>Повторить</button></p>}
+      {routeNotice && <p role="status" className="mt-3 text-sm text-amber-700">{routeNotice} <button className="underline" onClick={() => reloadRoute()}>Повторить</button></p>}
       {route && !route.vpn.xray && <p role="alert" className="mt-3 text-sm text-red-700">Xray не работает. Проверьте состояние сервиса.</p>}
       {route?.manual_direct && <p className="mt-3 text-xs text-amber-700">Прямой выход выбран вручную. Автоматика не заменит его нодой.</p>}
       {routeCheck && <p role="status" className="mt-4 border-l-2 border-emerald-600 pl-3 text-sm">Внешний IP через Xray: <b>{routeCheck.exit_ip}</b>{routeCheck.country ? ` · ${routeCheck.country}` : ''}<span className="mt-1 block text-xs text-neutral-500">{new Date(routeCheck.checked_at).toLocaleString('ru-RU')} · {routeCheck.manual_direct ? 'Прямой выход' : routeCheck.active_node?.name || 'Прямой выход'}</span></p>}
-      <button className="ui-button ui-button-secondary mt-4" onClick={() => activeNodeMutation.mutate(null)} disabled={activeNodeMutation.isPending || !route?.active_node}>Прямой выход</button>
+      <button className="ui-button ui-button-secondary mt-4" onClick={() => activeNodeMutation.mutate(null)} disabled={activeNodeMutation.isPending || !!routeNotice || !route?.active_node}>Прямой выход</button>
     </section>
 
     {clusterError && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{clusterError}</p>}
 
     <section className="ui-card ui-panel node-list-card">
       <div className="node-section-heading"><div><span className="node-section-icon"><Server size={20} /></span><h2>Подключённые узлы <span className="node-count">{nodes.length}</span></h2></div><span className="node-priority-hint">Порядок определяет приоритет резервирования</span></div>
-      {nodesError && <p role="alert" className="mb-3 text-sm text-red-700">Не удалось загрузить узлы. <button className="underline" onClick={() => reloadNodes()}>Повторить</button></p>}
-      {nodesLoading && <p className="text-sm text-neutral-500">Загрузка нод…</p>}
-      {!nodesLoading && !nodesError && !nodes.length && <p className="py-5 text-sm text-neutral-500">Узлы ещё не подключены. Добавьте ноду по одноразовому приглашению.</p>}
+      {nodesNotice && <p role="status" className="mb-3 text-sm text-amber-700">{nodesNotice} <button className="underline" onClick={() => reloadNodes()}>Повторить</button></p>}
+      {nodesLoading && !nodesNotice && <p className="text-sm text-neutral-500">Загрузка нод…</p>}
+      {nodesQuery.data && !nodesNotice && !nodes.length && <p className="py-5 text-sm text-neutral-500">Узлы ещё не подключены. Добавьте ноду по одноразовому приглашению.</p>}
       <div className="node-list-columns" aria-hidden="true"><span>Узел и состояние</span><span>Адрес</span><span>Задержка</span><span>Приоритет и действия</span></div>
       <ul aria-label="Список нод" className="node-list">{nodes.map((node, index) => <li key={node.id} className={`node-list-row ${route?.active_node?.id === node.id ? 'node-list-row-active' : ''}`}>
         <div className="col-span-2 min-w-0 md:col-span-1"><div className="flex flex-wrap items-center gap-2"><CountryFlag code={node.country_code} /><h3 className="break-all text-sm font-semibold">{node.name}</h3>{route?.active_node?.id === node.id && <span className="text-xs font-medium text-emerald-700">Активная</span>}</div><p className={`mt-1 text-xs ${node.status === 'healthy' ? 'text-emerald-700' : node.status === 'disabled' ? 'text-neutral-500' : 'text-red-700'}`}>{node.status === 'healthy' ? 'Доступна' : node.status === 'disabled' ? 'Выключена' : 'Недоступна'}</p></div>
@@ -340,7 +335,7 @@ export const NodesManager: React.FC = () => {
         <div className="col-span-2 flex flex-wrap items-center gap-1.5 md:col-span-1 md:grid md:grid-cols-[2rem_2.25rem_2.25rem_9rem_2.25rem] md:items-center"><span className="mr-1 text-xs text-neutral-400">#{node.priority + 1}</span>
           <button aria-label={`Поднять приоритет: ${node.name}`} disabled={index === 0 || reorderMutation.isPending} onClick={() => { const ids = nodes.map(item => item.id); [ids[index - 1], ids[index]] = [ids[index], ids[index - 1]]; reorderMutation.mutate(ids); }} className="ui-button ui-button-secondary !min-h-9 !p-2"><ArrowUp size={16} /></button>
           <button aria-label={`Опустить приоритет: ${node.name}`} disabled={index === nodes.length - 1 || reorderMutation.isPending} onClick={() => { const ids = nodes.map(item => item.id); [ids[index + 1], ids[index]] = [ids[index], ids[index + 1]]; reorderMutation.mutate(ids); }} className="ui-button ui-button-secondary !min-h-9 !p-2"><ArrowDown size={16} /></button>
-          {route?.active_node?.id === node.id ? <span className="node-active-pill">Активная</span> : <button aria-label={`Сделать активной: ${node.name}`} onClick={() => activeNodeMutation.mutate(node.id)} disabled={!node.is_enabled || node.status !== 'healthy' || activeNodeMutation.isPending || !route} className="ui-button ui-button-secondary !min-h-9 !px-3 !py-1 text-xs">Сделать активной</button>}
+          {route?.active_node?.id === node.id ? <span className="node-active-pill">Активная</span> : <button aria-label={`Сделать активной: ${node.name}`} onClick={() => activeNodeMutation.mutate(node.id)} disabled={!node.is_enabled || node.status !== 'healthy' || activeNodeMutation.isPending || !!routeNotice || !!nodesNotice || !route} className="ui-button ui-button-secondary !min-h-9 !px-3 !py-1 text-xs">Сделать активной</button>}
           <button aria-label={`Удалить ноду: ${node.name}`} onClick={() => { setNodeToDelete(node); setDeleteError(null); }} className="ui-button ui-button-secondary !min-h-9 !p-2 text-neutral-500"><Trash2 size={16} /></button>
         </div>
       </li>)}</ul>

@@ -30,8 +30,56 @@ const AccountPage = require('../src/pages/AccountPage.tsx').default;
 const HelpPage = require('../src/pages/HelpPage.tsx').default;
 const { wikiArticles, wikiCategories, findWikiArticles } = require('../src/data/wiki.ts');
 const { NodesManager } = require('../src/components/NodesManager.tsx');
+const Metrics = require('../src/components/Metrics.tsx').default;
+const DashboardPage = require('../src/pages/DashboardPage.tsx').default;
+const { panelPolling, panelPollNotice } = require('../src/utils/panelPolling.ts');
 const subadmin = { id: 2, username: 'issuer', role: 'subadmin', view_all_clients: false, can_issue_subscriptions: true, can_delete_subscriptions: false, can_pause_subscriptions: false };
 const admin = { ...subadmin, id: 1, username: 'admin', role: 'admin' };
+
+test('Сбой опроса сохраняет последние данные и отличается от ответа об офлайне', () => {
+  const query = fixture();
+  query.setDefaultOptions({ queries: { retryOnMount: false } });
+  const nodes = [{ id: 1, name: 'Тестовая нода', host: '192.0.2.10', is_enabled: true, status: 'offline' }];
+  query.setQueryData(['nodes'], nodes);
+  const offline = render(Metrics, admin, query);
+  assert.match(offline, /Тестовая нода/);
+  assert.match(offline, /Недоступна/);
+  assert.doesNotMatch(offline, /Не удалось обновить/);
+  query.getQueryCache().find({ queryKey: ['nodes'] }).setState({ status: 'error', error: new Error('502'), fetchFailureCount: 3 });
+  const cached = render(Metrics, admin, query);
+  assert.match(cached, /Тестовая нода/);
+  assert.match(cached, /Показаны последние полученные данные/);
+  assert.match(render(DashboardPage, admin, query), /Показаны последние полученные данные/);
+  query.removeQueries({ queryKey: ['nodes'] });
+  query.setQueryData(['nodes'], []);
+  query.getQueryCache().find({ queryKey: ['nodes'] }).setState({ status: 'error', data: undefined, error: new Error('502'), fetchFailureCount: 3 });
+  const failed = render(Metrics, admin, query);
+  assert.match(failed, /Не удалось обновить данные панели/);
+  assert.doesNotMatch(failed, /Узлов пока нет|>прямой</);
+  query.setQueryData(['nodes'], []);
+  query.setQueryData(['clusterRoute'], { active_node: null });
+  const recovered = render(Metrics, admin, query);
+  assert.match(recovered, /Узлов пока нет/);
+  assert.match(recovered, />прямой</);
+});
+
+test('Повтор опроса ограничен двумя попытками и увеличивает задержку', async (t) => {
+  const polling = panelPolling('/api/v1/nodes');
+  const signal = new AbortController().signal;
+  const fetch = t.mock.method(globalThis, 'fetch', async () => new Response(null, { status: 503 }));
+  await assert.rejects(() => polling.queryFn({ signal }), error => {
+    assert.equal(polling.retry(0, error), true);
+    assert.equal(polling.retry(1, error), true);
+    assert.equal(polling.retry(2, error), false);
+    return true;
+  });
+  fetch.mock.mockImplementation(async () => new Response(null, { status: 403 }));
+  await assert.rejects(() => polling.queryFn({ signal }), error => !polling.retry(0, error));
+  assert.deepEqual([0, 1, 10].map(polling.retryDelay), [1000, 2000, 4000]);
+  assert.match(panelPollNotice({ data: [], failureCount: 1, isError: false }), /Повторяем запрос/);
+  assert.doesNotMatch(panelPollNotice({ data: [], failureCount: 2, isError: false }), /Не удалось/);
+  assert.match(panelPollNotice({ data: [], failureCount: 3, isError: true }), /Не удалось/);
+});
 function fixture(clientOverrides = {}) {
   const query = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const client = { id: 123, name: 'Issued client', phone: '', email: '', is_active: true, access_allowed: true,

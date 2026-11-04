@@ -31,7 +31,7 @@ export const RoutingRules: React.FC = () => {
   });
   const { data: nodes = [] } = useQuery<NodeOption[]>({
     queryKey: ['nodes'],
-    queryFn: async () => { const res = await apiFetch('/api/v1/nodes'); if (!res.ok) return []; const data = await res.json(); return Array.isArray(data) ? data : (data.nodes || []); }
+    queryFn: async () => { const res = await apiFetch('/api/v1/nodes'); if (!res.ok) throw new Error('Не удалось загрузить список узлов'); const data = await res.json(); return Array.isArray(data) ? data : (data.nodes || []); }
   });
 
   const createRuleMutation = useMutation({

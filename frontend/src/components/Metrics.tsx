@@ -3,6 +3,7 @@ import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Activity, Cpu, Network, Server, Users } from 'lucide-react';
 import { apiFetch } from '../utils/api';
+import { panelPolling, panelPollNotice } from '../utils/panelPolling';
 import { formatBytes, formatNumber, formatSpeed, translateStatus } from '../utils/ru';
 
 interface SystemStats {
@@ -25,8 +26,10 @@ const Metrics: React.FC = () => {
   const stats = useQuery<SystemStats>({ queryKey: ['systemStats'], queryFn: async () => { const r = await apiFetch('/api/v1/system/stats'); if (!r.ok) throw new Error('Не удалось получить данные сервера'); return r.json(); }, refetchInterval: 5000 });
   const traffic = useQuery<TrafficStats>({ queryKey: ['systemTraffic'], queryFn: async () => { const r = await apiFetch('/api/v1/system/traffic'); if (!r.ok) throw new Error('Не удалось получить статистику трафика'); return r.json(); }, refetchInterval: 30000 });
   const clients = useQuery<DashboardClient[]>({ queryKey: ['clients'], queryFn: async () => { const r = await apiFetch('/api/v1/clients'); if (!r.ok) return []; return r.json(); }, refetchInterval: 15000 });
-  const nodes = useQuery<DashboardNode[]>({ queryKey: ['nodes'], queryFn: async () => { const r = await apiFetch('/api/v1/nodes'); if (!r.ok) return []; return r.json(); }, refetchInterval: 15000 });
-  const route = useQuery<RouteInfo>({ queryKey: ['clusterRoute'], queryFn: async () => { const r = await apiFetch('/api/v1/cluster/route'); if (!r.ok) return { active_node: null }; return r.json(); }, refetchInterval: 15000 });
+  const nodes = useQuery({ queryKey: ['nodes'], ...panelPolling<DashboardNode[]>('/api/v1/nodes') });
+  const route = useQuery({ queryKey: ['clusterRoute'], ...panelPolling<RouteInfo>('/api/v1/cluster/route') });
+  const nodesNotice = panelPollNotice(nodes);
+  const routeNotice = panelPollNotice(route);
 
   const data = stats.data;
   const activeCount = (clients.data || []).filter(item => item.is_active).length;
@@ -49,8 +52,10 @@ const Metrics: React.FC = () => {
 
     <section className={card}>
       <h3 className={heading}><Server className="h-4 w-4" />Узлы</h3>
-      <p className="mb-3 rounded-xl bg-neutral-50 p-3 text-sm">Выход: <b>{route.data?.active_node?.name || 'прямой'}</b></p>
-      {(nodes.data || []).length === 0 ? <p className="text-sm text-neutral-500">Узлов пока нет. <a className="font-medium text-indigo-600 hover:underline" href="#/nodes">Добавить на странице «Узлы»</a></p> : <div className="max-h-52 space-y-2 overflow-y-auto">{nodes.data?.map(node => <div key={node.id} className="flex items-center justify-between gap-2 rounded-lg border border-neutral-100 px-3 py-2 text-sm"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2 font-medium"><CountryFlag code={node.country_code} />{node.name}{route.data?.active_node?.id === node.id && <span className="ml-2 text-xs text-indigo-600">Активная</span>}</div><div className="truncate text-xs text-neutral-500">{node.host}</div></div><div className="shrink-0 text-right"><div className="text-xs">{translateStatus(!node.is_enabled ? 'disabled' : node.status)}</div><div className="text-xs text-neutral-500">{node.ping_ms && node.ping_ms > 0 ? `${formatNumber(node.ping_ms)} мс` : '—'}</div></div></div>)}</div>}
+      <p className="mb-3 rounded-xl bg-neutral-50 p-3 text-sm">Выход: <b>{route.data ? route.data.active_node?.name || 'прямой' : '—'}</b></p>
+      {routeNotice && <p role="status" className="mb-2 text-sm text-amber-700">Маршрут. {routeNotice}</p>}
+      {nodesNotice && <p role="status" className="mb-2 text-sm text-amber-700">Список узлов. {nodesNotice}</p>}
+      {!nodes.data ? (!nodesNotice && <p className="text-sm text-neutral-500">Загрузка узлов…</p>) : nodes.data.length === 0 ? (!nodesNotice && <p className="text-sm text-neutral-500">Узлов пока нет. <a className="font-medium text-indigo-600 hover:underline" href="#/nodes">Добавить на странице «Узлы»</a></p>) : <div className="max-h-52 space-y-2 overflow-y-auto">{nodes.data?.map(node => <div key={node.id} className="flex items-center justify-between gap-2 rounded-lg border border-neutral-100 px-3 py-2 text-sm"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2 font-medium"><CountryFlag code={node.country_code} />{node.name}{route.data?.active_node?.id === node.id && <span className="ml-2 text-xs text-indigo-600">Активная</span>}</div><div className="truncate text-xs text-neutral-500">{node.host}</div></div><div className="shrink-0 text-right"><div className="text-xs">{translateStatus(!node.is_enabled ? 'disabled' : node.status)}</div><div className="text-xs text-neutral-500">{node.ping_ms && node.ping_ms > 0 ? `${formatNumber(node.ping_ms)} мс` : '—'}</div></div></div>)}</div>}
     </section>
 
     <section className={card}>
