@@ -168,6 +168,8 @@ def cleanup_transfer(request, transport, directory, target_id):
 
 
 def arm_network(transport, sftp, directory):
+    sftp.put(str(LIB / "controller-probe.py"), directory + "/controller-probe.py")
+    sftp.chmod(directory + "/controller-probe.py",0o600)
     target = directory + "/network-latch.py"
     sftp.put(str(LIB / "network-latch.py"), target)
     sftp.chmod(target, 0o600)
@@ -175,6 +177,7 @@ def arm_network(transport, sftp, directory):
     token = result.get("token", "")
     if not re.fullmatch("[a-f0-9]{32}", token):
         raise RuntimeError("Не удалось включить страховку сети")
+    execute(transport,"cp -- " + shlex.quote(directory+"/controller-probe.py") + " /var/lib/md-next/network-latch/" + token + "/controller-probe.py",timeout=5)
     return token
 
 
@@ -188,8 +191,14 @@ def confirm_network(request, token):
         from urllib.parse import urlsplit
         if urlsplit(url).scheme != "https" or not urlsplit(url).hostname:
             raise RuntimeError("Нет HTTPS-адреса контроллера")
-        code = "import urllib.request; r=urllib.request.urlopen(" + repr(url + "/api/v1/health") + ",timeout=10); assert r.status==200"
-        execute(transport, "/usr/bin/python3 -c " + shlex.quote(code), timeout=15)
+        # Resolve on the controller in a killable process; target never performs DNS.
+        code = "import socket,sys; a=socket.getaddrinfo(sys.argv[1],None,type=socket.SOCK_STREAM); print((next((e[4][0] for e in a if e[0]==socket.AF_INET),a[0][4][0])))"
+        result = subprocess.run([sys.executable,"-c",code,urlsplit(url).hostname],capture_output=True,text=True,timeout=2.0,check=True)
+        address = str(__import__('ipaddress').ip_address(result.stdout.strip()))
+        # The independently copied probe enforces its own 2-second wall-clock budget.
+        # Kept inside the independent latch directory, beyond worker cleanup.
+        probe = "/var/lib/md-next/network-latch/" + token + "/controller-probe.py"
+        execute(transport,"/usr/bin/python3 " + shlex.quote(probe) + " --url " + shlex.quote(url) + " --ip " + shlex.quote(address),timeout=5)
         restore = "/var/lib/md-next/network-latch/" + token + "/restore.py"
         execute(transport, "/usr/bin/python3 " + shlex.quote(restore) + " confirm " + token, timeout=25)
     finally:

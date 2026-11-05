@@ -46,7 +46,7 @@ def nft_script(exists):
             source += (
                 f'iifname "{ingress}" oifname "{egress}" meta nfproto {family} '
                 f'tcp flags & (syn | rst) == syn tcp option maxseg size > {ceiling} '
-                f'tcp option maxseg size set {ceiling}\n'
+                f'counter tcp option maxseg size set {ceiling}\n'
             )
     return source + "}\n}\n"
 
@@ -74,9 +74,9 @@ def apply():
         command("nft", "-f", "-", input=script)
         remove_iptables()
         return
-    for binary, rule in rules():
-        if command(binary, "-w", "5", "-t", "mangle", "-C", *rule, check=False).returncode:
-            command(binary, "-w", "5", "-t", "mangle", "-A", *rule)
+    remove_iptables()
+    for binary,rule in rules():
+        command(binary,"-w","5","-t","mangle","-I",rule[0],"1",*rule[1:])
 
 
 def remove():

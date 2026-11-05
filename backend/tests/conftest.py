@@ -13,6 +13,7 @@ os.environ["XRAY_PUBLIC_KEY"] = "test_xray_public_key"
 os.environ["XRAY_SERVER_NAME"] = "example.com"
 os.environ["XRAY_CONFIG_PATH"] = str(Path(test_directory.name) / "xray.json")
 os.environ["TESTING"] = "true"
+os.environ["MDNEXT_HOST_KEY_FILE"] = str(Path(test_directory.name) / "host.key")
 
 import pytest
 import pytest_asyncio

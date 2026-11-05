@@ -19,17 +19,12 @@ class DecryptionError(ValueError):
 
 @lru_cache(maxsize=1)
 def machine_id():
-    for name in ("/etc/machine-id", "/var/lib/dbus/machine-id"):
-        try:
-            value = Path(name).read_text().strip()
-        except OSError:
-            continue
-        if len(value) == 32 and all(c in "0123456789abcdef" for c in value):
-            return value.encode("ascii")
-    if os.name == "posix":
-        raise RuntimeError("Идентификатор ОС недоступен: привязка секретов невозможна")
-    logging.getLogger(__name__).warning("Machine ID недоступен. Используется ключ локальной разработки без привязки к ОС")
-    return b"mdnext-development-no-machine-id"
+    import importlib.util
+    source = Path(__file__).with_name("host_identity.py")
+    spec = importlib.util.spec_from_file_location("persistent_host_identity", source)
+    identity = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(identity)
+    return identity.machine_id()
 
 
 def _node_key(secret=None):

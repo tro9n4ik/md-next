@@ -26,7 +26,7 @@ from app.schemas.node import NodePublicResponse, NodeAdminResponse
 from app.services.xray import XrayService
 from app.services.cluster import apply_active_node, get_failover_settings, is_manual_direct_route
 from app.services.client_service import ClientService
-from app.services.events import log_event
+from app.services.events import log_event, log_node_event
 from app.services.request_ip import request_ip
 
 router = APIRouter(prefix="/api/v1/nodes", tags=["Узлы"])
@@ -222,7 +222,7 @@ async def _toggle_node_enabled(node_id, db, current_user):
         raise HTTPException(status_code=502, detail=f"Не удалось применить состояние ноды: {reason}")
     await db.commit()
     await db.refresh(node)
-    log_event("info", "node", "Узел включён" if node.is_enabled else "Узел отключён", {"node_id": node.id, "name": node.name})
+    log_node_event("info", "Узел включён" if node.is_enabled else "Узел отключён", node)
     return node_response(node, current_user)
 
 @router.delete("/{node_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -305,7 +305,7 @@ async def _delete_node(node_id, db, current_user):
         await ClientService.restore_committed_configs(db)
         raise
 
-    log_event("info", "node", "Узел удалён", {"node_id": node_id, "name": node.name})
+    log_node_event("info", "Узел удалён", node)
     return None
 
 @router.post("/invites", response_model=NodeInviteResponse)

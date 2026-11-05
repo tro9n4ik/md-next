@@ -26,10 +26,29 @@ def _safe_meta(value: Any) -> Any:
     return str(value)[:1000]
 
 
+def event_meta(category, meta):
+    if category == "node":
+        from app.schemas.node import NodePublicResponse
+        allowed = set(NodePublicResponse.model_fields) | {"node_id"}
+        meta = {key:value for key,value in meta.items() if key in allowed}
+    return _safe_meta(meta)
+
+
+def log_node_event(level, message, node):
+    from app.schemas.node import NodePublicResponse
+    payload = NodePublicResponse.model_validate({
+        "id":node.id,"name":node.name,"country_code":node.country_code,
+        "status":node.status,"last_seen":node.last_seen,
+        "is_online":bool(node.is_enabled and node.is_active and node.status=="healthy"),
+    }).model_dump(mode="json")
+    payload["node_id"] = node.id  # Preserve existing journal consumers.
+    log_event(level,"node",message,payload)
+
+
 async def _persist(level: str, category: str, message: str, meta: dict | None) -> None:
     try:
         async with database.AsyncSessionLocal() as db:
-            db.add(Event(level=level, category=category[:64], message=message[:512], meta=_safe_meta(meta or {})))
+            db.add(Event(level=level, category=category[:64], message=message[:512], meta=event_meta(category,meta or {})))
             await db.commit()
     except Exception:
         logger.exception("Не удалось записать событие в журнал")

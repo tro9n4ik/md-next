@@ -210,6 +210,10 @@ class Updater:
                 continue
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
+        # Provision before the unprivileged Alembic run; preserve old v2 salt.
+        identity_code = "import os,pwd; from app.services.crypto import machine_id; machine_id(); p=os.environ.get('MDNEXT_HOST_KEY_FILE','/var/lib/md-next/host.key'); u=pwd.getpwnam('md-next'); f=os.open(p,os.O_RDONLY|os.O_NOFOLLOW); os.fchown(f,u.pw_uid,u.pw_gid); os.fchmod(f,0o600); os.close(f)"
+        if (self.root / 'backend/md_next.db').is_symlink():
+            self.run([str(venv/'bin/python'),'-c',identity_code],cwd=self.root/'backend')
         migration = [str(venv / 'bin/python'), '-m', 'alembic', 'upgrade', 'head']
         if (self.root / 'backend/md_next.db').is_symlink(): migration = ['runuser', '-u', 'md-next', '--', *migration]
         self.run(migration, cwd=self.root / 'backend', env=environment(self.root), timeout=180)
