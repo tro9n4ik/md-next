@@ -16,7 +16,7 @@ from conftest import TestingSessionLocal
 from test_client_access import seed
 
 def decode_routing(link):
-    return json.loads(base64.b64decode(unquote(link.rsplit("/", 1)[-1])))
+    return json.loads(base64.urlsafe_b64decode(link.rsplit("/", 1)[-1] + "==="))
 
 def test_happ_adblock_is_opt_in_and_can_be_removed():
     assert decode_routing(build_happ_routing_link({}))["BlockSites"] == []

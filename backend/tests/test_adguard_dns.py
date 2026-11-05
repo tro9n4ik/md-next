@@ -63,14 +63,14 @@ async def test_happ_adguard_overrides_both_dns_only_when_selected(monkeypatch):
         await db.commit()
     async with AsyncClient(transport=ASGITransport(app=app),base_url="http://test") as http:
         response = await http.get("/api/v1/sub/access-test?format=raw")
-        profile = json.loads(base64.b64decode(unquote(response.headers["routing"].rsplit("/",1)[-1])))
+        profile = json.loads(base64.urlsafe_b64decode(response.headers["routing"].rsplit("/",1)[-1] + "==="))
         assert profile["RemoteDNSDomain"] == profile["DomesticDNSDomain"] == "https://panel.example.com/api/v1/sub/access-test/dns-query"
         assert profile["DnsHosts"]["panel.example.com"] == "192.0.2.1"
         async with TestingSessionLocal() as db:
             (await db.get(Setting,f"client.adblock.{cid}")).value = "false"
             await db.commit()
         response = await http.get("/api/v1/sub/access-test?format=raw")
-        profile = json.loads(base64.b64decode(unquote(response.headers["routing"].rsplit("/",1)[-1])))
+        profile = json.loads(base64.urlsafe_b64decode(response.headers["routing"].rsplit("/",1)[-1] + "==="))
         assert profile["RemoteDNSDomain"] == "https://cloudflare-dns.com/dns-query"
 
 

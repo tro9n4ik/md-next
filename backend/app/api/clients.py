@@ -542,6 +542,10 @@ async def get_subscription(token: str, request: Request, format: Literal["raw", 
                 happ_settings[f"dns.{kind}_domain"] = f"{public_dns_base}/api/v1/sub/{client.sub_token}/dns-query"
                 happ_settings[f"dns.{kind}_ip"] = address
     happ_dns = build_happ_routing_link(happ_settings, adblock_enabled=filtered)
+    # Happ also accepts the routing link in the decoded subscription body.
+    # Keep other clients and empty/disabled subscriptions unchanged.
+    if links and "happ" in request.headers.get("user-agent", "").lower():
+        content = base64.b64encode("\n".join([happ_dns, *links]).encode("utf-8")).decode("ascii")
     totals = await db.execute(select(ClientProfile.traffic_up, ClientProfile.traffic_down).where(ClientProfile.client_id == client.id))
     usage = list(totals.all())
     upload = sum(up or 0 for up, _ in usage)
@@ -583,6 +587,7 @@ async def get_subscription(token: str, request: Request, format: Literal["raw", 
         "profile-web-page-url": page_url,
         "profile-update-interval": "12",
         "routing": happ_dns,
+        "routing-enable": "true",
     })
 
 
