@@ -30,6 +30,7 @@ func run() error {
 	profile := flag.String("cpu-profile", "", "optional private CPU profile for an isolated benchmark")
 	offload := flag.Bool("tun-offload", false, "experimental Linux TUN GSO/GRO adapter")
 	udpGSO := flag.Bool("udp-gso", false, "experimental Linux UDP segmentation with bucketed padding")
+	diagnostics := flag.String("diagnostics-dir", "", "private bounded heap/allocs profiles and runtime counters")
 	flag.Parse()
 	if *profile != "" {
 		file, err := os.OpenFile(*profile, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
@@ -67,6 +68,16 @@ func run() error {
 	defer device.Close()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	stats := new(transport.TunnelStats)
+	finishDiagnostics, err := transport.StartDiagnostics(ctx, *diagnostics, stats)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if e := finishDiagnostics(); e != nil {
+			fmt.Fprintln(os.Stderr, e)
+		}
+	}()
 	fmt.Println("TUN открыт, ожидается настройка адреса и MTU 1380 средствами стенда")
 	ready := time.NewTimer(30 * time.Second)
 	defer ready.Stop()
@@ -91,6 +102,7 @@ waitForInterface:
 		Base: *base, Ports: *ports, Interval: 20 * time.Second, Grace: 15 * time.Second,
 		Key: key, State: *state,
 		UDPGSO: *udpGSO,
+		Stats:  stats,
 	})
 }
 

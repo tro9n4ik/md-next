@@ -31,6 +31,9 @@ def main():
     parser.add_argument("--tcp", action="store_true", help="measure a TCP flow; UDP loss is not inferred from TCP")
     parser.add_argument("--pin-cpus", action="store_true", help="pin peers and load generators to four separate test CPUs")
     parser.add_argument("--warmup", type=int, default=0, help="explicit unmeasured warmup seconds, 0..30")
+    parser.add_argument("--diagnostics-dir", help="private directory for bounded peer metrics and heap profiles")
+    parser.add_argument("--latency-acceptance", action="store_true", help="require median <=50ms and p99 <=70ms")
+    parser.add_argument("--jumbo-check", action="store_true", help="inject oversized L3 frames before the measured traffic")
     args = parser.parse_args()
     if not args.run:
         print("План: два namespace, veth, TUN MTU1380, UDP iperf120с, RTT/CPU/порты, очистка.")
@@ -85,6 +88,10 @@ def main():
                 profile = ["--cpu-profile", str(Path(args.profile_dir).resolve() / f"peer{index}.pprof")] if args.profile_dir else []
                 if args.offload:
                     profile += ["--tun-offload", "--udp-gso"]
+                if args.diagnostics_dir:
+                    parent = Path(args.diagnostics_dir)
+                    parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                    profile += ["--diagnostics-dir", str(parent.resolve() / f"peer{index}")]
                 process = launch(ns, binary, *profile, "--tun", "mdnt0", "--bind", f"10.250.231.{index}",
                     "--peer", f"10.250.231.{3-index}", "--direction", "uplink" if index == 1 else "downlink",
                     "--key-file", str(key), "--state", str(state), cpu=index-1, stdout=log, stderr=log)
@@ -96,6 +103,15 @@ def main():
                 execute(ns, "ip", "addr", "add", f"172.29.231.{index}/30", "dev", "mdnt0")
                 execute(ns, "ip", "link", "set", "mdnt0", "mtu", "1380", "up")
             execute(a, "ping", "-c", "3", "-W", "2", "-M", "do", "-s", "1352", "172.29.231.2")
+            if args.jumbo_check:
+                execute(a,"ip","link","set","mdnt0","mtu","9000")
+                try:
+                    execute(a,sys.executable,"-c","import socket; s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); [(s.sendto(bytes(n-28),('172.29.231.2',39875))) for n in (1500,2048,4096,9000)]")
+                    time.sleep(0.1)
+                    if any(peer.poll() is not None for peer in peers):
+                        raise RuntimeError("Peer завершился при проверке больших кадров")
+                finally:
+                    execute(a,"ip","link","set","mdnt0","mtu","1380")
             server = launch(b, "iperf3", "-s", "-B", "172.29.231.2", cpu=3, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             for _ in range(100):
                 if execute(b,"ss","-ltnH","sport","=",":5201").stdout.strip():
@@ -119,14 +135,18 @@ def main():
                         ports[i].add(tuple(sorted(row.split()[3] for row in rows)))
             watcher = threading.Thread(target=watch)
             watcher.start()
-            ping = launch(a, "ping", "-i", "0.2", "-c", str(args.duration*5), "-W", "1", "172.29.231.2", stdout=subprocess.PIPE, text=True)
+            ping_stream = tempfile.TemporaryFile(mode="w+t")
+            streams.append(ping_stream)
+            ping = launch(a, "ping", "-i", "0.2", "-c", str(args.duration*5), "-W", "1", "172.29.231.2", stdout=ping_stream, text=True)
             start = time.monotonic()
             before = [cpu(peer) for peer in peers]
             client = launch(a, "iperf3", "-c", "172.29.231.2", *traffic, "-b", args.rate, "-w", "8M", "-t", str(args.duration), "-J", cpu=2, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             output, errors = client.communicate(timeout=args.duration+20)
             elapsed = time.monotonic()-start
             percentages = [100*(cpu(peer)-value)/elapsed for peer,value in zip(peers,before)]
-            ping_output, _ = ping.communicate(timeout=10)
+            ping.wait(timeout=10)
+            ping_stream.seek(0)
+            ping_output = ping_stream.read()
             data = json.loads(output)
             if client.returncode or "error" in data:
                 raise RuntimeError(data.get("error", errors))
@@ -138,6 +158,7 @@ def main():
             result["pinned_cpus"] = cpus[:4] if args.pin_cpus else None
             result["gomaxprocs"] = os.environ.get("GOMAXPROCS","default")
             result["warmup_seconds"] = args.warmup
+            result["rtt_p99_ms"] = sorted(rtt)[min(len(rtt)-1,int(len(rtt)*0.99))] if rtt else None
             result["rss_peak_kib"] = [int(next(line.split()[1] for line in Path(f"/proc/{peer.pid}/status").read_text().splitlines() if line.startswith("VmHWM:"))) for peer in peers]
             result["kernel_udp"] = [execute(ns, "cat", "/proc/net/snmp").stdout for ns in namespaces]
             result["tun_counters"] = [json.loads(execute(ns, "ip", "-s", "-j", "link", "show", "mdnt0").stdout)[0].get("stats64") for ns in namespaces]
@@ -151,6 +172,8 @@ def main():
             if not args.tcp:
                 assert result["criteria"]["loss"], "Потери выше критерия 0,5%"
             assert result["criteria"]["rotation"], "Ротация не наблюдалась"
+            if args.latency_acceptance:
+                assert rtt and result["rtt_median_ms"] <= 50 and result["rtt_p99_ms"] <= 70, "RTT выше критериев стабилизации"
             if args.strict_performance:
                 assert result["criteria"]["cpu"] and result["criteria"]["rtt"], "CPU или RTT выше критериев ТЗ"
         finally:

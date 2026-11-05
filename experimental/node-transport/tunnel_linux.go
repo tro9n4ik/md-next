@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -26,6 +27,16 @@ type frame struct {
 
 var framePool = sync.Pool{New: func() any { return new(frame) }}
 
+type TunnelStats struct {
+	InvalidFrames atomic.Uint64
+}
+
+type loopOptions struct {
+	now  func() time.Time
+	tick time.Duration
+	open func(*net.UDPAddr) (*net.UDPConn, error)
+}
+
 type TunnelConfig struct {
 	Bind      net.IP
 	Peer      net.IP
@@ -37,6 +48,7 @@ type TunnelConfig struct {
 	Key       []byte
 	Direction string
 	UDPGSO    bool
+	Stats     *TunnelStats
 }
 
 // ValidIP rejects incomplete frames before writing to TUN.
@@ -94,6 +106,22 @@ func socket(address *net.UDPAddr) (*net.UDPConn, error) {
 // RunTunnel owns the TUN descriptor until shutdown. Routing is configured by
 // the isolated test harness, never implicitly by the daemon.
 func RunTunnel(ctx context.Context, device PacketDevice, config TunnelConfig) error {
+	return runTunnel(ctx, device, config, loopOptions{now: time.Now, tick: 100 * time.Millisecond, open: socket})
+}
+func closeUDP(conn *net.UDPConn) {
+	_ = conn.SetDeadline(time.Now().Add(-10 * time.Millisecond))
+	_ = conn.Close()
+}
+func runTunnel(ctx context.Context, device PacketDevice, config TunnelConfig, options loopOptions) error {
+	if device == nil {
+		return errors.New("nil TUN device")
+	}
+	defer device.Close()
+	stats := config.Stats
+	if stats == nil {
+		stats = new(TunnelStats)
+	}
+
 	if config.Bind.To4() == nil || config.Peer.To4() == nil || config.Interval < 20*time.Second ||
 		config.Interval > 30*time.Second || config.Grace < 10*time.Second || config.Grace > 15*time.Second ||
 		device.BatchSize() < 1 || device.BatchSize() > sendPacketCapacity || config.Ports < 2 || config.Ports > 128 || config.Base < 1024 || config.Base+config.Ports > 65536 {
@@ -117,12 +145,23 @@ func RunTunnel(ctx context.Context, device PacketDevice, config TunnelConfig) er
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	egress, err := socket(&net.UDPAddr{IP: config.Bind})
-	if err != nil {
-		return err
+	var egress *net.UDPConn
+	for attempt := 0; attempt < 16; attempt++ {
+		egress, err = options.open(&net.UDPAddr{IP: config.Bind})
+		if err != nil {
+			return err
+		}
+		port := egress.LocalAddr().(*net.UDPAddr).Port
+		if port < config.Base || port >= config.Base+config.Ports {
+			break
+		}
+		closeUDP(egress)
+		egress = nil
 	}
-	defer egress.Close()
-	defer device.Close()
+	if egress == nil {
+		return errors.New("cannot reserve non-hopping source port")
+	}
+	defer closeUDP(egress)
 	failures := make(chan error, 1)
 	report := func(err error) {
 		if ctx.Err() != nil {
@@ -154,7 +193,7 @@ func RunTunnel(ctx context.Context, device PacketDevice, config TunnelConfig) er
 		var deadlineRefresh time.Time
 		for i := range items {
 			items[i] = framePool.Get().(*frame)
-			readBuffers[i] = items[i].plain[:2048]
+			readBuffers[i] = items[i].plain[:65536]
 		}
 		for i := range messages {
 			messages[i].Buffers = buffers[i][:]
@@ -173,7 +212,11 @@ func RunTunnel(ctx context.Context, device PacketDevice, config TunnelConfig) er
 				return
 			}
 
-			now := time.Now()
+			if count < 0 || count > len(items) {
+				report(errors.New("invalid TUN batch count"))
+				return
+			}
+			now := options.now()
 			slot := now.Unix() / int64(config.Interval/time.Second)
 			if slot != portSlot {
 				port, err = sender.Port(now, config.Base, config.Ports)
@@ -192,7 +235,12 @@ func RunTunnel(ctx context.Context, device PacketDevice, config TunnelConfig) er
 				valid := 0
 				for i := offset; i < end; i++ {
 					item := items[i]
+					if sizes[i] <= 0 || sizes[i] > len(readBuffers[i]) {
+						stats.InvalidFrames.Add(1)
+						continue
+					}
 					if !ValidIP(item.plain[:sizes[i]]) {
+						stats.InvalidFrames.Add(1)
 						continue
 					}
 					// This goroutine exclusively owns the Sender's mutable state.
@@ -206,7 +254,7 @@ func RunTunnel(ctx context.Context, device PacketDevice, config TunnelConfig) er
 					valid++
 				}
 				if !now.Before(deadlineRefresh) {
-					if e := egress.SetWriteDeadline(now.Add(time.Second)); e != nil {
+					if e := egress.SetWriteDeadline(time.Now().Add(time.Second)); e != nil {
 						report(e)
 						return
 					}
@@ -239,13 +287,15 @@ func RunTunnel(ctx context.Context, device PacketDevice, config TunnelConfig) er
 	type listener struct {
 		conn    *net.UDPConn
 		expires time.Time
+		retired atomic.Bool
 	}
-	listeners := map[int]listener{}
+	// Single-owner map; reader goroutines never access it.
+	listeners := map[int]*listener{}
 	listen := func(port int) error {
 		if _, ok := listeners[port]; ok {
 			return nil
 		}
-		conn, err := socket(&net.UDPAddr{IP: config.Bind, Port: port})
+		conn, err := options.open(&net.UDPAddr{IP: config.Bind, Port: port})
 		if err != nil {
 			return err
 		}
@@ -255,7 +305,8 @@ func RunTunnel(ctx context.Context, device PacketDevice, config TunnelConfig) er
 				return err
 			}
 		}
-		listeners[port] = listener{conn: conn}
+		state := &listener{conn: conn}
+		listeners[port] = state
 		start(func() {
 			packetConn := ipv4.NewPacketConn(conn)
 			var messages [batchSize]ipv4.Message
@@ -280,7 +331,7 @@ func RunTunnel(ctx context.Context, device PacketDevice, config TunnelConfig) er
 			for ctx.Err() == nil {
 				n, err := packetConn.ReadBatch(messages[:], 0)
 				if err != nil {
-					if ctx.Err() == nil && !errors.Is(err, net.ErrClosed) {
+					if ctx.Err() == nil && !state.retired.Load() && !errors.Is(err, net.ErrClosed) {
 						report(err)
 					}
 					return
@@ -294,7 +345,7 @@ func RunTunnel(ctx context.Context, device PacketDevice, config TunnelConfig) er
 					valid = 0
 					return err
 				}
-				now := time.Now()
+				now := options.now()
 				for i := 0; i < n; i++ {
 					message := &messages[i]
 					peer, ok := message.Addr.(*net.UDPAddr)
@@ -361,31 +412,33 @@ func RunTunnel(ctx context.Context, device PacketDevice, config TunnelConfig) er
 				state.expires = now.Add(config.Grace)
 				listeners[port] = state
 			} else if !now.Before(state.expires) {
-				state.conn.Close()
+				state.retired.Store(true)
+				closeUDP(state.conn)
 				delete(listeners, port)
 			}
 		}
 		return nil
 	}
-	if err = rotate(time.Now()); err != nil {
+	if err = rotate(options.now()); err != nil {
 		report(err)
 	}
-	ticker := time.NewTicker(100 * time.Millisecond)
+	ticker := time.NewTicker(options.tick)
 	defer ticker.Stop()
 	for ctx.Err() == nil {
 		select {
 		case <-ctx.Done():
-		case now := <-ticker.C:
-			if err := rotate(now); err != nil {
+		case <-ticker.C:
+			if err := rotate(options.now()); err != nil {
 				report(err)
 			}
 		}
 	}
 	for _, state := range listeners {
-		state.conn.Close()
+		state.retired.Store(true)
+		closeUDP(state.conn)
 	}
 	device.Close()
-	egress.Close()
+	closeUDP(egress)
 	workers.Wait()
 	select {
 	case err := <-failures:
