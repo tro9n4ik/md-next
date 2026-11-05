@@ -143,7 +143,9 @@ async def test_happ_metadata_distinguishes_cdn_and_general_quota(normal, general
         fields = dict(part.strip().split('=') for part in r.headers['subscription-userinfo'].split(';'))
         assert int(fields['total']) == expected_total
         assert int(fields['upload']) + int(fields['download']) == expected_used
-        assert len(base64.b64decode(r.text).decode().splitlines()) == 1 + int(normal)
+        lines = base64.b64decode(r.text).decode().splitlines()
+        assert lines[0] == r.headers["routing"]
+        assert len(lines[1:]) == 1 + int(normal)
         from urllib.parse import unquote
         assert '100 Б/мес' in unquote(base64.b64decode(r.text).decode())
         page = await api.get('/api/v1/sub/cdn-quota?format=page')
