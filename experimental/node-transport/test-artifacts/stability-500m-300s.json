@@ -1,0 +1,95 @@
+{
+  "duration": 300.01092274799885,
+  "received": {
+    "start": 0,
+    "end": 300.001066,
+    "seconds": 300.001066,
+    "bytes": 18723253200,
+    "bits_per_second": 499284977.8740453,
+    "jitter_ms": 0.011758353366675956,
+    "lost_packets": 22267,
+    "packets": 15624978,
+    "lost_percent": 0.1425090006526729,
+    "sender": false
+  },
+  "cpu_percent_one_core": [
+    47.701596558272165,
+    44.19839077371875
+  ],
+  "port_states": [
+    32,
+    32
+  ],
+  "ping_received": 1496,
+  "rtt_median_ms": 0.3135,
+  "rtt_max_ms": 26.3,
+  "traffic": "UDP",
+  "pinned_cpus": null,
+  "gomaxprocs": "default",
+  "warmup_seconds": 0,
+  "rtt_p99_ms": 9.0,
+  "rss_peak_kib": [
+    18592,
+    23332
+  ],
+  "criteria": {
+    "loss": true,
+    "rotation": true,
+    "cpu": false,
+    "rtt": false
+  },
+  "resources": {
+    "peer1": {
+      "samples": 314,
+      "steady_fd_range": [
+        11,
+        12
+      ],
+      "steady_goroutines_range": [
+        7,
+        8
+      ],
+      "steady_heap_mib_range": [
+        9.580047607421875,
+        18.306793212890625
+      ],
+      "final": {
+        "fd": 7,
+        "frees": 2426204,
+        "goroutines": 2,
+        "heap_alloc": 11607584,
+        "heap_inuse": 12427264,
+        "invalid_frames": 4,
+        "mallocs": 2427934,
+        "time": "2026-11-05T01:45:25.913246596Z",
+        "total_alloc": 109142120
+      }
+    },
+    "peer2": {
+      "samples": 314,
+      "steady_fd_range": [
+        11,
+        12
+      ],
+      "steady_goroutines_range": [
+        7,
+        8
+      ],
+      "steady_heap_mib_range": [
+        9.322837829589844,
+        18.18035888671875
+      ],
+      "final": {
+        "fd": 7,
+        "frees": 31260507,
+        "goroutines": 2,
+        "heap_alloc": 11566048,
+        "heap_inuse": 12255232,
+        "invalid_frames": 0,
+        "mallocs": 31262088,
+        "time": "2026-11-05T01:45:25.905266354Z",
+        "total_alloc": 851139728
+      }
+    }
+  }
+}
