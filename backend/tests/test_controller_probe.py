@@ -24,6 +24,8 @@ def test_literal_probe_preserves_certificate_hostname_without_dns(monkeypatch):
         def makefile(self, *args): return io.BytesIO(b"HTTP/1.1 200 OK\r\nContent-Length: 16\r\n\r\n{\"status\":\"ok\"}")
         def close(self): pass
     class Context:
+        verify_mode = probe.ssl.CERT_REQUIRED
+        check_hostname = True
         def wrap_socket(self, raw, server_hostname):
             calls.append(server_hostname)
             return raw
