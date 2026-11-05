@@ -311,7 +311,7 @@ def restore(blob, password, *, rollback=False):
         if portable:
             upgrade_database(db_file,files['opt/md-next/backend/.env'])
             database=db_file.read_bytes()
-        elif inventory['revision'] == '0021_bind_node_secrets':
+        elif inventory['revision'] in {'0021_bind_node_secrets','0022_persist_host_identity'}:
             # Восстановление той же сборки и откат также получают переносимые
             # секреты. Схему при откате не повышаем, только привязываем ключи.
             upgrade_database(db_file,files['opt/md-next/backend/.env'],migrate=False)

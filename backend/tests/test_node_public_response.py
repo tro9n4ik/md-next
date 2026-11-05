@@ -5,6 +5,21 @@ from conftest import TestingSessionLocal
 from test_subadmins import account, request
 
 
+def test_node_event_projects_model_and_filters_raw_metadata(monkeypatch):
+    from app.services import events
+    node = Node(id=1, name="NL", host="192.0.2.99", port=443, secret="synthetic-secret",
+                country_code="NL", status="healthy", is_active=True, is_enabled=True)
+    recorded = []
+    monkeypatch.setattr(events, "log_event", lambda *args: recorded.append(args))
+    events.log_node_event("info", "Обновление", node)
+    payload = recorded[0][3]
+    assert payload["country"] == "NL" and payload["is_online"]
+    raw = {**node.__dict__, "internal_ip": "192.0.2.33", "shared_secret": "synthetic-secret"}
+    for value in (payload, events.event_meta("node", raw)):
+        assert not {"host", "port", "secret", "shared_secret", "internal_ip", "_sa_instance_state"} & value.keys()
+        assert "192.0.2" not in str(value) and "synthetic-secret" not in str(value)
+
+
 @pytest.mark.asyncio
 async def test_public_nodes_have_only_allowlisted_fields(auth_headers):
     _, headers = await account(auth_headers)

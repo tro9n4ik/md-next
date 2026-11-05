@@ -75,14 +75,14 @@ def read_backup(blob,password):
     with sqlite3.connect('md_next.db') as db:
         revision = db.execute('SELECT version_num FROM alembic_version').fetchone()[0]
         source_revision = data.get('revision')
-        old_node_secrets = source_revision in {'0019_client_exit_node', '0020_encrypt_node_secrets'} and revision in {'0020_encrypt_node_secrets', '0021_bind_node_secrets'}
+        old_node_secrets = source_revision in {'0019_client_exit_node', '0020_encrypt_node_secrets', '0021_bind_node_secrets'} and revision in {'0020_encrypt_node_secrets', '0021_bind_node_secrets', '0022_persist_host_identity'}
         if source_revision != revision and not old_node_secrets:
             raise ValueError('Версия схемы копии не совпадает с текущей')
         for table,rows in data['tables'].items():
             columns = {r[1] for r in db.execute(f'PRAGMA table_info({table})')}
             if not isinstance(rows,list) or any(not isinstance(r,dict) or set(r)!=columns for r in rows):
                 raise ValueError('Структура копии повреждена')
-    if revision in {'0020_encrypt_node_secrets', '0021_bind_node_secrets'}:
+    if revision in {'0020_encrypt_node_secrets', '0021_bind_node_secrets', '0022_persist_host_identity'}:
         for row in data['tables']['nodes']:
             stored = row['secret']
             plain = decrypt_node_secret(stored)

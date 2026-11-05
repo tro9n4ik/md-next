@@ -36,3 +36,13 @@ def test_foreign_table_blocks_apply_before_interface_changes(monkeypatch):
     with pytest.raises(RuntimeError):
         mtu.apply()
     assert all(args[0] != "ip" for args in calls)
+
+
+def test_iptables_caps_precede_existing_mangle_verdicts(monkeypatch):
+    calls = []
+    monkeypatch.setattr(mtu.shutil, "which", lambda name: None)
+    monkeypatch.setattr(mtu, "command", lambda *args, **kwargs: calls.append(args) or SimpleNamespace(returncode=1))
+    mtu.apply()
+    insertions = [args for args in calls if "-I" in args]
+    assert len(insertions) == 4
+    assert all(args[args.index("-I")+1:args.index("-I")+3] == ("FORWARD", "1") for args in insertions)
