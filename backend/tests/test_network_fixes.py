@@ -28,7 +28,7 @@ def test_doh_bootstrap_uses_configured_ips_for_both_resolvers():
         }
     )
     profile = json.loads(
-        base64.b64decode(unquote(link.removeprefix("happ://routing/onadd/")))
+        base64.urlsafe_b64decode(link.removeprefix("happ://routing/onadd/") + "===")
     )
     assert profile["DnsHosts"] == {
         "remote.example": "9.9.9.9",

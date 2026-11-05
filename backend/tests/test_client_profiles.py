@@ -103,7 +103,7 @@ async def test_subscription_headers_base64_disable_and_unknown_token():
         assert response.headers["Subscription-Userinfo"] == "upload=12; download=34; total=0"
         assert response.headers["profile-update-interval"] == "12"
         routing = response.headers["routing"].removeprefix("happ://routing/onadd/")
-        happ = json.loads(base64.b64decode(unquote(routing)))
+        happ = json.loads(base64.urlsafe_b64decode(routing + "==="))
         assert "geoip:ru" in happ["DirectIp"]
         assert "192.168.0.0/16" in happ["DirectIp"]
         assert happ["DirectSites"] == ["geosite:category-ru"]
@@ -117,6 +117,40 @@ async def test_subscription_headers_base64_disable_and_unknown_token():
         disabled = await client.get("/api/v1/sub/subscription-test-token")
         assert disabled.status_code == 200
         assert disabled.text == ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("agent,happ", [("Happ/4.8.0/Android/test", True),
+                                      ("happ/4.1.0", True), ("v2rayNG/1.9", False),
+                                      ("Hiddify/2.0", False)])
+async def test_routing_body_fallback_only_for_happ_and_active_profiles(agent, happ):
+    async with AsyncSessionLocal() as db:
+        row = Client(name="Routing import", phone="", email="", is_active=True,
+                     sub_token="happ-routing-import-test")
+        db.add(row)
+        await db.flush()
+        db.add(ClientProfile(client_id=row.id, kind="vless_reality_tcp",
+                             uuid="00000000-0000-0000-0000-000000000123", is_enabled=True))
+        await db.commit()
+        identifier = row.id
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http:
+        response = await http.get("/api/v1/sub/happ-routing-import-test?format=raw",
+                                  headers={"User-Agent": agent})
+        assert response.status_code == 200
+        lines = base64.b64decode(response.text).decode().splitlines()
+        assert response.headers["routing-enable"] == "true"
+        if happ:
+            assert lines[0] == response.headers["routing"]
+            assert len(lines) == 2 and lines[1].startswith("vless://")
+        else:
+            assert len(lines) == 1 and lines[0].startswith("vless://")
+        async with AsyncSessionLocal() as db:
+            row = await db.get(Client, identifier)
+            row.is_active = False
+            await db.commit()
+        disabled = await http.get("/api/v1/sub/happ-routing-import-test?format=raw",
+                                  headers={"User-Agent": agent})
+        assert disabled.status_code == 200 and disabled.text == ""
 
 
 @pytest.mark.asyncio

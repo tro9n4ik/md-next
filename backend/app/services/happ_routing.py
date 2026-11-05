@@ -1,7 +1,7 @@
 import base64
 import json
 import time
-from urllib.parse import quote, urlparse
+from urllib.parse import urlparse
 import ipaddress
 
 
@@ -49,5 +49,5 @@ def build_happ_routing_link(settings: dict[str, str], *, adblock_enabled: bool =
         "DomainStrategy": settings.get("dns.domain_strategy", "IPIfNonMatch"),
         "FakeDNS": str(settings.get("dns.fake_dns", "false")).lower(),
     }
-    encoded = base64.b64encode(json.dumps(profile, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).decode("ascii")
-    return f"happ://routing/onadd/{quote(encoded, safe='')}"
+    encoded = base64.urlsafe_b64encode(json.dumps(profile, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).decode("ascii").rstrip("=")
+    return f"happ://routing/onadd/{encoded}"
