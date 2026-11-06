@@ -253,6 +253,7 @@ def clean_install_files(files):
         spec=importlib.util.spec_from_file_location('installed_security',ROOT/'scripts/install-security.py')
         security=importlib.util.module_from_spec(spec);spec.loader.exec_module(security)
         target=security.transform(target)
+        security.configure_auth_logrotate(FILESYSTEM)
         result['etc/nginx/conf.d/md-next-security.conf']=security.SECURITY_CONFIG.encode()
         result['etc/nginx/md-next-panel-bans.map']=files['etc/nginx/md-next-panel-bans.map']
     config='var/lib/md-next-adguard/AdGuardHome.yaml'
@@ -288,12 +289,18 @@ with sqlite3.connect(sys.argv[1]) as db:
     if result.returncode:raise events.MigrationError('MIG_SCHEMA')
 
 
-def restore(blob, password, *, rollback=False):
+def restore(blob, password, *, rollback=False, target_address=None):
+    spec = importlib.util.spec_from_file_location("migration_postflight", Path(__file__).with_name("migration-postflight.py"))
+    postflight = importlib.util.module_from_spec(spec); spec.loader.exec_module(postflight)
     bundle = library()
     bundle.guard_memory(len(blob)*7+96*1024*1024,FILESYSTEM)
     try:manifest, database, files = bundle.decode_bundle(blob, password)
     except ValueError as error:raise events.MigrationError('MIG_BUNDLE') from error
     portable=manifest.get('restore_mode')=='clean-install' and not rollback
+    try:
+        certificate_links = postflight.certbot_link_plan(files)
+        certificate_executables = postflight.certbot_executable_plan(files, manifest)
+    except (ValueError, KeyError) as error: raise events.MigrationError('MIG_CERTBOT_LAYOUT') from error
     if portable:
         def version(value):
             if not re.fullmatch(r'\d+\.\d+\.\d+',value):raise events.MigrationError('MIG_SCHEMA')
@@ -308,6 +315,9 @@ def restore(blob, password, *, rollback=False):
         inventory = bundle.inventory_database(db_file)
         if inventory != {key:manifest[key] for key in ('revision', 'tables')}:
             raise RuntimeError('Манифест базы не совпадает со снимком')
+        if not rollback:
+            try: postflight.rebind_dns(db_file, target_address)
+            except ValueError as error: raise events.MigrationError('MIG_TARGET_ADDRESS') from error
         if portable:
             upgrade_database(db_file,files['opt/md-next/backend/.env'])
             database=db_file.read_bytes()
@@ -339,6 +349,8 @@ def restore(blob, password, *, rollback=False):
             bundle.decode_bundle((STATE/'before-restore.mdmove').read_bytes(), password)
     if portable:files=clean_install_files(files)
     files=component_capabilities(files)
+    try: files=postflight.renewal_files(files)
+    except ValueError as error: raise events.MigrationError('MIG_CERTBOT_LAYOUT') from error
     # Validate every destination before replacing the first file.
     for name in files:
         path = FILESYSTEM/name
@@ -353,6 +365,13 @@ def restore(blob, password, *, rollback=False):
             raise events.MigrationError('MIG_TARGET_OCCUPIED')
     try:
         (STATE/'verified.json').unlink(missing_ok=True)
+        timer_state=STATE/'certbot-timer.json'
+        if not timer_state.exists():
+            write(timer_state,json.dumps({'active':command('systemctl','is-active','certbot.timer',check=False).returncode==0,'enabled':command('systemctl','is-enabled','certbot.timer',check=False).returncode==0}).encode())
+        timer_stop=command('systemctl','disable','--now','certbot.timer',check=False)
+        if timer_stop.returncode:raise events.MigrationError('MIG_CERTBOT_LAYOUT',exit_code=timer_stop.returncode)
+        if command('systemctl','is-active','certbot.service',check=False).returncode==0:
+            raise events.MigrationError('MIG_CERTBOT_BUSY')
         for service in SERVICES:command('systemctl','stop',service,check=False)
         for service in SERVICES:
             if command('systemctl','is-active',service,check=False).returncode==0:
@@ -368,13 +387,16 @@ def restore(blob, password, *, rollback=False):
                 if name not in files:
                     if not bundle.allowed_path(name):raise RuntimeError('Недопустимый путь отката')
                     path=FILESYSTEM/name
-                    if any(p.is_symlink() for p in [path,*path.parents]):raise RuntimeError('Небезопасный путь отката')
+                    if any(p.is_symlink() for p in path.parents):raise RuntimeError('Небезопасный путь отката')
+                    if path.is_symlink() and not (name.startswith('etc/letsencrypt/live/') and path.resolve().is_relative_to(FILESYSTEM/'etc/letsencrypt/archive')):
+                        raise RuntimeError('Небезопасная ссылка отката')
                     path.unlink(missing_ok=True)
         for name, content in files.items():
             path = FILESYSTEM/name
             if path.is_symlink(): path.unlink()
             if name == 'opt/md-next/backend/.env': content = staging_env(content, True)
-            write(path, content, 0o644 if name.endswith('fullchain.pem') else 0o600)
+            write(path, content, 0o755 if name in certificate_executables else 0o644 if name.endswith('fullchain.pem') else 0o600)
+        postflight.restore_certbot_links(FILESYSTEM, certificate_links)
         write(target_db, database)
         for suffix in ('-wal','-shm'):
             extra = Path(str(target_db)+suffix)
@@ -406,6 +428,12 @@ def restore(blob, password, *, rollback=False):
         command('systemctl','restart','nginx')
         command('systemctl','start','md-next-backend')
         (STATE/'importing.json').unlink(missing_ok=True)
+        if rollback:
+            timer_flags=json.loads(timer_state.read_text())
+            if timer_flags.get('enabled'):command('systemctl','enable','certbot.timer')
+            if timer_flags.get('active'):
+                command('systemctl','start','certbot.timer')
+            timer_state.unlink(missing_ok=True)
     except Exception as exc:
         # Keep services fenced. Never start a half-restored VPN or a second bot.
         for service in SERVICES: command('systemctl','stop',service,check=False)
@@ -418,6 +446,7 @@ def main():
     parser=argparse.ArgumentParser(description='Переезд MD-Next; DNS переключается вручную')
     parser.add_argument('action',choices=['export','inspect','restore','verify','activate','rollback','resume-source','api-export'])
     parser.add_argument('--file',type=Path)
+    parser.add_argument('--target-address',help='IP целевого VPS для DNS подписок')
     parser.add_argument('--freeze',action='store_true')
     parser.add_argument('--confirm-cutover',action='store_true')
     parser.add_argument('--confirm-protocol-tests',action='store_true')
@@ -512,6 +541,7 @@ asyncio.run(main())
             path=ROOT/'backend/.env';write(path,staging_env(path.read_bytes(),False),0o640)
             command('/usr/bin/python3',str(ROOT/'scripts/install-privilege-separation.py'))
             start_services()
+            command('systemctl','enable','--now','certbot.timer')
             write(STATE/'activated',b'Activated; rollback requires manual database reconciliation.\n')
             print('Службы активированы. Проверьте профили из внешней сети и переключите DNS вручную.');return
         if args.action=='resume-source':
@@ -560,7 +590,7 @@ asyncio.run(main())
             manifest,_,_=bundle.decode_bundle(args.file.read_bytes(),password);print(json.dumps(manifest,ensure_ascii=False,indent=2))
         elif args.action=='restore':
             if not args.file:raise RuntimeError('Укажите --file')
-            restore(args.file.read_bytes(),password);print('Комплект восстановлен в изолированном режиме. Бот и VPN не запущены.')
+            restore(args.file.read_bytes(),password,target_address=args.target_address);print('Комплект восстановлен в изолированном режиме. Бот и VPN не запущены.')
         elif args.action=='rollback':
             if (STATE/'activated').exists():raise RuntimeError('После активации требуется ручное согласование баз: автоматический откат заблокирован')
             restore((STATE/'before-restore.mdmove').read_bytes(),password,rollback=True)

@@ -189,6 +189,14 @@ def preflight(commit, source):
     return previous
 
 
+def verify_dns(main_domain, panel_domain):
+    emit('TARGET_DNS')
+    spec = importlib.util.spec_from_file_location('migration_dns', Path(__file__).with_name('migration-dns.py'))
+    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    try: module.ensure_dns((*module.HOSTS, main_domain, panel_domain), repair=True, notify=emit)
+    except Exception as error: raise events.MigrationError('MIG_TARGET_DNS') from error
+
+
 def prepare(commit, main_domain, panel_domain, email, source):
     if not re.fullmatch('[0-9a-f]{40}', commit) or not re.fullmatch('[0-9a-f]{64}', source):
         raise events.MigrationError('MIG_TARGET_BINDING')
@@ -196,10 +204,11 @@ def prepare(commit, main_domain, panel_domain, email, source):
     domain_pattern = r'(?=.{1,253}$)(?:'+label+r'\.)+'+label
     if any(not re.fullmatch(domain_pattern, d) for d in (main_domain, panel_domain)) or email and not re.fullmatch(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}', email):
         raise events.MigrationError('MIG_SOURCE_ADDRESS')
-    verify_build(commit)
     previous = preflight(commit, source)
     if previous and previous.get('phase')=='reboot_required' and previous.get('boot_id')==boot_id():
         raise events.MigrationError('MIG_REBOOT_REQUIRED')
+    verify_dns(main_domain, panel_domain)
+    verify_build(commit)
     marker = {'commit': commit, 'source': source, 'phase': 'updating'}
     if previous and previous.get('phase') == 'installed' and previous.get('commit')==commit:
         if (ROOT/'DEPLOYED_COMMIT').read_text().strip() != commit:
@@ -235,6 +244,7 @@ def prepare(commit, main_domain, panel_domain, email, source):
         if not (ROOT/'DEPLOYED_COMMIT').is_file() or (ROOT/'DEPLOYED_COMMIT').read_text().strip()!=commit:
             raise events.MigrationError('MIG_BUILD')
         check_empty_staging()
+        verify_dns(main_domain, panel_domain)
         marker['phase'] = 'installed'; save_marker(marker); emit('TARGET_READY')
     finally:
         for timer in timers:

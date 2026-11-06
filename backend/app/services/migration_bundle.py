@@ -175,6 +175,7 @@ def capture(root, password, *, frozen=False, portable=False):
     memory_guard(16*1024*1024)
     app = root/'opt/md-next'
     files = {}
+    certbot_executables = []
     paths = [root/p for p in SINGLE_FILES]
     for directory in DIRECTORIES:
         parent = root/directory
@@ -193,6 +194,8 @@ def capture(root, password, *, frozen=False, portable=False):
         read_name=resolved.relative_to(root).as_posix() if name.startswith('etc/letsencrypt/') else name
         if not allowed_path(read_name):raise ValueError('Ссылка вне разрешённого каталога')
         files[name] = read_confined(root,read_name)
+        if re.fullmatch(r'etc/letsencrypt/renewal-hooks/(pre|deploy|post)/[^/]+',name) and path.stat().st_mode & 0o111:
+            certbot_executables.append(name)
     if not REQUIRED <= files.keys(): raise ValueError('Не найдены обязательные конфигурации панели')
     validate_nginx_dependencies(files)
     env = files['opt/md-next/backend/.env'].decode('utf-8')
@@ -236,7 +239,7 @@ def capture(root, password, *, frozen=False, portable=False):
                     if not match:raise ValueError('Не удалось определить версию AdGuard Home')
                     components['adguard']={'version':match[1]}
 
-        manifest = {'components':components, 'restore_mode': 'clean-install' if portable else 'snapshot',
+        manifest = {'certbot_executables':sorted(certbot_executables),'components':components, 'restore_mode': 'clean-install' if portable else 'snapshot',
                     'version': (app/'backend/VERSION').read_text().strip(),
                     'commit': (app/'DEPLOYED_COMMIT').read_text().strip(),
                     'created_at': datetime.now(timezone.utc).isoformat(), 'frozen': frozen,

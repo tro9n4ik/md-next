@@ -1,21 +1,21 @@
 {
-  "version": "2.5.13",
-  "source_base_commit": "baa47787059c48d008ea06f86bf9f0576087a681",
+  "version": "2.5.14",
+  "source_base_commit": "d9fedeae28fe2b1058b3c7045d7f5db7f082c7dd",
   "demo": true,
   "generated_from_worktree": true,
   "captured_at": "2026-11-02T07:30:00.000Z",
   "files": {
-    "client-create-demo.jpg": "47e44cd940b34ee9795a8c92c19ba8546ca61815e935eb6a9f2136fa1e0c6710",
-    "clients-demo.jpg": "b1c45a1234c22a22a53b2d3785fa0916865e07e58d39734db1055d2718b67239",
-    "dashboard-dark-demo.jpg": "9884a02efb6e716420c5a2f0c753a2bc04fe9b209a1d89059fc6ad313ad9b815",
-    "dashboard-demo.jpg": "c85704c03c52198320cdbc60bbc89e9701f6c7fb87514e92c8e17353df6d1f90",
-    "nodes-demo.jpg": "bb348fd5c4b83641b98666847360c7c5a2dae3418714dc3d90f092e691da5b7a",
-    "protocols-demo.jpg": "c10b19e3f6a5adb61228f35c49356febba4bc65395caff65a4900311121c462e",
-    "settings-demo.jpg": "85ba44a29708de28211929c8cab135702f125704ccedfaa8556e099282caea8f",
-    "subadmins-demo.jpg": "ff74d2ab01c9f5f432bd7ab924b1037505d5903cb9950f66a861513882933331",
-    "telegram-demo.jpg": "b4c7e6d91b793d0971b5f89985c973777553b638da3073618a5cd4515cb70f48",
-    "warp-demo.jpg": "0796fc348cd6e370beec65b4dd75f10b8cac3f746bb6a559d5e50992b26cedeb",
-    "wiki-demo.jpg": "a612375d060d9dcc2b83a71209ce0a2a8c9d79e372365278a81e7a2df895f7ce"
+    "client-create-demo.jpg": "07f320942a58c13a6b9c5bbd60f5cffe3de36901c529499814ff930e410899a3",
+    "clients-demo.jpg": "eead4841e2e3c64f59c40164f5719a2c525c3cb7646275988cca3f848d82ee20",
+    "dashboard-dark-demo.jpg": "4f107e697bd2178e9ac98ee69c1578a252181dae4849811cf84f268d032058b3",
+    "dashboard-demo.jpg": "d29658242446495c772db485cbfcb3a862d65d137688188eb48a096158570cc0",
+    "nodes-demo.jpg": "375f05707b31c6e61d28e8f9c9110b5e8dd942c6c8ff3dd2f57e14c1a1721313",
+    "protocols-demo.jpg": "7f0339e1f9ce6149b3b2e971a045926d933ddcb0fffb1c502e57d46e03599a78",
+    "settings-demo.jpg": "556c9b1c154a7e3c725fac5bb7ea7734c3b197731b887003cd17eb0a635b656d",
+    "subadmins-demo.jpg": "9cc05532e3f4a23b0994c7e483e9226766ce24e9d3b70467e2076bdf17656140",
+    "telegram-demo.jpg": "faf6447f6167840e6d069feb2ee83c5a7af63eb9ce2f645813308a5b884ee260",
+    "warp-demo.jpg": "0053115b2c2f7ea818dbb3129c1510437fa32e332c9d2f717d0d3cd9892482d9",
+    "wiki-demo.jpg": "a14361dd4cbf71e603442e5f2058a8a8a729362bbc43d2b8cbf3ef88c228583d"
   },
   "captures": {
     "dashboard-demo.jpg": {
