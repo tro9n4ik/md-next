@@ -197,7 +197,7 @@ async def restore_preview(request:PreviewRequest, db=Depends(get_db),user=Depend
     token=secrets.token_urlsafe(24)
     previews[token]={'data':data,'owner':user.id,'expires':time.monotonic()+300}
     return {'token':token,'created_at':data['created_at'],'tables':counts,
-        'notice':'Будут заменены клиенты, профили, ноды, правила и настройки. Учётная запись администратора и история событий сохранятся. Копия применима только к этой установке.'}
+        'notice':'Будут заменены клиенты, профили, ноды, правила и настройки. Учётная запись администратора и история событий сохранятся. Копия применима только к этой установке.' + (' Агенты KedrLink потребуют повторного подключения по новым приглашениям.' if any(row.get('transport') == 'mdnt' for row in data['tables']['nodes']) else '')}
 
 
 class RestoreRequest(PasswordRequest):
@@ -247,9 +247,11 @@ async def restore(request:RestoreRequest,db=Depends(get_db),user=Depends(get_cur
     from app.bot.bot import bot_manager
     settings=await get_telegram_settings_from_db()
     notice=''
+    if any(row.get('transport') == 'mdnt' for row in preview['data']['tables']['nodes']):
+        notice='Переподключите агенты KedrLink по новым приглашениям.'
     try: await bot_manager.start(settings['token'],await resolve_telegram_proxy(db,settings))
     except Exception:
-        notice='Данные восстановлены; проверьте настройки подключения Telegram.'
+        notice=(notice+' ' if notice else '')+'Данные восстановлены; проверьте настройки подключения Telegram.'
         log_event('warning','telegram','После восстановления требуется проверить подключение Telegram')
     log_event('warning','backup','Восстановлена резервная копия',{'rollback_copy':rollback['name']})
     return {'ok':True,'rollback_copy':rollback['name'],'notice':notice}

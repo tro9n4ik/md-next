@@ -15,6 +15,12 @@ MAGIC = b'MDNEXT1\n'
 TABLES = ('nodes', 'clients', 'client_profiles', 'routing_rules', 'settings')
 BACKUP_DIR = Path(os.getenv('MD_BACKUP_DIR', 'backups'))
 MAX_BYTES = 20 * 1024 * 1024
+ENCRYPTED_NODE_REVISIONS = {'0020_encrypt_node_secrets', '0021_bind_node_secrets', '0022_persist_host_identity', '0023_node_transport'}
+NODE_CONTROL_DEFAULTS = {
+    'transport': 'xray', 'control_token_hash': None, 'control_seen_at': None,
+    'control_agent_version': None, 'control_uptime_ms': None, 'control_command_id': None,
+    'control_command_deadline': None, 'control_command_result': None, 'control_command_finished_at': None,
+}
 
 
 def instance_id():
@@ -75,19 +81,30 @@ def read_backup(blob,password):
     with sqlite3.connect('md_next.db') as db:
         revision = db.execute('SELECT version_num FROM alembic_version').fetchone()[0]
         source_revision = data.get('revision')
-        old_node_secrets = source_revision in {'0019_client_exit_node', '0020_encrypt_node_secrets', '0021_bind_node_secrets'} and revision in {'0020_encrypt_node_secrets', '0021_bind_node_secrets', '0022_persist_host_identity'}
-        if source_revision != revision and not old_node_secrets:
+        old_node_secrets = source_revision in {'0019_client_exit_node', '0020_encrypt_node_secrets', '0021_bind_node_secrets'} and revision in ENCRYPTED_NODE_REVISIONS
+        old_node_control = revision == '0023_node_transport' and source_revision in {'0019_client_exit_node', '0020_encrypt_node_secrets', '0021_bind_node_secrets', '0022_persist_host_identity'}
+        if source_revision != revision and not old_node_secrets and not old_node_control:
             raise ValueError('Версия схемы копии не совпадает с текущей')
         for table,rows in data['tables'].items():
             columns = {r[1] for r in db.execute(f'PRAGMA table_info({table})')}
+            if table == 'nodes' and old_node_control:
+                columns -= NODE_CONTROL_DEFAULTS.keys()
             if not isinstance(rows,list) or any(not isinstance(r,dict) or set(r)!=columns for r in rows):
                 raise ValueError('Структура копии повреждена')
-    if revision in {'0020_encrypt_node_secrets', '0021_bind_node_secrets', '0022_persist_host_identity'}:
+    if old_node_control:
+        for row in data['tables']['nodes']:
+            row.update(NODE_CONTROL_DEFAULTS)
+    if revision in ENCRYPTED_NODE_REVISIONS:
         for row in data['tables']['nodes']:
             stored = row['secret']
             plain = decrypt_node_secret(stored)
             if plain:
                 row['secret'] = encrypt_node_secret(plain)
+    if revision == '0023_node_transport':
+        # Restoring an older snapshot must never revive a revoked agent key or
+        # replay an old command. Re-pair restored agents with a fresh invitation.
+        for row in data['tables']['nodes']:
+            row.update({key: value for key, value in NODE_CONTROL_DEFAULTS.items() if key != 'transport'})
     return data
 
 

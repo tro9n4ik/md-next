@@ -3,6 +3,7 @@ import base64
 import os
 import sqlite3
 from contextlib import closing
+import hashlib
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -20,6 +21,32 @@ from app.services import backups
 from app.services.crypto import decrypt_node_secret
 from app.services.node_transport import node_outbound
 from conftest import TestingSessionLocal
+
+
+def test_pre_agent_backup_migration_and_no_revived_agent_credentials(tmp_path, monkeypatch):
+    backend = Path(__file__).resolve().parents[1]
+    config = Config()
+    config.set_main_option("script_location", str(backend / "alembic"))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(backups, "BACKUP_DIR", tmp_path/"backups")
+    command.upgrade(config, "0022_persist_host_identity")
+    with sqlite3.connect("md_next.db") as db:
+        db.execute("INSERT INTO nodes (id,name,host,port,protocol) VALUES (1,'old','192.0.2.1',443,'trojan')")
+    password = "synthetic-backup-password"
+    meta = backups.create_backup(password)
+    old_blob = (backups.BACKUP_DIR/meta["name"]).read_bytes()
+    command.upgrade(config, "head")
+    old = backups.read_backup(old_blob,password)["tables"]["nodes"][0]
+    assert old["transport"] == "xray"
+    assert old["control_token_hash"] is None
+    with sqlite3.connect("md_next.db") as db:
+        db.execute("UPDATE nodes SET transport='mdnt', control_token_hash=?, control_agent_version='0.1.0', control_command_id=?",
+                   (hashlib.sha256(b"synthetic-key").hexdigest(), "a"*32))
+    meta = backups.create_backup(password)
+    blob = (backups.BACKUP_DIR/meta["name"]).read_bytes()
+    restored = backups.read_backup(blob,password)["tables"]["nodes"][0]
+    assert restored["transport"] == "mdnt"
+    assert all(restored[key] is None for key in backups.NODE_CONTROL_DEFAULTS if key != "transport")
 
 
 @pytest.mark.asyncio

@@ -114,6 +114,8 @@ async def test_subadmin_cannot_call_any_panel_administration_endpoint(auth_heade
             continue
         if path in {"/api/v1/nodes/register", "/api/v1/nodes/join", "/api/v1/clients", "/api/v1/health"}:
             continue
+        if path == "/api/v1/nodes/{node_id}/control/poll":
+            continue  # Dedicated node-key authentication is covered in test_kedrlink.py.
         if path in {"/api/v1/nodes", "/api/v1/nodes/{node_id}"} and "get" in operations:
             operations = {method: value for method, value in operations.items() if method != "get"}
         if (path == "/api/v1/client-groups" and "get" in operations):

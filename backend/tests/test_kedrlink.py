@@ -75,6 +75,8 @@ async def test_authentication_scope_and_rate_limits(auth_headers):
     for headers in ({}, auth_headers, {"Authorization": "Bearer "+other["control"]["token"]}):
         assert (await request("POST", path+"/poll", headers, json=heartbeat())).status_code == 401
     _, limited = await account(auth_headers)
+    for body in ({}, heartbeat()):
+        assert (await request("POST", path+"/poll", limited, json=body)).status_code == 401
     assert (await request("GET", path, limited)).status_code == 403
     assert (await request("POST", path+"/commands", limited, json={"kind": "status"})).status_code == 403
     headers = {"Authorization": "Bearer "+first["control"]["token"]}

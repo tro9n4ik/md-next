@@ -46,7 +46,7 @@ def control_state(node, now=None):
     now = now or dt.datetime.now(dt.timezone.utc)
     seen = utc(node.control_seen_at)
     enabled = node.transport == "mdnt"
-    state = "standard" if not enabled else "waiting" if seen is None else "online" if (now-seen).total_seconds() <= 60 else "offline"
+    state = "standard" if not enabled else "unpaired" if not node.control_token_hash else "waiting" if seen is None else "online" if (now-seen).total_seconds() <= 60 else "offline"
     command = None
     if node.control_command_id:
         finished = utc(node.control_command_finished_at)
@@ -65,15 +65,21 @@ async def get_node(db, node_id):
     return node
 
 
-@router.post("/{node_id}/control/poll")
-async def poll(node_id: int, data: Poll, request: Request, db: AsyncSession = Depends(get_db)):
-    node = await db.get(Node, node_id)
+async def authenticate_agent(node_id: int, request: Request, db: AsyncSession = Depends(get_db)):
     authorization = request.headers.get("authorization", "")
     token = authorization[7:] if authorization.startswith("Bearer ") else ""
+    if len(token) != 64:
+        raise HTTPException(401, "Недействительный ключ агента")
+    node = await db.get(Node, node_id)
     digest = hashlib.sha256(token.encode()).hexdigest()
     if (node is None or node.transport != "mdnt" or not node.control_token_hash
-            or len(token) != 64 or not hmac.compare_digest(digest, node.control_token_hash)):
+            or not hmac.compare_digest(digest, node.control_token_hash)):
         raise HTTPException(401, "Недействительный ключ агента")
+    return digest
+
+
+@router.post("/{node_id}/control/poll")
+async def poll(node_id: int, data: Poll, digest: str = Depends(authenticate_agent), db: AsyncSession = Depends(get_db)):
     tick = time.monotonic()
     if tick - _last_poll.get(node_id, -100) < 0.5:
         raise HTTPException(429, "Слишком частый опрос", headers={"Retry-After": "1"})

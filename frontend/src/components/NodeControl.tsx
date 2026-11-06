@@ -17,7 +17,7 @@ export function NodeTransportField({ value, onChange }: { value: NodeTransport; 
 
 interface ControlState {
   transport: NodeTransport;
-  state: 'standard' | 'waiting' | 'online' | 'offline';
+  state: 'standard' | 'unpaired' | 'waiting' | 'online' | 'offline';
   seen_at: string | null;
   agent_version: string | null;
   uptime_ms: number | null;
@@ -40,7 +40,7 @@ export function NodeControl({ nodeId }: { nodeId: number }) {
     onSuccess: data => { client.setQueryData(key, data); },
   });
   const data = query.data;
-  const labels = { standard: 'Стандартный канал', waiting: 'Ожидаем подключения агента', online: 'Агент на связи', offline: 'Агент не на связи' };
+  const labels = { standard: 'Стандартный канал', unpaired: 'Нужно повторно подключить агента по новому приглашению', waiting: 'Ожидаем подключения агента', online: 'Агент на связи', offline: 'Агент не на связи' };
   return <div className="mt-2 space-y-1 text-xs">
     <p>{data ? labels[data.state] : 'Проверяем связь с агентом…'}{data?.agent_version ? ` · ${data.agent_version}` : ''}</p>
     {data?.seen_at && <p className="text-neutral-500">Последняя связь: {new Date(data.seen_at).toLocaleString('ru-RU')}</p>}
@@ -50,6 +50,6 @@ export function NodeControl({ nodeId }: { nodeId: number }) {
     {notice && <p role="status" className="text-amber-700">{notice}</p>}
     {command.isError && <p role="alert" className="text-red-700">{command.error.message}</p>}
     <button className="ui-button ui-button-secondary !min-h-8 !px-2 !py-1 text-xs" onClick={() => command.mutate()}
-      disabled={command.isPending || data?.command?.status === 'pending' || !data || !!notice}>Проверить агент</button>
+      disabled={command.isPending || data?.command?.status === 'pending' || data?.state === 'unpaired' || !data || !!notice}>Проверить агент</button>
   </div>;
 }
