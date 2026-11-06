@@ -38,11 +38,22 @@ def machine_id():
         logging.getLogger(__name__).warning("Используется идентификатор локальной разработки без привязки к ОС")
         return b"mdnext-development-no-machine-id"
     path = Path(explicit) if explicit else HOST_KEY
+    bridge = None
+    if not explicit:
+        try: bridge = read_key(path.parent/'data/host.key')
+        except FileNotFoundError: pass
     try:
-        return read_key(path)
+        canonical = read_key(path)
+        if bridge is not None and bridge != canonical:
+            raise RuntimeError("Конфликт идентификаторов установки")
+        return canonical
     except FileNotFoundError:
         if path.is_symlink():
             raise RuntimeError("Недопустимая ссылка идентификатора установки")
+    if bridge is not None:
+        value = b"mdnext-host-key-v1:random:" + bridge.hex().encode('ascii') + b"\n"
+        try: return publish_key(path, value)
+        except PermissionError: return bridge
     value = None
     for source in MACHINE_ID_PATHS:
         try:
@@ -54,6 +65,24 @@ def machine_id():
             break
     if value is None:
         value = b"mdnext-host-key-v1:random:" + secrets.token_hex(32).encode() + b"\n"
+    try:
+        result = publish_key(path, value)
+    except PermissionError:
+        if explicit:
+            raise
+        # Legacy updaters run Alembic as md-next before the new root installer.
+        # The database directory already belongs to that service's writable state.
+        result = publish_key(path.parent/'data/host.key', value)
+        try:
+            canonical = read_key(path)
+        except FileNotFoundError:
+            return result
+        if canonical != result:
+            raise RuntimeError("Конфликт идентификаторов установки")
+    return result
+
+
+def publish_key(path, value):
     path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(prefix=".host-key-", dir=path.parent)
     try:

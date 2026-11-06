@@ -324,7 +324,7 @@ def run(request):
                 # /root survives reboot, but upload anew after each reconnect.
                 remote_dir=execute(transport,'umask 077; mktemp -d /root/mdnext-transfer-XXXXXXXX').strip()
                 if not re.fullmatch('/root/mdnext-transfer-[A-Za-z0-9]+',remote_dir):raise RuntimeError('Invalid remote directory')
-                for name in ('prepare-migration-target.sh','migration-target.py','migration-events.py'):
+                for name in ('prepare-migration-target.sh','migration-target.py','migration-events.py','migration-dns.py'):
                     sftp.put(str(LIB/name),remote_dir+'/'+name)
                 command='bash '+shlex.quote(remote_dir+'/prepare-migration-target.sh')+' '+' '.join(shlex.quote(s) for s in (commit,main,panel,email,installation))
                 try:
@@ -339,6 +339,9 @@ def run(request):
             salt=os.urandom(16)
             write_json(binding_path,{**binding,'target_commit':commit,'installation':installation,'salt':salt.hex(),'password_check':hashlib.scrypt(request['password'].encode(),salt=salt,n=2**14,r=8,p=1).hex()})
             preparation.unlink(missing_ok=True)
+        if request['action'] in {'prepare','finalize','activate'}:
+            try: execute(transport,'test -f /usr/local/lib/md-next/migration-postflight.py && test -f /usr/local/lib/md-next/migration-dns.py',timeout=5)
+            except Exception as error: raise events.MigrationError('MIG_TARGET_VERSION') from error
         if request['action'] in {'prepare','finalize'}:
             status('exporting','Создаём полный зашифрованный комплект.',request)
             frozen=request['action']=='finalize'
@@ -381,8 +384,10 @@ def run(request):
                 if frozen:runtime.write(STATE/'final.mdmove',blob)
                 remote=remote_dir+'/transfer.mdmove';sftp.put(str(bundle),remote);sftp.chmod(remote,0o600)
                 status('restoring','Восстанавливаем комплект в изолированную целевую установку.',request)
-                remote_cli(transport,'restore',request['password'],'--file '+shlex.quote(remote))
+                remote_cli(transport,'restore',request['password'],'--file '+shlex.quote(remote)+' --target-address '+shlex.quote(request['host']))
             status('verifying','Проверяем конфигурации VPN и HTTPS на новом VPS.',request)
+            try: execute(transport,'/usr/bin/python3 /usr/local/lib/md-next/migration-dns.py --check',timeout=120)
+            except Exception as error: raise events.MigrationError('MIG_TARGET_DNS') from error
             remote_cli(transport,'verify',request['password'])
             confirm_network(request,latch_token)
             latch_token=None
@@ -395,6 +400,8 @@ def run(request):
             remote_dir=execute(transport,'umask 077; mktemp -d /root/mdnext-transfer-XXXXXXXX').strip()
             if not re.fullmatch('/root/mdnext-transfer-[A-Za-z0-9]+',remote_dir):raise RuntimeError('Invalid remote directory')
             latch_token=arm_network(transport,sftp,remote_dir)
+            try: execute(transport,'/usr/bin/python3 /usr/local/lib/md-next/migration-dns.py --check',timeout=120)
+            except Exception as error: raise events.MigrationError('MIG_TARGET_DNS') from error
             remote_cli(transport,'verify',request['password'])
             write_json(STATE/'source-activated.json',{'state':'activation_started',**binding})
             remote_cli(transport,'activate',request['password'],'--confirm-cutover --confirm-protocol-tests')

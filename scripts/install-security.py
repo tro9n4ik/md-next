@@ -2,6 +2,8 @@
 """Install scoped edge defenses on an existing MD-Next server (root, Linux)."""
 from pathlib import Path
 import datetime
+import fnmatch
+import re
 import ipaddress
 import os
 import shutil
@@ -81,6 +83,31 @@ def write(path, content):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content)
 
+AUTH_LOGROTATE = '/var/log/nginx/md-next-auth.log {\n daily\n rotate 7\n missingok\n notifempty\n compress\n delaycompress\n create 0640 www-data adm\n sharedscripts\n postrotate\n  /usr/sbin/nginx -s reopen\n endscript\n}\n'
+
+
+def configure_auth_logrotate(root=Path('/')):
+    directory = root/'etc/logrotate.d'
+    owned = directory/'md-next-auth'
+    nginx = directory/'nginx'
+    if owned.is_symlink() or nginx.is_symlink():
+        raise RuntimeError('Ссылка в конфигурации logrotate')
+    text = nginx.read_text() if nginx.exists() else ''
+    text = '\n'.join(line.split('#',1)[0] for line in text.splitlines())
+    # Distro nginx owns its wildcard. Keep exactly one owner of the auth log.
+    covered = any(fnmatch.fnmatchcase('/var/log/nginx/md-next-auth.log', pattern)
+                  for pattern in re.findall(r'/var/log/nginx/[^\s{}]+', text.split('{',1)[0]))
+    if covered:
+        if owned.exists():
+            if owned.read_text() != AUTH_LOGROTATE:
+                raise RuntimeError('Нестандартный конфликт logrotate требует ручной проверки')
+            owned.unlink()
+    else:
+        directory.mkdir(parents=True,exist_ok=True)
+        owned.write_text(AUTH_LOGROTATE)
+        owned.chmod(0o644)
+
+
 def main():
     if os.geteuid() != 0:
         raise SystemExit('root required')
@@ -143,20 +170,7 @@ filter = md-next-panel
 logpath = /var/log/nginx/md-next-auth.log
 action = md-next-panel
 ''')
-    write('/etc/logrotate.d/md-next-auth', '''/var/log/nginx/md-next-auth.log {
- daily
- rotate 7
- missingok
- notifempty
- compress
- delaycompress
- create 0640 www-data adm
- sharedscripts
- postrotate
-  /usr/sbin/nginx -s reopen
- endscript
-}
-''')
+    configure_auth_logrotate()
     subprocess.run(['fail2ban-client', '-t'], check=True)
     subprocess.run(['systemctl', 'enable', 'fail2ban'], check=True)
     # Ubuntu's Fail2ban reload can discard unchanged action objects. Restart
