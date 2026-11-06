@@ -222,6 +222,7 @@ class Updater:
         shutil.copy2(repository / 'frontend/dist/index.html', index.with_suffix('.next'))
         index.with_suffix('.next').replace(index)
         separator = self.root / 'scripts/install-privilege-separation.py'
+        self.run(['/usr/bin/python3', str(self.root / 'scripts/nginx-capacity.py')], timeout=60)
         if separator.is_file():
             self.run(['/usr/bin/python3', str(separator), '--configure-only'], timeout=120)
         self.run(['systemctl', 'start', 'md-next-backend'])

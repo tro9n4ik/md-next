@@ -24,7 +24,7 @@ from app.models.setting import Setting
 from app.api.auth import get_current_user, require_admin
 from app.schemas.node import NodePublicResponse, NodeAdminResponse
 from app.services.xray import XrayService
-from app.services.cluster import apply_active_node, get_failover_settings, is_manual_direct_route
+from app.services.cluster import get_failover_settings, is_manual_direct_route
 from app.services.client_service import ClientService
 from app.services.events import log_event, log_node_event
 from app.services.request_ip import request_ip
@@ -224,12 +224,16 @@ async def _toggle_node_enabled(node_id, db, current_user):
         node.status = "healthy"
         node.is_active = True
 
-    await db.flush()
-    success, reason = await ClientService.sync_xray_clients(db)
-    if not success:
+    try:
+        await db.flush()
+        success, reason = await ClientService.sync_xray_clients(db)
+        if not success:
+            raise HTTPException(status_code=502, detail=f"Не удалось применить состояние ноды: {reason}")
+        await db.commit()
+    except Exception:
         await db.rollback()
-        raise HTTPException(status_code=502, detail=f"Не удалось применить состояние ноды: {reason}")
-    await db.commit()
+        await ClientService.restore_committed_configs(db)
+        raise
     await db.refresh(node)
     log_node_event("info", "Узел включён" if node.is_enabled else "Узел отключён", node)
     return node_response(node, current_user)
@@ -452,6 +456,12 @@ async def register_node(node_data: NodeRegister, db: AsyncSession = Depends(get_
     """
     Публичный эндпоинт для регистрации новой ноды из скрипта join-node.sh (по одноразовому токену)
     """
+    from app.services.cluster import _route_lock
+    async with _route_lock:
+        return await _register_node(node_data, db)
+
+
+async def _register_node(node_data, db):
     input_hash = _hash_token(node_data.token)
     now = datetime.datetime.now(datetime.timezone.utc)
 
@@ -531,7 +541,9 @@ async def register_node(node_data: NodeRegister, db: AsyncSession = Depends(get_
     if failover_mode == "auto" and active_node is None and not await is_manual_direct_route(db):
         # The route lock owns creation/update of active_node_id. Creating it
         # before acquiring that lock races with a simultaneous registration.
-        success, reason = await apply_active_node(db, target_node, source="auto")
+        # register_node already owns the route lock, before its first DB write.
+        from app.services.cluster import _apply_active_node
+        success, reason = await _apply_active_node(db, target_node, source="auto")
         if not success:
             await db.rollback()
             raise HTTPException(status_code=502, detail=f"Ошибка перестройки конфигурации Xray при авто-активации ноды: {reason}")

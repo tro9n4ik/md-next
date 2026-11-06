@@ -323,6 +323,7 @@ update_installation() {
   [ ! -d "$backup_dir/fake" ] || cp -a "$backup_dir/fake/." "$APP_DIR/backend/app/static/fake/"
   rm -rf "$update_dir"
   ensure_probe_env
+  python3 "$APP_DIR/scripts/nginx-capacity.py"
   update_nginx_routes
   install_awg
   install_awg_routing
@@ -808,6 +809,7 @@ HOOK
 }
 
 setup_services_and_nginx() {
+  python3 "$APP_DIR/scripts/nginx-capacity.py"
   write_backend_service
 
   systemctl daemon-reload

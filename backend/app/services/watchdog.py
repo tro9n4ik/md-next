@@ -3,6 +3,7 @@ import datetime
 import logging
 import os
 import time
+from types import SimpleNamespace
 from typing import Optional, Tuple
 
 import httpx
@@ -117,6 +118,22 @@ class WatchdogService:
         nodes = (await session.execute(select(Node).order_by(Node.priority, Node.id))).scalars().all()
         from app.services.node_uplink import get_uplink_port
         self._uplink_port = await get_uplink_port(session)
+        # Complete network I/O before adding samples or changing ORM fields:
+        # an autoflush below acquires SQLite's single writer lock.
+        measurements = {}
+        for node in nodes:
+            if not node.is_enabled:
+                continue
+            connected, ping_ms = await self._check_node_ping(node.host, node.port)
+            probe = await self._probe_node_egress(node) if connected else None
+            country = SimpleNamespace(id=node.id, country_code=node.country_code)
+            if connected and (probe is None or probe[0]) and ping_ms <= settings["ping_threshold_ms"]:
+                await self._update_country(country)
+            measurements[node.id] = (connected, ping_ms, probe, country.country_code)
+        # Re-read after network waits: an administrator may have disabled or
+        # deleted a node meanwhile. Do not overwrite unrelated fresh fields.
+        nodes = (await session.execute(select(Node).order_by(Node.priority, Node.id)
+                                       .execution_options(populate_existing=True))).scalars().all()
         now = datetime.datetime.now(datetime.timezone.utc)
         for node in nodes:
             if not node.is_enabled:
@@ -126,9 +143,10 @@ class WatchdogService:
                 self.consecutive_successes[node.id] = 0
                 continue
 
-            connected, ping_ms = await self._check_node_ping(node.host, node.port)
+            if node.id not in measurements:
+                continue
+            connected, ping_ms, probe, country_code = measurements[node.id]
             node.ping_ms = ping_ms
-            probe = await self._probe_node_egress(node) if connected else None
             egress_ok = probe[0] if probe is not None else True
             # Диагностика не подменяет задержку: порог ping_threshold_ms отвечает только
             # за доступность порта, а работоспособность выхода определяется отдельно.
@@ -162,7 +180,7 @@ class WatchdogService:
                 self.consecutive_failures[node.id] = 0
                 node.status = "healthy"
                 node.is_active = True
-                await self._update_country(node)
+                node.country_code = country_code
                 if was_unhealthy:
                     log_event("info", "node", "Узел снова доступен", {"node_id": node.id, "name": node.name, "ping_ms": ping_ms})
                 outage=await session.get(Setting,f'notify.node.{node.id}')
