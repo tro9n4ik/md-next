@@ -7,13 +7,14 @@ import CountryFlag from './ui/CountryFlag';
 import Drawer from './ui/Drawer';
 import { apiFetch } from '../utils/api';
 import { panelPolling, panelPollNotice } from '../utils/panelPolling';
+import { useCurrentUser } from '../contexts/AuthContext';
 
 interface NodeData {
   id: number;
   name: string;
-  host: string;
-  port: number;
-  protocol: string;
+  host?: string | null;
+  port?: number | null;
+  protocol?: string | null;
   is_active: boolean;
   is_enabled: boolean;
   status: string;
@@ -77,6 +78,38 @@ const NumberField: React.FC<{ label: string; value: number; onChange: (value: nu
 );
 
 export const NodesManager: React.FC = () => {
+  const user = useCurrentUser();
+  return user.role === 'admin' ? <AdminNodesManager /> : <PublicNodes />;
+};
+
+interface PublicNode {
+  id: number;
+  name: string;
+  country?: string | null;
+  status: string;
+  is_online: boolean;
+  last_seen?: string | null;
+}
+
+function PublicNodes() {
+  const query = useQuery({ queryKey: ['publicNodes'], ...panelPolling<PublicNode[]>('/api/v1/nodes') });
+  const notice = panelPollNotice(query);
+  return <div className="nodes-workspace">
+    <header className="dashboard-heading"><div><h1>Узлы</h1><p>Доступность серверов</p></div>
+      <button className="ui-button ui-button-secondary" onClick={() => { void query.refetch(); }} disabled={query.isFetching}><RefreshCw size={16} />Обновить</button>
+    </header>
+    {notice && <p role="status" className="text-sm text-amber-700">{notice}</p>}
+    {query.isPending && !notice && <p>Загрузка нод…</p>}
+    {query.data?.length === 0 && !notice && <p>Узлы ещё не подключены.</p>}
+    <ul aria-label="Список нод" className="node-list">{query.data?.map(node => <li key={node.id} className="node-list-row">
+      <div><CountryFlag code={node.country} /><p>{node.name}</p></div>
+      <p className="text-sm text-neutral-500">Скрыт политикой доступа</p>
+      <p>{node.is_online ? 'В сети' : 'Не в сети'}</p>
+    </li>)}</ul>
+  </div>;
+}
+
+const AdminNodesManager: React.FC = () => {
   const confirm = useConfirm();
   const queryClient = useQueryClient();
   const [copied, setCopied] = useState(false);
@@ -330,7 +363,7 @@ export const NodesManager: React.FC = () => {
       <div className="node-list-columns" aria-hidden="true"><span>Узел и состояние</span><span>Адрес</span><span>Задержка</span><span>Приоритет и действия</span></div>
       <ul aria-label="Список нод" className="node-list">{nodes.map((node, index) => <li key={node.id} className={`node-list-row ${route?.active_node?.id === node.id ? 'node-list-row-active' : ''}`}>
         <div className="col-span-2 min-w-0 md:col-span-1"><div className="flex flex-wrap items-center gap-2"><CountryFlag code={node.country_code} /><h3 className="break-all text-sm font-semibold">{node.name}</h3>{route?.active_node?.id === node.id && <span className="text-xs font-medium text-emerald-700">Активная</span>}</div><p className={`mt-1 text-xs ${node.status === 'healthy' ? 'text-emerald-700' : node.status === 'disabled' ? 'text-neutral-500' : 'text-red-700'}`}>{node.status === 'healthy' ? 'Доступна' : node.status === 'disabled' ? 'Выключена' : 'Недоступна'}</p></div>
-        <div className="min-w-0"><p className="break-all font-mono text-xs text-neutral-700">{node.host}</p><p className="mt-1 text-xs text-neutral-500">{node.port} · {node.protocol.toUpperCase()}</p></div>
+        <div className="min-w-0"><p className="break-all font-mono text-xs text-neutral-700">{node.host || 'Скрыт политикой доступа'}</p><p className="mt-1 text-xs text-neutral-500">{node.port ?? '—'} · {node.protocol?.toUpperCase() || '—'}</p></div>
         <p className="text-right text-xs text-neutral-500">{node.ping_ms ? `${node.ping_ms} мс` : '—'}</p>
         <div className="col-span-2 flex flex-wrap items-center gap-1.5 md:col-span-1 md:grid md:grid-cols-[2rem_2.25rem_2.25rem_9rem_2.25rem] md:items-center"><span className="mr-1 text-xs text-neutral-400">#{node.priority + 1}</span>
           <button aria-label={`Поднять приоритет: ${node.name}`} disabled={index === 0 || reorderMutation.isPending} onClick={() => { const ids = nodes.map(item => item.id); [ids[index - 1], ids[index]] = [ids[index], ids[index - 1]]; reorderMutation.mutate(ids); }} className="ui-button ui-button-secondary !min-h-9 !p-2"><ArrowUp size={16} /></button>

@@ -43,12 +43,25 @@ def main():
             ip(namespace, "route", "add", "default", "via", f"10.231.{segment}.1")
             ip(namespace, "-6", "route", "add", "default", "via", f"fd42:231:{segment}::1")
         execute(router, "sysctl", "-qw", "net.ipv4.ip_forward=1", "net.ipv6.conf.all.forwarding=1")
+        # Reproduce early filter verdicts from Docker without touching host Docker.
+        for binary in ("iptables", "ip6tables"):
+            execute(router, binary, "-N", "DOCKER-USER")
+            execute(router, binary, "-A", "DOCKER-USER", "-j", "ACCEPT")
+            execute(router, binary, "-I", "FORWARD", "1", "-j", "DOCKER-USER")
+            execute(router, binary, "-t", "mangle", "-A", "FORWARD", "-j", "ACCEPT")
         helper = Path(__file__).with_name("network-mtu.py")
         load = "import runpy; m=runpy.run_path(__import__('sys').argv[1]); "
         for fallback in (False, True):
             choice = "m['shutil'].which=lambda name: None if name=='nft' else '/usr/sbin/'+name; " if fallback else ""
             for _ in range(2):
                 execute(router, sys.executable, "-c", load + choice + "m['apply']()", str(helper))
+            if fallback:
+                for binary, ceiling in (("iptables", 1340), ("ip6tables", 1320)):
+                    entries = [line for line in execute(router, binary, "-t", "mangle", "-S", "FORWARD").stdout.splitlines()
+                               if line.startswith("-A FORWARD ")]
+                    assert len(entries) == 3, entries
+                    assert all(f"--set-mss {ceiling}" in line for line in entries[:2]), entries
+                    assert entries[2] == "-A FORWARD -j ACCEPT", entries
             execute(left, "ping", "-c", "3", "-W", "2", "-M", "do", "-s", "1352", "10.231.2.2")
             for source, destination, interface, v4, v6 in (
                 (left, right, "mr", "10.231.2.2", "fd42:231:2::2"),

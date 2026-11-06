@@ -50,7 +50,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout }) => {
     { icon: ShieldCheck, label: 'Обход БС', to: '/bypass' },
     { icon: Settings, label: 'Настройки', to: '/settings' },
     { icon: BookOpen, label: 'Wiki', to: '/wiki' },
-  ].filter(item => isAdmin || item.to === '/clients' || item.to === '/settings');
+  ].filter(item => isAdmin || item.to === '/clients' || item.to === '/nodes' || item.to === '/settings');
 
   const sidebarContent = (
     <div className={`app-sidebar flex flex-col h-full text-white w-60 transition-[width] ${collapsed ? 'lg:w-20 sidebar-collapsed' : ''}`}>

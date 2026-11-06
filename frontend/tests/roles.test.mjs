@@ -279,12 +279,41 @@ test('Настройки в меню доступны всем, служебны
   assert.match(html, /href="\/clients"/);
   assert.match(html, /href="\/settings\/account"/);
   assert.match(html, /href="\/settings"/);
+  assert.match(html, /href="\/nodes"/);
   const full = render(Sidebar, admin);
-  for (const path of ['nodes', 'warp', 'routing', 'wiki']) {
+  for (const path of ['warp', 'routing', 'wiki']) {
     assert.doesNotMatch(html, new RegExp('href="/' + path));
     assert.match(full, new RegExp('href="/' + path));
   }
   for (const path of ['account', 'events', 'diagnostics', 'history', 'help']) assert.doesNotMatch(full, new RegExp(`href="/${path}"`));
+});
+
+test('Субадминистратор видит публичные узлы без адресов и управления', () => {
+  const query = fixture();
+  query.setQueryData(['publicNodes'], [
+    { id: 1, name: 'Публичный узел', country: 'NL', status: 'healthy', is_online: true },
+    { id: 2, name: 'Резерв', country: null, status: 'offline', is_online: false },
+  ]);
+  // Private cached results from other screens must never be used by this view.
+  query.setQueryData(['nodes'], [{ id: 3, name: 'Служебная запись', host: '192.0.2.99' }]);
+  const html = render(NodesManager, subadmin, query);
+  assert.match(html, /Публичный узел/);
+  assert.match(html, /Скрыт политикой доступа/);
+  assert.match(html, /В сети/);
+  assert.match(html, /Не в сети/);
+  assert.doesNotMatch(html, /192\.0\.2\.99|Служебная запись|Добавить ноду|Сделать активной|Приглашения|Текущий выход/);
+  assert.equal(query.getQueryCache().find({ queryKey: ['clusterRoute'] }), undefined);
+  assert.equal(query.getQueryCache().find({ queryKey: ['nodeInvites'] }), undefined);
+  query.clear();
+});
+
+test('Неполные сетевые параметры не ломают отображение узла', () => {
+  const query = fixture();
+  query.setQueryData(['nodes'], [{ id: 1, name: 'Нода без адреса', host: null, protocol: null, status: 'healthy' }]);
+  const html = render(NodesManager, admin, query);
+  assert.match(html, /Нода без адреса/);
+  assert.match(html, /Скрыт политикой доступа/);
+  query.clear();
 });
 test('Субадминистратор видит только личные настройки, администратор — все разделы', () => {
   for (const location of ['/settings', '/settings/diagnostics', '/settings/account']) {

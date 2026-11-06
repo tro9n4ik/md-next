@@ -91,7 +91,7 @@ const router = createHashRouter([{ element: <Shell />, children: [
   { path: '/diagnostics', element: <Navigate to="/settings/diagnostics" replace /> }, { path: '/history', element: <Navigate to="/settings/history" replace /> },
   { path: '/backups', element: <Navigate to="/settings/backups" replace /> }, { path: '/events', element: <Navigate to="/settings/events" replace /> },
   { path: '*', element: <Navigate to="/" replace /> },
-].map(route => ({ ...route, element: route.path === '/account' || route.path === '/settings' || route.path?.startsWith('/clients') ? route.element : <AdminOnly>{route.element}</AdminOnly>, errorElement: <PageError /> })) }]);
+].map(route => ({ ...route, element: route.path === '/account' || route.path === '/settings' || route.path === '/nodes' || route.path?.startsWith('/clients') ? route.element : <AdminOnly>{route.element}</AdminOnly>, errorElement: <PageError /> })) }]);
 
 const App: React.FC = () => {
   const queryClient = useQueryClient();
