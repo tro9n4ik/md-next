@@ -3,13 +3,35 @@ import argparse
 import os
 from pathlib import Path
 import re
+import selectors
 import subprocess
 import sys
+import time
 import uuid
 
 
 def run(*args, **kwargs):
     return subprocess.run(args, check=True, text=True, capture_output=True, timeout=20, **kwargs)
+
+
+def wait_for_capture(capture, timeout=5):
+    """Ждать готовности libpcap, прежде чем отправлять проверочный пакет."""
+    deadline = time.monotonic() + timeout
+    messages = b""
+    with selectors.DefaultSelector() as selector:
+        selector.register(capture.stderr, selectors.EVENT_READ)
+        while time.monotonic() < deadline:
+            if not selector.select(max(0, deadline - time.monotonic())):
+                break
+            chunk = os.read(capture.stderr.fileno(), 4096)
+            if not chunk:
+                raise RuntimeError("tcpdump завершился до готовности захвата: " + messages.decode(errors="replace"))
+            messages += chunk
+            if b"listening on " in messages:
+                return
+            if len(messages) > 16384:
+                raise RuntimeError("Слишком большой вывод запуска tcpdump")
+    raise RuntimeError("tcpdump не подтвердил готовность захвата за отведённое время")
 
 
 def main():
@@ -70,10 +92,10 @@ def main():
                 for family, address, ceiling in ((4, v4, 1340), (6, v6, 1320)):
                     capture = subprocess.Popen(["ip", "netns", "exec", destination, "tcpdump", "-l", "-nn", "-i", interface,
                         "-c", "1", f"ip{6 if family == 6 else ''} and tcp dst port 39876 and tcp[tcpflags] & tcp-syn != 0" if family == 4
-                        else "ip6 and tcp dst port 39876"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                        else "ip6 and tcp dst port 39876"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                        env={**os.environ, "LC_ALL": "C"})
                     try:
-                        import time
-                        time.sleep(0.25)
+                        wait_for_capture(capture)
                         execute(source, sys.executable, "-c", "import socket,sys; s=socket.socket(socket.AF_INET6 if sys.argv[1]=='6' else socket.AF_INET); s.settimeout(2); s.connect_ex((sys.argv[2],39876))", str(family), address)
                         output, _ = capture.communicate(timeout=5)
                         match = re.search(r"mss (\d+)", output)
