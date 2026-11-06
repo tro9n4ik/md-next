@@ -38,12 +38,14 @@ TestingSessionLocal = async_sessionmaker(test_engine, class_=AsyncSession, expir
 @pytest.fixture(autouse=True)
 def reset_node_registration_limits():
     from app.api import nodes
+    from app.api import node_control
 
     with pytest.MonkeyPatch.context() as registration:
         registration.setattr(nodes, "_registration_window", -1)
         registration.setattr(nodes, "_registration_attempts", {})
         registration.setattr(nodes, "_registration_ip_failures", {})
         registration.setattr(nodes, "_registration_failures", deque())
+        registration.setattr(node_control, "_last_poll", {})
         yield
 
 

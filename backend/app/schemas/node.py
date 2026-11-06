@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -15,6 +16,7 @@ class NodePublicResponse(BaseModel):
 
 
 class NodeAdminResponse(NodePublicResponse):
+    transport: Literal["xray", "mdnt"] = "xray"
     host: str
     port: int
     protocol: str

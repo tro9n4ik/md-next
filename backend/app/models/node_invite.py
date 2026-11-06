@@ -10,6 +10,7 @@ class NodeInvite(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
+    transport = Column(String(16), nullable=False, default="xray", server_default="xray")
     token_hash = Column(String, unique=True, index=True, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     expires_at = Column(DateTime(timezone=True), nullable=False)

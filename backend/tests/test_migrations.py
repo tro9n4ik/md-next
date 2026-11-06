@@ -52,6 +52,25 @@ def test_fresh_db_migration(alembic_config):
     conn.close()
 
 
+def test_transport_upgrade_preserves_existing_nodes_and_invites(alembic_config):
+    cfg, db_file = alembic_config
+    command.upgrade(cfg, "0022_persist_host_identity")
+    with sqlite3.connect(db_file) as db:
+        db.execute("INSERT INTO nodes (id,name,host,port,protocol) VALUES (1,'old','192.0.2.1',443,'trojan')")
+        db.execute("INSERT INTO node_invites (name,token_hash,expires_at) VALUES ('old','synthetic','2030-01-01')")
+    command.upgrade(cfg, "head")
+    with sqlite3.connect(db_file) as db:
+        assert db.execute("SELECT transport,protocol FROM nodes").fetchone() == ("xray", "trojan")
+        assert db.execute("SELECT transport FROM node_invites").fetchone() == ("xray",)
+        db.execute("UPDATE node_invites SET transport='mdnt'")
+    with pytest.raises(RuntimeError, match="экспериментальные"):
+        command.downgrade(cfg, "0022_persist_host_identity")
+    with sqlite3.connect(db_file) as db:
+        assert db.execute("SELECT transport FROM node_invites").fetchone() == ("mdnt",)
+        db.execute("DELETE FROM node_invites")
+    command.downgrade(cfg, "0022_persist_host_identity")
+
+
 def test_client_limits_migration_preserves_existing_client(alembic_config):
     cfg, db_file = alembic_config
     command.upgrade(cfg, "0009_events")

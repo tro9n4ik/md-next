@@ -31,6 +31,7 @@ from app.services.request_ip import request_ip
 
 router = APIRouter(prefix="/api/v1/nodes", tags=["Узлы"])
 logger = logging.getLogger(__name__)
+NodeTransport = Literal["xray", "mdnt"]
 
 NODE_REGISTRATION_WINDOW = 60
 NODE_REGISTRATION_IP_LIMIT = 20
@@ -98,12 +99,16 @@ class NodeRegister(BaseModel):
     host: str = Field(min_length=1, max_length=253)
     port: int = Field(ge=1, le=65535)
     protocol: Literal['trojan', 'vless'] = "trojan"
+    transport: NodeTransport = "xray"
+    control_protocol: Literal[1] | None = None
     public_key: str | None = Field(default=None, pattern=r'^[A-Za-z0-9_-]{43}$')
     short_id: str = Field(default='', pattern=r'^(?:[0-9a-f]{2}){0,8}$')
     identity: UUID | None = None
 
     @model_validator(mode='after')
     def secure_transport_fields(self):
+        if self.transport == "mdnt" and self.control_protocol != 1:
+            raise ValueError("Для KedrLink необходим управляющий протокол версии 1")
         if self.protocol == 'vless' and (not self.public_key or not self.identity):
             raise ValueError('Для VLESS Reality необходимы публичный ключ и UUID')
         if self.protocol == 'trojan' and (self.public_key or self.identity or self.short_id):
@@ -123,6 +128,7 @@ def node_response(node, user):
     values = {key: getattr(node, key) for key in (
         "id", "name", "country_code", "status", "last_seen",
         "host", "port", "protocol", "is_active", "is_enabled", "ping_ms", "priority",
+        "transport",
     )}
     values["is_online"] = bool(node.is_enabled and node.is_active and node.status == "healthy")
     return model.model_validate(values)
@@ -130,16 +136,19 @@ def node_response(node, user):
 class NodeInviteCreate(BaseModel):
     name: str = "Новый узел"
     ttl_hours: int = 24
+    transport: NodeTransport = "xray"
 
 class NodeInviteResponse(BaseModel):
     id: int
     name: str
     token: str
+    transport: NodeTransport = "xray"
     expires_at: datetime.datetime
 
 class NodeInviteItem(BaseModel):
     id: int
     name: str
+    transport: NodeTransport = "xray"
     created_at: datetime.datetime
     expires_at: datetime.datetime
     used_at: Optional[datetime.datetime] = None
@@ -323,8 +332,8 @@ async def create_node_invite(
     expires_at = now + datetime.timedelta(hours=max(1, data.ttl_hours))
     pending = select(func.count()).select_from(NodeInvite).where(*active_invite_conditions(now)).scalar_subquery()
     statement = insert(NodeInvite).from_select(
-        ["name", "token_hash", "expires_at", "revoked"],
-        select(literal(data.name), literal(token_hash), literal(expires_at), literal(False))
+        ["name", "token_hash", "expires_at", "revoked", "transport"],
+        select(literal(data.name), literal(token_hash), literal(expires_at), literal(False), literal(data.transport))
         .where(pending < NODE_PENDING_INVITE_LIMIT),
     ).returning(NodeInvite)
     invite = (await db.execute(statement)).scalar_one_or_none()
@@ -337,6 +346,7 @@ async def create_node_invite(
         id=invite.id,
         name=invite.name,
         token=plain_token,
+        transport=invite.transport,
         expires_at=invite.expires_at
     )
 
@@ -399,11 +409,13 @@ async def join_node_script(token: str, request: Request, db: AsyncSession = Depe
     token_hash = _hash_token(token)
     now = datetime.datetime.now(datetime.timezone.utc)
 
-    result = await db.execute(select(NodeInvite.id).where(
+    result = await db.execute(select(NodeInvite).where(
         NodeInvite.token_hash == token_hash, *active_invite_conditions(now),
     ))
-    if result.scalar_one_or_none() is None:
+    invite = result.scalar_one_or_none()
+    if invite is None:
         raise HTTPException(status_code=401, detail=INVALID_NODE_TOKEN)
+
 
     panel_url = os.getenv("PANEL_PUBLIC_URL")
     if not panel_url:
@@ -421,10 +433,17 @@ async def join_node_script(token: str, request: Request, db: AsyncSession = Depe
 
     content = content.replace('PANEL_URL_INJECTED="__PANEL_URL__"', f'PANEL_URL_INJECTED={shlex.quote(panel_url)}')
     content = content.replace('TOKEN_INJECTED="__TOKEN__"', f'TOKEN_INJECTED={shlex.quote(token)}')
+    content = content.replace('TRANSPORT_INJECTED="__TRANSPORT__"', f'TRANSPORT_INJECTED={shlex.quote(invite.transport)}')
     import base64
     control_path = os.path.join(os.path.dirname(script_path), "warp-node-control.py")
     with open(control_path, "rb") as control_source:
         content = content.replace("__WARP_CONTROL_SOURCE__", base64.b64encode(control_source.read()).decode())
+    if invite.transport == "mdnt":
+        agent_path = os.path.join(os.path.dirname(script_path), "../experimental/node-transport/cmd/kedrlink-agent/main.go")
+        if not os.path.isfile(agent_path):
+            raise HTTPException(503, "Исходный код KedrLink отсутствует в этой сборке панели")
+        with open(agent_path, "rb") as agent_source:
+            content = content.replace("__KEDRLINK_SOURCE__", base64.b64encode(agent_source.read()).decode())
 
     return PlainTextResponse(content, media_type="text/plain")
 
@@ -453,6 +472,10 @@ async def register_node(node_data: NodeRegister, db: AsyncSession = Depends(get_
     invite_res = await db.execute(select(NodeInvite).where(NodeInvite.token_hash == input_hash))
     invite = invite_res.scalar_one()
 
+    if node_data.transport != invite.transport:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="Транспорт ноды не совпадает с приглашением")
+
     node_secret = str(node_data.identity) if node_data.protocol == "vless" else secrets.token_hex(16)
 
     node_res = await db.execute(select(Node).where(Node.host == node_data.host))
@@ -462,6 +485,7 @@ async def register_node(node_data: NodeRegister, db: AsyncSession = Depends(get_
         target_node.is_active = True
         target_node.port = node_data.port
         target_node.protocol = node_data.protocol
+        target_node.transport = invite.transport
         target_node.secret = node_secret
         target_node.public_key = node_data.public_key
         target_node.short_id = node_data.short_id
@@ -475,6 +499,7 @@ async def register_node(node_data: NodeRegister, db: AsyncSession = Depends(get_
             host=node_data.host,
             port=node_data.port,
             protocol=node_data.protocol,
+            transport=invite.transport,
             secret=node_secret,
             public_key=node_data.public_key,
             short_id=node_data.short_id,
@@ -485,6 +510,17 @@ async def register_node(node_data: NodeRegister, db: AsyncSession = Depends(get_
         db.add(target_node)
         await db.flush()
         invite.node_id = target_node.id
+
+    # The management identity is separate from the Xray data-plane credential.
+    control_token = secrets.token_hex(32) if invite.transport == "mdnt" else None
+    target_node.control_token_hash = _hash_token(control_token) if control_token else None
+    target_node.control_seen_at = None
+    target_node.control_agent_version = None
+    target_node.control_uptime_ms = None
+    target_node.control_command_id = None
+    target_node.control_command_deadline = None
+    target_node.control_command_result = None
+    target_node.control_command_finished_at = None
 
     # Проверка режима автопереключения и наличия активной ноды
     failover = await get_failover_settings(db)
@@ -511,7 +547,10 @@ async def register_node(node_data: NodeRegister, db: AsyncSession = Depends(get_
     await db.refresh(target_node)
     log_event("info", "node_invite", "Приглашение использовано, узел подключён", {"invite_id": invite.id, "node_id": target_node.id, "name": target_node.name, "host": target_node.host})
 
-    return {"status": "connected", "node_id": target_node.id, "secret": node_secret}
+    response = {"status": "connected", "node_id": target_node.id, "secret": node_secret, "transport": target_node.transport}
+    if control_token:
+        response["control"] = {"protocol": 1, "token": control_token}
+    return response
 
 
 @router.get("/{node_id}", response_model=NodeAdminResponse | NodePublicResponse)

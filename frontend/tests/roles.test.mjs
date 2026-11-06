@@ -30,11 +30,36 @@ const AccountPage = require('../src/pages/AccountPage.tsx').default;
 const HelpPage = require('../src/pages/HelpPage.tsx').default;
 const { wikiArticles, wikiCategories, findWikiArticles } = require('../src/data/wiki.ts');
 const { NodesManager } = require('../src/components/NodesManager.tsx');
+const { NodeTransportField } = require('../src/components/NodeControl.tsx');
 const Metrics = require('../src/components/Metrics.tsx').default;
 const DashboardPage = require('../src/pages/DashboardPage.tsx').default;
 const { panelPolling, panelPollNotice } = require('../src/utils/panelPolling.ts');
 const subadmin = { id: 2, username: 'issuer', role: 'subadmin', view_all_clients: false, can_issue_subscriptions: true, can_delete_subscriptions: false, can_pause_subscriptions: false };
 const admin = { ...subadmin, id: 1, username: 'admin', role: 'admin' };
+
+test('Приглашение предлагает стандартный канал и KedrLink с отдельным описанием трафика', () => {
+  for (const value of ['xray', 'mdnt']) {
+    const html = renderToStaticMarkup(React.createElement(NodeTransportField, { value, onChange: () => {} }));
+    assert.match(html, /Управляющий канал/);
+    assert.match(html, /value="xray"/);
+    assert.match(html, /value="mdnt"/);
+    assert.match(html, /KedrLink/);
+    if (value === 'mdnt') assert.match(html, /VPN-трафик продолжает идти через Xray/);
+  }
+});
+
+test('Доступность KedrLink отделена от состояния VPN-ноды', () => {
+  const query = fixture();
+  query.setQueryData(['nodes'], [{id: 1, name: 'Нода с агентом', host: '192.0.2.1', port: 443, protocol: 'vless', transport: 'mdnt', status: 'healthy', is_enabled: true, ping_ms: 30}]);
+  query.setQueryData(['nodeControl', 1], { transport: 'mdnt', state: 'offline', seen_at: null, agent_version: '0.1.0', uptime_ms: 1234,
+    command: { id: 'test', kind: 'status', status: 'expired', result: null } });
+  const html = render(NodesManager, admin, query);
+  assert.match(html, /KedrLink — Go-агент/);
+  assert.match(html, /Агент не на связи/);
+  assert.match(html, /Нода не ответила на проверку за 60 секунд/);
+  assert.match(html, /Проверить агент/);
+  query.clear();
+});
 
 test('Сбой опроса сохраняет последние данные и отличается от ответа об офлайне', () => {
   const query = fixture();

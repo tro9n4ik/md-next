@@ -8,8 +8,12 @@ import Drawer from './ui/Drawer';
 import { apiFetch } from '../utils/api';
 import { panelPolling, panelPollNotice } from '../utils/panelPolling';
 import { useCurrentUser } from '../contexts/AuthContext';
+import { NodeControl, NodeTransportField } from './NodeControl';
+import { transportLabel } from '../utils/nodeControl';
+import type { NodeTransport } from '../utils/nodeControl';
 
 interface NodeData {
+  transport?: NodeTransport;
   id: number;
   name: string;
   host?: string | null;
@@ -55,6 +59,7 @@ interface RouteCheckResult {
 }
 
 interface NodeInviteItem {
+  transport?: NodeTransport;
   id: number;
   name: string;
   created_at: string;
@@ -64,6 +69,7 @@ interface NodeInviteItem {
 }
 
 interface GeneratedInvite {
+  transport?: NodeTransport;
   id: number;
   name: string;
   token: string;
@@ -117,6 +123,7 @@ const AdminNodesManager: React.FC = () => {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [inviteName, setFormInviteName] = useState('Новый узел');
   const [ttlHours, setFormTtlHours] = useState(24);
+  const [inviteTransport, setInviteTransport] = useState<NodeTransport>('xray');
   const [generatedInvite, setGeneratedInvite] = useState<GeneratedInvite | null>(null);
   const [inviteCleanupNotice, setInviteCleanupNotice] = useState('');
 
@@ -235,7 +242,7 @@ const AdminNodesManager: React.FC = () => {
   });
 
   const createInviteMutation = useMutation({
-    mutationFn: async (payload: { name: string; ttl_hours: number }) => {
+    mutationFn: async (payload: { name: string; ttl_hours: number; transport: NodeTransport }) => {
       const res = await apiFetch('/api/v1/nodes/invites', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -324,11 +331,12 @@ const AdminNodesManager: React.FC = () => {
     setGeneratedInvite(null);
     setFormInviteName('Новый узел');
     setFormTtlHours(24);
+    setInviteTransport('xray');
   };
 
   const activeCountry = nodes.find(node => node.id === route?.active_node?.id)?.country_code;
   const activeInvites = invites.filter(invite => !invite.revoked && !invite.used_at && new Date(invite.expires_at).getTime() > now).length;
-  const draftInvite = !generatedInvite && (inviteName !== 'Новый узел' || ttlHours !== 24);
+  const draftInvite = !generatedInvite && (inviteName !== 'Новый узел' || ttlHours !== 24 || inviteTransport !== 'xray');
   const closeInvite = async () => { if (!draftInvite || await confirm({ title: 'Закрыть приглашение?', description: 'Приглашение не будет создано. Заполненные параметры будут потеряны.', confirmText: 'Закрыть форму', cancelText: 'Продолжить заполнение', tone: 'warning' })) handleCloseModal(); };
 
   return <div className="nodes-workspace">
@@ -363,7 +371,7 @@ const AdminNodesManager: React.FC = () => {
       <div className="node-list-columns" aria-hidden="true"><span>Узел и состояние</span><span>Адрес</span><span>Задержка</span><span>Приоритет и действия</span></div>
       <ul aria-label="Список нод" className="node-list">{nodes.map((node, index) => <li key={node.id} className={`node-list-row ${route?.active_node?.id === node.id ? 'node-list-row-active' : ''}`}>
         <div className="col-span-2 min-w-0 md:col-span-1"><div className="flex flex-wrap items-center gap-2"><CountryFlag code={node.country_code} /><h3 className="break-all text-sm font-semibold">{node.name}</h3>{route?.active_node?.id === node.id && <span className="text-xs font-medium text-emerald-700">Активная</span>}</div><p className={`mt-1 text-xs ${node.status === 'healthy' ? 'text-emerald-700' : node.status === 'disabled' ? 'text-neutral-500' : 'text-red-700'}`}>{node.status === 'healthy' ? 'Доступна' : node.status === 'disabled' ? 'Выключена' : 'Недоступна'}</p></div>
-        <div className="min-w-0"><p className="break-all font-mono text-xs text-neutral-700">{node.host || 'Скрыт политикой доступа'}</p><p className="mt-1 text-xs text-neutral-500">{node.port ?? '—'} · {node.protocol?.toUpperCase() || '—'}</p></div>
+        <div className="min-w-0"><p className="break-all font-mono text-xs text-neutral-700">{node.host || 'Скрыт политикой доступа'}</p><p className="mt-1 text-xs text-neutral-500">{node.port ?? '—'} · {node.protocol?.toUpperCase() || '—'}</p><p className="mt-1 text-xs">{transportLabel(node.transport)}</p>{node.transport === 'mdnt' && <NodeControl nodeId={node.id} />}</div>
         <p className="text-right text-xs text-neutral-500">{node.ping_ms ? `${node.ping_ms} мс` : '—'}</p>
         <div className="col-span-2 flex flex-wrap items-center gap-1.5 md:col-span-1 md:grid md:grid-cols-[2rem_2.25rem_2.25rem_9rem_2.25rem] md:items-center"><span className="mr-1 text-xs text-neutral-400">#{node.priority + 1}</span>
           <button aria-label={`Поднять приоритет: ${node.name}`} disabled={index === 0 || reorderMutation.isPending} onClick={() => { const ids = nodes.map(item => item.id); [ids[index - 1], ids[index]] = [ids[index], ids[index - 1]]; reorderMutation.mutate(ids); }} className="ui-button ui-button-secondary !min-h-9 !p-2"><ArrowUp size={16} /></button>
@@ -396,7 +404,7 @@ const AdminNodesManager: React.FC = () => {
     <details className="ui-card ui-panel node-accordion"><summary><span className="node-section-icon"><KeyRound size={20} /></span><span className="node-accordion-title">Одноразовые приглашения <small>{invitesError ? 'Ошибка загрузки' : invitesLoading ? 'Загрузка…' : activeInvites ? `Активных: ${activeInvites}` : 'Нет активных'}</small></span><ChevronRight size={18} className="node-accordion-chevron" /></summary>
       {invitesError && <p role="alert" className="mt-4 text-sm text-red-700">Не удалось загрузить приглашения. <button className="underline" onClick={() => reloadInvites()}>Повторить</button></p>}
       {invitesLoading && <p className="mt-4 text-sm text-neutral-500">Загрузка приглашений…</p>}
-      <ul className="mt-4 divide-y divide-neutral-100">{invites.map(invite => <li key={invite.id} className="flex flex-wrap items-center justify-between gap-3 py-3"><div className="min-w-0"><p className="break-words text-sm font-medium">{invite.name}</p><p className="mt-1 text-xs text-neutral-500">{invite.revoked ? 'Отозван' : invite.used_at ? 'Использован' : new Date(invite.expires_at).getTime() <= now ? 'Истёк' : 'Активен'} · До {new Date(invite.expires_at).toLocaleString('ru-RU')}</p></div>{!invite.revoked && !invite.used_at && <button aria-label={`Отозвать приглашение: ${invite.name}`} disabled={revokeInviteMutation.isPending} onClick={() => revokeInviteMutation.mutate(invite.id)} className="ui-button ui-button-secondary !min-h-9 !p-2"><Trash2 size={16} /></button>}</li>)}</ul>
+      <ul className="mt-4 divide-y divide-neutral-100">{invites.map(invite => <li key={invite.id} className="flex flex-wrap items-center justify-between gap-3 py-3"><div className="min-w-0"><p className="break-words text-sm font-medium">{invite.name}</p><p className="mt-1 text-xs">{transportLabel(invite.transport)}</p><p className="mt-1 text-xs text-neutral-500">{invite.revoked ? 'Отозван' : invite.used_at ? 'Использован' : new Date(invite.expires_at).getTime() <= now ? 'Истёк' : 'Активен'} · До {new Date(invite.expires_at).toLocaleString('ru-RU')}</p></div>{!invite.revoked && !invite.used_at && <button aria-label={`Отозвать приглашение: ${invite.name}`} disabled={revokeInviteMutation.isPending} onClick={() => revokeInviteMutation.mutate(invite.id)} className="ui-button ui-button-secondary !min-h-9 !p-2"><Trash2 size={16} /></button>}</li>)}</ul>
       {!invitesLoading && !invitesError && !invites.length && <p className="text-sm text-neutral-500">Нет созданных приглашений</p>}
       {revokeInviteMutation.isError && <p role="alert" className="mt-3 text-sm text-red-700">{revokeInviteMutation.error.message}</p>}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-neutral-200 pt-4"><p role={clearInviteHistoryMutation.isError ? 'alert' : 'status'} className={`text-xs ${clearInviteHistoryMutation.isError ? 'text-red-700' : 'text-neutral-500'}`}>{inviteCleanupNotice || 'Действующие приглашения и ноды сохраняются. Очистка удаляет использованные, отозванные и истёкшие приглашения.'}</p><button type="button" disabled={!invites.length || clearInviteHistoryMutation.isPending || createInviteMutation.isPending || revokeInviteMutation.isPending} onClick={async () => { if (await confirm({ title: 'Очистить историю приглашений?', description: 'Использованные, отозванные и истёкшие приглашения будут удалены. Действующие приглашения и подключённые ноды сохранятся.', confirmText: 'Очистить историю', tone: 'danger' })) clearInviteHistoryMutation.mutate(); }} className="ui-button ui-button-secondary"><Trash2 size={16} />{clearInviteHistoryMutation.isPending ? 'Очищаем…' : 'Очистить историю'}</button></div>
@@ -409,12 +417,14 @@ const AdminNodesManager: React.FC = () => {
     </Drawer>}
 
     {createModalOpen && <Drawer title="Добавить ноду" busy={createInviteMutation.isPending} dirty={draftInvite} onClose={closeInvite}>
-      {!generatedInvite ? <form className="space-y-4" onSubmit={event => { event.preventDefault(); createInviteMutation.mutate({name: inviteName, ttl_hours: ttlHours}); }}>
+      {!generatedInvite ? <form className="space-y-4" onSubmit={event => { event.preventDefault(); createInviteMutation.mutate({name: inviteName, ttl_hours: ttlHours, transport: inviteTransport}); }}>
         <p className="text-sm text-neutral-500">Создайте одноразовую команду и выполните её на сервере новой ноды.</p>
         <fieldset disabled={createInviteMutation.isPending} className="space-y-4"><label className="block text-sm font-medium">Название будущего узла<input required type="text" value={inviteName} onChange={event => setFormInviteName(event.target.value)} className="mt-2 w-full rounded-lg border p-3" /></label><label className="block text-sm font-medium">Срок действия токена<select className="mt-2 w-full rounded-lg border p-3" value={ttlHours} onChange={event => setFormTtlHours(Number(event.target.value))}><option value={1}>1 час</option><option value={24}>24 часа (1 день)</option><option value={168}>7 дней</option></select></label></fieldset>
+        <fieldset disabled={createInviteMutation.isPending}><NodeTransportField value={inviteTransport} onChange={setInviteTransport} /></fieldset>
         {createInviteMutation.isError && <p role="alert" className="text-sm text-red-700">{createInviteMutation.error.message}</p>}
         <button className="ui-button ui-button-primary w-full" disabled={createInviteMutation.isPending}>{createInviteMutation.isPending ? 'Создаём…' : 'Сгенерировать одноразовую команду'}</button>
       </form> : <div className="space-y-4">
+        <p className="text-sm">Управляющий канал: <strong>{transportLabel(generatedInvite.transport)}</strong></p>
         <p className="flex gap-2 rounded-xl bg-amber-50 p-3 text-sm text-amber-800"><AlertTriangle size={20} className="shrink-0" />Сохраните команду сейчас: токен показывается только один раз.</p>
         <pre className="whitespace-pre-wrap break-all rounded-xl bg-neutral-950 p-4 font-mono text-xs text-emerald-400">{joinCommand}</pre>
         <button className="ui-button ui-button-secondary" onClick={handleCopyCommand}>{copied ? <Check size={16} /> : <Copy size={16} />}{copied ? 'Скопировано' : 'Скопировать'}</button>

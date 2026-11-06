@@ -14,6 +14,16 @@ NC='\033[0m' # No Color
 
 PANEL_URL_INJECTED="__PANEL_URL__"
 TOKEN_INJECTED="__TOKEN__"
+TRANSPORT_INJECTED="__TRANSPORT__"
+
+# Old standalone invocations remain on the standard transport.
+if [ "$TRANSPORT_INJECTED" = "__TRANSPORT__" ]; then
+    TRANSPORT_INJECTED="xray"
+fi
+if [ "$TRANSPORT_INJECTED" != "xray" ] && [ "$TRANSPORT_INJECTED" != "mdnt" ]; then
+    echo 'Неизвестный управляющий канал. Установка не начата.' >&2
+    exit 1
+fi
 
 if [ "$PANEL_URL_INJECTED" != "__PANEL_URL__" ] && [ -n "$PANEL_URL_INJECTED" ]; then
     PANEL_URL="$PANEL_URL_INJECTED"
@@ -33,6 +43,10 @@ if [ -z "$PANEL_URL" ] || [ -z "$TOKEN" ]; then
 fi
 
 NODE_PORT=443
+CONTROL_PROTOCOL=null
+if [ "$TRANSPORT_INJECTED" = "mdnt" ]; then CONTROL_PROTOCOL=1; fi
+KEDRLINK_BUILD_DIR=""
+trap 'if [ -n "$KEDRLINK_BUILD_DIR" ]; then rm -rf -- "$KEDRLINK_BUILD_DIR"; fi' EXIT
 
 echo "================================================="
 echo "        Подключение ноды MD-Next                 "
@@ -123,6 +137,8 @@ register_node() {
              \"host\": \"$PUBLIC_IP\",
              \"port\": $NODE_PORT,
              \"protocol\": \"vless\",
+             \"transport\": \"$TRANSPORT_INJECTED\",
+             \"control_protocol\": $CONTROL_PROTOCOL,
              \"public_key\": \"$NODE_PUBLIC_KEY\",
              \"short_id\": \"$NODE_SHORT_ID\",
              \"identity\": \"$NODE_IDENTITY\"
@@ -147,6 +163,13 @@ register_node() {
 
   unset TOKEN
   export NODE_SECRET
+  if [ "$TRANSPORT_INJECTED" = "mdnt" ]; then
+      export RESPONSE
+      NODE_CONTROL_TOKEN=$(python3 -c 'import os,json; d=json.loads(os.environ["RESPONSE"]); assert d["transport"]=="mdnt" and d["control"]["protocol"]==1; print(d["control"]["token"])') || return 1
+      NODE_ID=$(python3 -c 'import os,json; print(int(json.loads(os.environ["RESPONSE"])["node_id"]))') || return 1
+      unset RESPONSE
+      export NODE_CONTROL_TOKEN NODE_ID SECURE_PANEL_URL
+  fi
   export PUBLIC_IP
 }
 
@@ -253,12 +276,97 @@ exit 1
 WARP
 }
 
+prepare_kedrlink() {
+  [ "$TRANSPORT_INJECTED" = "mdnt" ] || return 0
+  local architecture checksum
+  case "$(uname -m)" in
+    x86_64) architecture=amd64; checksum=65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40 ;;
+    aarch64|arm64) architecture=arm64; checksum=a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49 ;;
+    *) echo 'KedrLink поддерживает Linux amd64 и arm64.'; return 1 ;;
+  esac
+  command -v systemctl >/dev/null || { echo 'Для KedrLink требуется systemd.'; return 1; }
+  KEDRLINK_BUILD_DIR=$(mktemp -d /tmp/md-next-kedrlink.XXXXXXXX) || return 1
+  chmod 700 "$KEDRLINK_BUILD_DIR" || return 1
+  printf '%s' '__KEDRLINK_SOURCE__' | base64 -d > "$KEDRLINK_BUILD_DIR/main.go" || return 1
+  curl -fsSL --connect-timeout 15 --max-time 180 --proto '=https' \
+    "https://dl.google.com/go/go1.27.3.linux-$architecture.tar.gz" -o "$KEDRLINK_BUILD_DIR/go.tar.gz" || return 1
+  printf '%s  %s\n' "$checksum" "$KEDRLINK_BUILD_DIR/go.tar.gz" | sha256sum -c - || return 1
+  tar -xzf "$KEDRLINK_BUILD_DIR/go.tar.gz" -C "$KEDRLINK_BUILD_DIR" || return 1
+  env CGO_ENABLED=0 GO111MODULE=off GOTOOLCHAIN=local GOENV=off GOCACHE="$KEDRLINK_BUILD_DIR/cache" \
+    "$KEDRLINK_BUILD_DIR/go/bin/go" build -trimpath -o "$KEDRLINK_BUILD_DIR/kedrlink-agent" "$KEDRLINK_BUILD_DIR/main.go" || return 1
+  "$KEDRLINK_BUILD_DIR/kedrlink-agent" -version
+}
+
+install_kedrlink() {
+  if [ "$TRANSPORT_INJECTED" = "xray" ]; then
+    # Only an explicit standard invitation switches this particular node back.
+    if systemctl cat kedrlink-agent.service >/dev/null 2>&1; then
+      systemctl disable --now kedrlink-agent.service || return 1
+    fi
+    return 0
+  fi
+  install -d -m 700 /etc/md-next || return 1
+  python3 - <<'CONFIG' || return 1
+import json, os, re, tempfile
+from urllib.parse import urlsplit
+token=os.environ['NODE_CONTROL_TOKEN']
+node_id=int(os.environ['NODE_ID'])
+panel=os.environ['SECURE_PANEL_URL'].rstrip('/')
+assert re.fullmatch('[0-9a-f]{64}',token) and node_id>0
+assert urlsplit(panel).scheme=='https'
+fd,path=tempfile.mkstemp(prefix='.kedrlink-',dir='/etc/md-next')
+try:
+    with os.fdopen(fd,'w') as config:
+        json.dump({'poll_url':panel+'/api/v1/nodes/'+str(node_id)+'/control/poll','token':token},config)
+        config.flush(); os.fsync(config.fileno())
+    os.replace(path,'/etc/md-next/kedrlink-agent.json')
+finally:
+    if os.path.exists(path): os.unlink(path)
+CONFIG
+  install -m 755 "$KEDRLINK_BUILD_DIR/kedrlink-agent" /usr/local/bin/.kedrlink-agent.next || return 1
+  mv -f -- /usr/local/bin/.kedrlink-agent.next /usr/local/bin/kedrlink-agent || return 1
+  /usr/local/bin/kedrlink-agent -config /etc/md-next/kedrlink-agent.json -once || return 1
+  cat > /etc/systemd/system/kedrlink-agent.service <<'SERVICE' || return 1
+[Unit]
+Description=KedrLink node management agent
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/kedrlink-agent -config /etc/md-next/kedrlink-agent.json
+Restart=on-failure
+RestartSec=30
+TimeoutStopSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+[Install]
+WantedBy=multi-user.target
+SERVICE
+  systemctl daemon-reload || return 1
+  systemctl enable kedrlink-agent.service || return 1
+  systemctl restart kedrlink-agent.service || return 1
+  sleep 1
+  systemctl is-active --quiet kedrlink-agent.service || return 1
+  unset NODE_CONTROL_TOKEN
+}
+
 run_step "Подготовка системных зависимостей" prepare_node_dependencies
+if [ "$TRANSPORT_INJECTED" = "mdnt" ]; then
+  run_step "Сборка KedrLink из кода этой панели" prepare_kedrlink
+fi
 run_step "Установка Xray-core на узле" install_xray_node
 run_step "Создание ключей защищённого канала" prepare_reality_node
 run_step "Регистрация узла в мастер-панели" register_node
 run_step "Создание конфигурации VLESS Reality" configure_xray_node
 run_step "Проверка конфигурации и запуск Xray" verify_and_start_xray
+run_step "Настройка выбранного управляющего канала" install_kedrlink
 
 install_warp_control() {
   local temporary
