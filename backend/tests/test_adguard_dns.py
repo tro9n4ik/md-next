@@ -62,10 +62,14 @@ async def test_happ_adguard_overrides_both_dns_only_when_selected(monkeypatch):
                     Setting(key=f"client.adblock.{cid}",value="true")])
         await db.commit()
     async with AsyncClient(transport=ASGITransport(app=app),base_url="http://test") as http:
-        response = await http.get("/api/v1/sub/access-test?format=raw")
+        response = await http.get("/api/v1/sub/access-test?format=raw", headers={"User-Agent": "Happ/Android"})
         profile = json.loads(base64.urlsafe_b64decode(response.headers["routing"].rsplit("/",1)[-1] + "==="))
         assert profile["RemoteDNSDomain"] == profile["DomesticDNSDomain"] == "https://panel.example.com/api/v1/sub/access-test/dns-query"
         assert profile["DnsHosts"]["panel.example.com"] == "192.0.2.1"
+        assert profile["RemoteDNSIP"] == "1.1.1.1"
+        assert profile["DomesticDNSIP"] == "8.8.8.8"
+        decoded = base64.b64decode(response.content).decode()
+        assert response.headers["routing"] in decoded
         async with TestingSessionLocal() as db:
             (await db.get(Setting,f"client.adblock.{cid}")).value = "false"
             await db.commit()

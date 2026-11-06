@@ -5,9 +5,12 @@ from urllib.parse import urlparse
 import ipaddress
 
 
-def build_happ_routing_link(settings: dict[str, str], *, adblock_enabled: bool = False) -> str:
+def build_happ_routing_link(
+    settings: dict[str, str], *, adblock_enabled: bool = False,
+    dns_hosts: dict[str, str] | None = None,
+) -> str:
     """DNS и прямой доступ к локальным сетям и российским ресурсам в Happ."""
-    hosts = {}
+    hosts = dict(dns_hosts or {})
     for kind in ("remote", "domestic"):
         dns_type = settings.get(f"dns.{kind}_type", "DoH" if kind == "remote" else "DoU")
         domain = settings.get(f"dns.{kind}_domain", "https://cloudflare-dns.com/dns-query" if kind == "remote" else "")

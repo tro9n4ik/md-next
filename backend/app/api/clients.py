@@ -530,6 +530,7 @@ async def get_subscription(token: str, request: Request, format: Literal["raw", 
     adguard = await db.get(Setting, "adguard.enabled")
     public_dns_base = os.getenv("PANEL_PUBLIC_URL", "").rstrip("/")
     bootstrap = await db.get(Setting, "adguard.bootstrap_ip")
+    dns_hosts = {}
     if filtered and adguard and adguard.value == "true" and public_dns_base.startswith("https://") and bootstrap:
         import ipaddress
         try:
@@ -537,11 +538,15 @@ async def get_subscription(token: str, request: Request, format: Literal["raw", 
         except ValueError:
             address = ""
         if address:
+            from urllib.parse import urlsplit
+            dns_hosts[urlsplit(public_dns_base).hostname] = address
             for kind in ("remote", "domestic"):
                 happ_settings[f"dns.{kind}_type"] = "DoH"
                 happ_settings[f"dns.{kind}_domain"] = f"{public_dns_base}/api/v1/sub/{client.sub_token}/dns-query"
-                happ_settings[f"dns.{kind}_ip"] = address
-    happ_dns = build_happ_routing_link(happ_settings, adblock_enabled=filtered)
+                # Android использует этот IP как DNS туннеля на порту 53.
+                # Панель обслуживает DoH, её bootstrap хранится отдельно.
+                happ_settings[f"dns.{kind}_ip"] = "1.1.1.1" if kind == "remote" else "8.8.8.8"
+    happ_dns = build_happ_routing_link(happ_settings, adblock_enabled=filtered, dns_hosts=dns_hosts)
     # Happ also accepts the routing link in the decoded subscription body.
     # Keep other clients and empty/disabled subscriptions unchanged.
     if links and "happ" in request.headers.get("user-agent", "").lower():
