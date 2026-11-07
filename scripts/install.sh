@@ -273,31 +273,14 @@ EOF
   esac
 
   apt-get update -qq || return 1
-  apt-get install -y -qq amneziawg-tools || return 1
-  if apt-get install -y -qq "linux-headers-$(uname -r)"; then
-    apt-get install -y -qq amneziawg-dkms || return 1
-    dkms autoinstall -k "$(uname -r)" || return 1
-  fi
+  # Recommends может установить DKMS до проверки совместимости ядра.
+  apt-get install -y -qq --no-install-recommends amneziawg-tools || return 1
   if ! command -v awg >/dev/null 2>&1; then
     echo "Пакет AmneziaWG установлен, но команда awg не найдена." >&2
     return 1
   fi
 
-  if ! modprobe amneziawg; then
-    bash "$(dirname "${BASH_SOURCE[0]}")/install-awg-userspace.sh" || return 1
-    return 0
-  fi
-  local awg_module_version=""
-  if [ -r /sys/module/amneziawg/version ]; then
-    awg_module_version="$(cat /sys/module/amneziawg/version)"
-  fi
-  case "$awg_module_version" in
-    3.1.*) ;;
-    *)
-      echo "Нужен AmneziaWG 3.1, установленный модуль сообщает версию '${awg_module_version:-неизвестно}'. Обновите ядро/пакеты и повторите установку." >&2
-      return 1
-      ;;
-  esac
+  python3 "$(dirname "${BASH_SOURCE[0]}")/install-awg-runtime.py" || return 1
 }
 
 update_installation() {

@@ -240,7 +240,12 @@ def test_preparation_finishes_before_source_backup(source_tree,tmp_path,monkeypa
         return ''
     monkeypatch.setattr(worker,'execute',execute)
     request={'action':'prepare','host':'8.8.8.8','port':22,'fingerprint':'SHA256:'+'a'*43,'ssh_password':'synthetic','password':PASSWORD,'email':'admin@example.com','confirm':True}
+    # Повтор после ошибки должен получить новый проверенный билд, а не старый SHA.
+    worker.STATE.mkdir(exist_ok=True)
+    identity=hashlib.sha256(next(line.split('=',1)[1] for line in env.read_text().splitlines() if line.startswith('JWT_SECRET_KEY=')).encode()).hexdigest()
+    (worker.STATE/'preparation.json').write_text(json.dumps({**{k:request[k] for k in ('host','port','fingerprint')},'installation':identity,'commit':'c'*40}))
     with pytest.raises(RuntimeError):worker.run(request)
+    assert json.loads((worker.STATE/'target.json').read_text())['target_commit']=='b'*40
     assert order==['clean-install','backup']
     assert connections == ([{}, {"timeout": 5}] if reconnect else [{}])
     assert cleanup == ([connection, recovered] if reconnect == "target-machine" else [connection])
