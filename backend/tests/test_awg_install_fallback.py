@@ -54,6 +54,21 @@ def test_existing_dkms_is_never_removed_on_build_failure(tmp_path,monkeypatch):
     assert not any('remove' in c or c[0]=='bash' for c in calls)
 
 
+@pytest.mark.parametrize('status', ['unknown ok not-installed','deinstall ok not-installed',
+                                  'purge ok not-installed','deinstall ok config-files'])
+def test_removed_dpkg_record_does_not_block_userspace(tmp_path,monkeypatch,status):
+    module,calls=runtime_fixture(tmp_path,monkeypatch,prior=status)
+    assert module.configure()=='userspace'
+    assert any(c[0]=='bash' for c in calls)
+
+
+@pytest.mark.parametrize('status', ['install ok unpacked','install ok half-configured','unexpected'])
+def test_incomplete_existing_package_is_preserved(tmp_path,monkeypatch,status):
+    module,calls=runtime_fixture(tmp_path,monkeypatch,prior=status)
+    with pytest.raises(RuntimeError,match='сохранён'):module.configure()
+    assert not any('remove' in c or c[0]=='bash' for c in calls)
+
+
 def test_active_interface_blocks_replacement(tmp_path,monkeypatch):
     module,calls=runtime_fixture(tmp_path,monkeypatch,interfaces='awg0')
     with pytest.raises(RuntimeError,match='интерфейсы'):module.configure()
