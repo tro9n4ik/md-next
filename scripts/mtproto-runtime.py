@@ -47,9 +47,11 @@ def render(payload):
     # SOCKS Xray может подтвердить подключение до фактического соединения ноды
     # с Telegram. Предпочтение IPv6 тогда не даёт перейти к рабочему IPv4.
     lines = [f'bind-to = "0.0.0.0:{payload["port"]}"', 'api-bind-to = "127.0.0.1:10910"',
-             'concurrency = 2048', 'prefer-ip = "only-ipv4"', '[network]',
+             'concurrency = 2048', 'prefer-ip = "only-ipv4"', '[secured]', 'enabled = true', '[network]',
              'proxies = ["socks5://127.0.0.1:10909"]', 'dns = "https://1.1.1.1"', '[secrets]']
     for name, key in sorted(payload["users"].items()):
+        # mtg-multi принимает dd по этому же ключу и сохраняет старые ee.
+        # Имя pN и отпечаток секретов не меняются: учёт и отзыв общие.
         lines.append(f'{name} = "ee{key}{payload["domain"].encode("ascii").hex()}"')
     return "\n".join(lines) + "\n"
 

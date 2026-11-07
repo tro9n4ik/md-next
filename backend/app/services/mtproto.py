@@ -2,6 +2,7 @@
 import asyncio
 import json
 import os
+import re
 from pathlib import Path
 import secrets
 import tempfile
@@ -28,10 +29,10 @@ def new_secret():
 def client_link(profile, settings):
     key = decrypt_secret(profile.private_key_enc or "")
     host = settings.get("protocol.reality.server_address", os.getenv("SERVER_HOST", ""))
-    domain = settings.get("mtproto.domain", os.getenv("SERVER_HOST", ""))
-    if not key or not host or not domain:
+    if not key or not re.fullmatch(r"[0-9a-f]{32}", key) or not host:
         return ""
-    secret = "ee" + key + domain.encode("ascii").hex()
+    # Один и тот же ключ и URL для Telegram на iOS, Android и компьютере.
+    secret = "dd" + key
     return "tg://proxy?" + urlencode({"server": host, "port": settings.get("profiles.port.mtproto", str(PORT)), "secret": secret})
 
 
