@@ -61,8 +61,28 @@ def test_node_proxy_is_in_network_table_consumed_by_mtg():
     assert "proxies" not in parsed and "dns" not in parsed
     assert parsed["concurrency"] == 2048
     assert parsed["prefer-ip"] == "only-ipv4"
+    assert parsed["secured"] == {"enabled": True}
     assert set(parsed["secrets"]) == set(users)
     assert "network" not in parsed["secrets"]
+
+
+def test_legacy_faketls_switch_restarts_once_without_rotating_secrets(tmp_path, monkeypatch):
+    monkeypatch.setattr(runtime.os, "chown", lambda *args: None, raising=False)
+    target = tmp_path / "config.toml"
+    original = runtime.render(config()).replace('[secured]\nenabled = true\n', '')
+    target.write_text(original)
+    monkeypatch.setattr(runtime, "CONFIG", target)
+    monkeypatch.setattr(runtime, "prepare", lambda: SimpleNamespace(pw_gid=0))
+    monkeypatch.setattr(runtime, "install_binary", lambda: False)
+    with patch.object(runtime, "command") as command, \
+         patch.object(runtime.subprocess, "run", return_value=SimpleNamespace(returncode=0)), \
+         patch.object(runtime, "verify_applied"):
+        runtime.apply(config())
+        command.assert_any_call("/usr/bin/systemctl", "restart", runtime.UNIT)
+        assert target.read_text().split('[secrets]', 1)[1] == original.split('[secrets]', 1)[1]
+        command.reset_mock()
+        runtime.apply(config())
+        assert not any(call.args[1] in {"restart", "reload"} for call in command.call_args_list)
 
 
 @pytest.mark.parametrize("previous_policy", [None, "prefer-ipv6"])
@@ -157,9 +177,18 @@ async def test_profiles_have_distinct_encrypted_secrets_and_telegram_links():
         assert all(p.auth is None and p.private_key_enc != key for p, key in zip(profiles, keys))
         link = make_profile_data(clients[0], profiles[0], {"protocol.reality.server_address": "vpn.example.com", "mtproto.domain": "example.com"})
         params = parse_qs(urlsplit(link).query)
-        assert params["secret"] == ["ee" + keys[0] + "example.com".encode().hex()]
+        assert params["secret"] == ["dd" + keys[0]]
+        assert len(bytes.fromhex(params["secret"][0])) == 17
         assert params["server"] == ["vpn.example.com"] and params["port"] == ["8445"]
+        # Смена маскировочного домена старых ee не меняет универсальный URL.
+        assert make_profile_data(clients[0], profiles[0], {"protocol.reality.server_address": "vpn.example.com", "mtproto.domain": "other.example.com"}) == link
         assert not any(p.kind == "mtproto" for p in await create_profiles(db, clients[0]))
+
+
+@pytest.mark.parametrize('key',['','a'*31,'a'*33,'g'*32])
+def test_invalid_key_is_not_issued_as_universal_link(key):
+    profile = SimpleNamespace(private_key_enc=encrypt_secret(key))
+    assert mtproto.client_link(profile, {'protocol.reality.server_address':'vpn.example.com'}) == ''
 
 
 @pytest.mark.asyncio

@@ -42,7 +42,7 @@ const descriptions: Record<ProfileKind, string> = {
   vless_xhttp_tls: 'XHTTP · TLS через Nginx',
   hysteria2: 'QUIC · UDP · TLS',
   awg: 'UDP-туннель AmneziaWG 3.1',
-  mtproto: 'TCP · FakeTLS · только Telegram',
+  mtproto: 'TCP · единая ссылка · только Telegram',
 };
 const modes: { value: XhttpMode; label: string }[] = [
   { value: 'auto', label: 'Автоматически' },
@@ -161,11 +161,11 @@ const ProtocolSettingsTab: React.FC = () => {
             <p className="protocol-context">Отдельный секрет и ссылка для каждого клиента. Выход только через выбранную ноду; при её отсутствии соединения блокируются. Обновлять ноды не требуется.</p>
             <div className="protocol-field-grid">
               <label className={label}>Публичный TCP-порт<input className={input} type="number" min="1024" max="65535" value={value.ports.mtproto ?? 8445} onChange={event => update('ports', 'mtproto', Number(event.target.value))} /></label>
-              <label className={label}>Домен FakeTLS<input className={input} value={value.mtproto?.domain ?? ''} onChange={event => update('mtproto', 'domain', event.target.value)} placeholder="vpn.example.com" /></label>
+              <label className={label}>HTTPS-домен для совместимости<input className={input} value={value.mtproto?.domain ?? ''} onChange={event => update('mtproto', 'domain', event.target.value)} placeholder="vpn.example.com" /></label>
             </div>
             <p className="protocol-context">Используйте доступный HTTPS-домен. Публичный адрес из вкладки Reality должен вести на сервер панели. Откройте выбранный TCP-порт в файрволе сервера и у хостинга.</p>
             <p className="protocol-context">Ссылка и QR-код доступны отдельно в карточке клиента и на личной странице. В VPN-подписку этот прокси не добавляется — откройте его ссылку непосредственно в Telegram.</p>
-            <p className="protocol-context">При смене порта или домена заново выдайте ссылки. Срок, приостановка и лимиты подписки действуют и на MTProto. Трафик и достижение лимитов проверяются при периодическом сборе статистики.</p>
+            <p className="protocol-context">Для каждого клиента выдаётся одна ссылка для Telegram на iPhone, Android и компьютере. Старые FakeTLS-ссылки продолжают приниматься. При смене адреса или порта обновите ссылку. Срок, приостановка и лимиты подписки действуют и на MTProto; трафик проверяется периодически.</p>
           </>}
           {tab === 'reality' && <>
             <p className="protocol-context">Общие параметры для VLESS Reality TCP и VLESS XHTTP Reality.</p>
