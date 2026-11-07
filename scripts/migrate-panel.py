@@ -495,7 +495,11 @@ runtime.drop_to_panel_user()
 from app.db.database import AsyncSessionLocal
 from app.services.client_service import ClientService
 from app.services.awg import AWGService
+from app.services.nginx import apply_xhttp_tls_path
 async def main():
+ if values.get('profiles.enabled.vless_xhttp_tls','false').lower() in {'true','1','yes'}:
+  try:await apply_xhttp_tls_path(values['profiles.path.vless_xhttp_tls'])
+  except Exception:fail('MIG_NGINX_CONFIG')
  async with AsyncSessionLocal() as db:
   for sync,code in ((ClientService.sync_xray_clients,'MIG_XRAY_APPLY'),(AWGService.sync_server_config,'MIG_AWG_CONFIG')):
    ok,reason=await sync(db)

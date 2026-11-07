@@ -80,8 +80,8 @@ update_nginx_routes() {
 
   local xhttp_path
   xhttp_path="$(sed -n 's/^XRAY_XHTTP_TLS_PATH=//p' "$env_file" 2>/dev/null | tail -n 1)"
-  if [ -z "$xhttp_path" ]; then
-    xhttp_path="/$(openssl rand -hex 16)"
+  xhttp_path="$(python3 "$(dirname "${BASH_SOURCE[0]}")/xhttp-path.py" "$APP_DIR/backend/md_next.db" "$xhttp_path")" || return 1
+  if ! grep -q '^XRAY_XHTTP_TLS_PATH=' "$env_file"; then
     echo "XRAY_XHTTP_TLS_PATH=$xhttp_path" >> "$env_file"
     chmod 600 "$env_file"
   fi
@@ -113,6 +113,14 @@ for start, end, segment in reversed(segments):
             segment = segment[:api.end()] + route + segment[api.end():]
     if "listen 127.0.0.1:8080" in segment:
         block = f"""    # MD_NEXT_XHTTP_TLS_BEGIN
+    location {xhttp_path.rstrip('/')}/cdn-get {{
+        proxy_pass http://127.0.0.1:8447;
+        proxy_http_version 1.1;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }}
     location {xhttp_path} {{
         proxy_pass http://127.0.0.1:8446;
         proxy_http_version 1.1;
