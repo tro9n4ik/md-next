@@ -66,8 +66,13 @@ def check_empty_staging():
     database = ROOT/'backend/md_next.db'
     if database.is_symlink() and database.resolve() != STATE.parent/'data/md_next.db':
         raise events.MigrationError('MIG_TARGET_OCCUPIED')
-    if database.exists():
-        with contextlib.closing(sqlite3.connect(database.resolve().as_uri()+'?mode=ro', uri=True)) as db:
+    canonical = STATE.parent/'data/md_next.db'
+    if canonical.is_symlink():
+        raise events.MigrationError('MIG_TARGET_OCCUPIED')
+    for path in {database.resolve(), canonical.resolve()}:
+        if not path.exists():
+            continue
+        with contextlib.closing(sqlite3.connect(path.as_uri()+'?mode=ro', uri=True)) as db:
             tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             for table in ('clients', 'client_profiles', 'nodes'):
                 if table in tables and db.execute('SELECT count(*) FROM '+table).fetchone()[0]:
