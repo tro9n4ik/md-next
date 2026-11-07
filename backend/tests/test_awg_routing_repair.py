@@ -113,7 +113,7 @@ def test_chain_created_between_query_and_create_is_only_reused_if_owned(tmp_path
 def test_processes_share_one_routing_lock(tmp_path,monkeypatch):
     script="""import runpy,sys,time
 from pathlib import Path
-m=runpy.run_path(sys.argv[1]);m['routing_lock'].__globals__['STATE']=Path(sys.argv[2])
+m=runpy.run_path(sys.argv[1]);m['routing_lock'].__wrapped__.__globals__['STATE']=Path(sys.argv[2])
 with m['routing_lock']():
  with open(sys.argv[3],'a') as f:f.write('enter\\n');f.flush()
  time.sleep(.15)
