@@ -302,13 +302,10 @@ def run(request):
             if not identity:raise events.MigrationError('MIG_SOURCE_CONFIG')
             installation=hashlib.sha256(identity.group(1).encode()).hexdigest()
             preparation=STATE/'preparation.json'
-            prior=json.loads(preparation.read_text()) if preparation.is_file() else {}
-            if all(prior.get(k)==binding[k] for k in binding) and prior.get('installation')==installation:
-                commit=prior.get('commit','')
-                if not re.fullmatch('[0-9a-f]{40}',commit):raise events.MigrationError('MIG_BUILD')
-            else:
-                commit=latest_build()
-                write_json(preparation,{**binding,'installation':installation,'commit':commit})
+            # Новый явный запуск подготовки может включать исправленный билд.
+            # Внутри одного запуска и после перезагрузки выбранный SHA неизменен.
+            commit=latest_build()
+            write_json(preparation,{**binding,'installation':installation,'commit':commit})
             status('preparing','Устанавливаем чистый проверенный билд GitHub. DNS не меняется.',request)
             env={}
             for line in (ROOT/'backend/.env').read_text().splitlines():

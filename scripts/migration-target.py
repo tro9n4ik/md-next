@@ -43,6 +43,14 @@ def marker_matches(data, commit, source):
     return isinstance(data, dict) and data.get('commit') == commit and data.get('source') == source
 
 
+def check_resume(previous, commit, source):
+    if previous is not None and not marker_matches(previous, commit, source):
+        if not isinstance(previous, dict) or previous.get('source') != source or previous.get('phase') not in {'installing', 'installed'}:
+            raise events.MigrationError('MIG_TARGET_BINDING')
+    if previous is not None:
+        check_empty_staging()
+
+
 def boot_id():
     return Path('/proc/sys/kernel/random/boot_id').read_text().strip()
 
@@ -58,8 +66,13 @@ def check_empty_staging():
     database = ROOT/'backend/md_next.db'
     if database.is_symlink() and database.resolve() != STATE.parent/'data/md_next.db':
         raise events.MigrationError('MIG_TARGET_OCCUPIED')
-    if database.exists():
-        with contextlib.closing(sqlite3.connect(database.resolve().as_uri()+'?mode=ro', uri=True)) as db:
+    canonical = STATE.parent/'data/md_next.db'
+    if canonical.is_symlink():
+        raise events.MigrationError('MIG_TARGET_OCCUPIED')
+    for path in {database.resolve(), canonical.resolve()}:
+        if not path.exists():
+            continue
+        with contextlib.closing(sqlite3.connect(path.as_uri()+'?mode=ro', uri=True)) as db:
             tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             for table in ('clients', 'client_profiles', 'nodes'):
                 if table in tables and db.execute('SELECT count(*) FROM '+table).fetchone()[0]:
@@ -168,13 +181,7 @@ def preflight(commit, source):
     if marker.is_symlink() or marker.exists() and (marker.stat().st_uid!=0 or marker.stat().st_mode & 0o022):
         raise events.MigrationError('MIG_TARGET_OCCUPIED')
     previous = json.loads(marker.read_text()) if marker.is_file() else None
-    if previous is not None and not marker_matches(previous, commit, source):
-        # A cancelled, empty staging installation may advance to a new signed
-        # build of the same source. Never adopt another source or client data.
-        if previous.get('source')!=source or previous.get('phase')!='installed':
-            raise events.MigrationError('MIG_TARGET_BINDING')
-    if previous is not None:
-        check_empty_staging()
+    check_resume(previous, commit, source)
     occupied = ROOT.exists() or ROOT.is_symlink() or Path('/var/lib/md-next/data/md_next.db').exists()
     services = any(subprocess.run(['systemctl', 'is-active', '--quiet', service]).returncode == 0 for service in ('nginx', 'xray'))
     if (occupied or services) and previous is None:
@@ -187,6 +194,29 @@ def preflight(commit, source):
     if any(re.search(r':(?:80|443|8000)$', row.split()[3]) for row in ports.splitlines() if len(row.split()) >= 4):
         raise events.MigrationError('MIG_TARGET_PORTS')
     return previous
+
+
+def recover_failed_awg(previous):
+    """Исправить только сбой пакета, возникший в нашей пустой staging-установке."""
+    if not previous or previous.get('phase') != 'installing':
+        return
+    result = subprocess.run(['dpkg-query', '-W', '-f=${Status}', 'amneziawg-dkms'],
+                            capture_output=True, text=True, timeout=10)
+    if result.returncode or result.stdout.strip() not in {'install ok half-configured', 'install ok unpacked'}:
+        return
+    check_empty_staging()
+    interfaces = subprocess.run(['awg', 'show', 'interfaces'], capture_output=True, text=True, timeout=10)
+    if interfaces.returncode or interfaces.stdout.strip():
+        raise events.MigrationError('MIG_TARGET_OCCUPIED')
+    module = Path('/sys/module/amneziawg')
+    if module.exists():
+        if int((module/'refcnt').read_text()) != 0:
+            raise events.MigrationError('MIG_TARGET_OCCUPIED')
+        run(['modprobe', '-r', 'amneziawg'], 'MIG_APT_UPDATE', timeout=30)
+    emit('TARGET_APT_REPAIR')
+    run(['apt-get', '-o', 'DPkg::Lock::Timeout=900', '-o', 'APT::Get::AutomaticRemove=false',
+         'remove', '-y', '-qq', 'amneziawg', 'amneziawg-dkms'], 'MIG_APT_UPDATE', timeout=300,
+        env={**os.environ, 'DEBIAN_FRONTEND': 'noninteractive'})
 
 
 def verify_dns(main_domain, panel_domain):
@@ -209,7 +239,8 @@ def prepare(commit, main_domain, panel_domain, email, source):
         raise events.MigrationError('MIG_REBOOT_REQUIRED')
     verify_dns(main_domain, panel_domain)
     verify_build(commit)
-    marker = {'commit': commit, 'source': source, 'phase': 'updating'}
+    marker = {'commit': commit, 'source': source,
+              'phase': 'installing' if previous and previous.get('phase') == 'installing' else 'updating'}
     if previous and previous.get('phase') == 'installed' and previous.get('commit')==commit:
         if (ROOT/'DEPLOYED_COMMIT').read_text().strip() != commit:
             raise events.MigrationError('MIG_BUILD')
@@ -221,6 +252,7 @@ def prepare(commit, main_domain, panel_domain, email, source):
         for timer in timers:
             subprocess.run(['systemctl', 'stop', timer], check=True)
         wait_apt()
+        recover_failed_awg(previous)
         emit('TARGET_APT_UPDATE')
         run(['apt-get', '-o', 'DPkg::Lock::Timeout=900', 'update', '-qq'], 'MIG_APT_UPDATE', timeout=900)
         emit('TARGET_APT_UPGRADE')
