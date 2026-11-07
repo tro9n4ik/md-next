@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from contextlib import nullcontext
 from app.services.xray import XrayService
 
 spec = importlib.util.spec_from_file_location('awg_routes', Path(__file__).resolve().parents[2]/'scripts/awg-routing.py')
@@ -36,13 +37,14 @@ def test_policy_applies_only_to_awg_and_keeps_blackhole(tmp_path):
         if args[:4] == ('ip','-j','route','show'): return SimpleNamespace(returncode=0, stdout='[]')
         if args[:4] == ('ip','-j','-4','address'): return SimpleNamespace(returncode=0, stdout='[{"addr_info":[{"local":"10.8.0.1","prefixlen":24}]}]')
         return SimpleNamespace(returncode=1 if '-C' in args or '-S' in args else 0, stdout='')
-    with patch.object(routes, 'STATE', tmp_path/'owned'), patch.object(routes, 'run', side_effect=fake), patch.object(routes.mtu, 'apply'):
+    with patch.object(routes, 'STATE', tmp_path/'owned'), patch.object(routes, 'run', side_effect=fake), patch.object(routes.mtu, 'apply'), \
+         patch.object(routes,'chain_status',return_value=('missing',None)), patch.object(routes,'routing_lock',nullcontext):
         routes.apply(config)
     assert ('ip','rule','add','priority','10086','iif','awg0','lookup','10086') in calls
     assert ('ip','route','replace','blackhole','default','metric','32760','table','10086') in calls
     assert ('ip','route','replace','10.8.0.0/24','dev','awg0','table','10086') in calls
     assert all('table' in c for c in calls if c[:3] == ('ip','route','replace'))
-    assert any(c[-2:] == ('-j','REJECT') for c in calls)
+    assert ('iptables','-w','5','-A',routes.CHAIN,'-j','DROP') in calls
 
 
 def test_conflicting_policy_is_rejected_before_mutation():

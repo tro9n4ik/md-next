@@ -6,7 +6,15 @@ import json
 import subprocess
 import time
 import importlib.util
+import os
+import stat
+import shutil
+from contextlib import contextmanager
 from pathlib import Path
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 TUN = 'mdawg'
 TAG = 'awg-in'
@@ -25,11 +33,98 @@ MSS_RULES = tuple(
 )
 
 
-def run(*args, check=True):
-    result = subprocess.run(args, capture_output=True, text=True, timeout=10)
+def run(*args, check=True, input=None):
+    result = subprocess.run(args, input=input, capture_output=True, text=True, timeout=10)
     if check and result.returncode:
         raise RuntimeError(f'Не удалось выполнить {args[0]} {args[1]}: {result.stderr.strip()[:240]}')
     return result
+
+
+@contextmanager
+def routing_lock(timeout=20):
+    if fcntl is None:
+        raise RuntimeError('Маршрутизация AWG поддерживается только в Linux')
+    if any(p.is_symlink() for p in (STATE.parent, *STATE.parent.parents)):
+        raise RuntimeError('Небезопасный каталог состояния маршрута AWG')
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(STATE.parent/'awg-routing.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+            raise RuntimeError('Небезопасная блокировка маршрута AWG')
+        deadline = time.monotonic()+timeout
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError('Маршрут AWG уже обновляется; повторите попытку после завершения операции') from None
+                time.sleep(.05)
+        yield
+    finally:
+        os.close(fd)
+
+
+def native_chain():
+    """Ошибка iptables -S не доказывает отсутствие цепочки после nft restore."""
+    if not shutil.which('nft'):
+        raise RuntimeError('Не удалось прочитать цепочку AWG; для диагностики iptables-nft требуется nft')
+    result = run('nft', '-j', 'list', 'table', 'ip', 'filter', check=False)
+    if result.returncode:
+        tables = json.loads(run('nft', '-j', 'list', 'tables').stdout)['nftables']
+        if any(row.get('table', {}).get('family') == 'ip' and row['table'].get('name') == 'filter' for row in tables):
+            raise RuntimeError('Не удалось прочитать существующую таблицу фильтрации; маршрут AWG не изменён')
+        return None
+    rows = json.loads(result.stdout)['nftables']
+    chain = next((row['chain'] for row in rows if row.get('chain', {}).get('name') == CHAIN), None)
+    if chain is None:
+        return None
+    return chain, [row['rule'] for row in rows if row.get('rule', {}).get('chain') == CHAIN]
+
+
+def validate_native_chain(data):
+    chain, rules = data
+    if any(key in chain for key in ('hook', 'type', 'policy', 'dev')):
+        raise RuntimeError('Цепочка AWG занята чужой политикой; правила не изменены')
+    denied = False
+    for rule in rules:
+        expr = [e for e in rule['expr'] if not (
+            set(e) == {'counter'} and isinstance(e['counter'], dict)
+            and set(e['counter']) <= {'packets', 'bytes'}
+            and all(type(v) is int and v >= 0 for v in e['counter'].values()))]
+        accepted = any(expr == [{'match': {'op': '==', 'left': {'meta': {'key': 'oifname'}}, 'right': interface}}, {'accept': None}]
+                       for interface in (TUN, 'awg0'))
+        rejected = expr in ([{'reject': {'type': 'icmp', 'expr': 'port-unreachable'}}], [{'drop': None}])
+        if rule.get('comment') or not (accepted or rejected) or (accepted and denied):
+            raise RuntimeError('В цепочке AWG есть неизвестные правила; автоматическая замена запрещена')
+        denied |= rejected
+
+
+def chain_status():
+    result = run('iptables', '-w', '5', '-S', CHAIN, check=False)
+    if result.returncode == 0:
+        return 'iptables', None
+    if shutil.which('nft'):
+        data = native_chain()
+        return ('native', data) if data is not None else ('missing', None)
+    if result.returncode == 1 and 'No chain/target/match' in getattr(result, 'stderr', ''):
+        return 'missing', None
+    raise RuntimeError('Не удалось проверить цепочку AWG; правила не изменены')
+
+
+def repair_native_chain(data):
+    validate_native_chain(data)
+    # Один атомарный batch: цепочка никогда не остаётся пустой. Native REJECT
+    # после текстового nft restore не читается iptables-nft; DROP сохраняет
+    # запрет обхода TUN и переживает дальнейшие snapshot/restore.
+    script = (f'flush chain ip filter {CHAIN}\n'
+              f'add rule ip filter {CHAIN} oifname "{TUN}" counter accept\n'
+              f'add rule ip filter {CHAIN} oifname "awg0" counter accept\n'
+              f'add rule ip filter {CHAIN} counter drop\n')
+    run('nft', '-c', '-f', '-', input=script)
+    run('nft', '-f', '-', input=script)
+    run('iptables', '-w', '5', '-S', CHAIN)
 
 
 def firewall_rule(*args, table=None):
@@ -40,7 +135,7 @@ def firewall_rule(*args, table=None):
         run(*prefix, '-I', *args)
 
 
-def remove():
+def remove(kind):
     # Удаляются только точные правила, которыми управляет MD-Next.
     mtu.remove()
     for rule in MSS_RULES:
@@ -52,7 +147,9 @@ def remove():
     args = ('FORWARD', '-i', TUN, '-o', 'awg0', '-j', 'ACCEPT')
     if not run('iptables', '-w', '5', '-C', *args, check=False).returncode:
         run('iptables', '-w', '5', '-D', *args)
-    if not run('iptables', '-w', '5', '-S', CHAIN, check=False).returncode:
+    if kind == 'native':
+        run('nft', '-f', '-', input=f'flush chain ip filter {CHAIN}\ndelete chain ip filter {CHAIN}\n')
+    elif kind == 'iptables':
         run('iptables', '-w', '5', '-F', CHAIN)
         run('iptables', '-w', '5', '-X', CHAIN)
     run('ip', 'rule', 'del', 'priority', PRIORITY, 'iif', 'awg0', 'lookup', TABLE, check=False)
@@ -74,33 +171,77 @@ def validate_ownership():
                 raise RuntimeError('Таблица 10086 занята другим маршрутом; маршрут AWG не изменён')
 
 
-def remove_owned():
+def _remove_owned():
+    if STATE.is_symlink():
+        raise RuntimeError('Небезопасный маркер маршрута AWG')
     if STATE.exists():
+        validate_marker()
         validate_ownership()
-        remove()
+        kind, data = chain_status()
+        if kind == 'native':
+            validate_native_chain(data)
+        remove(kind)
         STATE.unlink()
 
 
+def validate_marker():
+    info = STATE.lstat()
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o022 or STATE.read_text() != 'MD-Next AWG routing v1\n':
+        raise RuntimeError('Не подтверждена принадлежность маршрута AWG; правила не изменены')
+
+
+def remove_owned():
+    with routing_lock():
+        _remove_owned()
+
+
 def apply(config_path):
+    with routing_lock():
+        _apply(config_path)
+
+
+def _apply(config_path):
+    if STATE.is_symlink():
+        raise RuntimeError('Небезопасный маркер маршрута AWG')
     config = json.loads(Path(config_path).read_text())
     enabled = any(i.get('protocol') == 'tun' and i.get('tag') == TAG
                   and i.get('settings', {}).get('name') == TUN for i in config.get('inbounds', []))
     if not enabled:
-        remove_owned()
+        _remove_owned()
         return
     validate_ownership()
-    if not STATE.exists():
-        if not run('iptables', '-w', '5', '-S', CHAIN, check=False).returncode:
+    kind, data = chain_status()
+    previously_owned = STATE.exists()
+    if not previously_owned:
+        if kind != 'missing':
             raise RuntimeError('Цепочка MDNEXT_AWG_OUT уже занята; маршрут AWG не изменён')
         STATE.parent.mkdir(parents=True, exist_ok=True)
         STATE.write_text('MD-Next AWG routing v1\n')
         STATE.chmod(0o600)
-    if run('iptables', '-w', '5', '-S', CHAIN, check=False).returncode:
-        run('iptables', '-w', '5', '-N', CHAIN)
+    else:
+        validate_marker()
+    if kind == 'native':
+        repair_native_chain(data)
+    elif kind == 'missing':
+        creation = run('iptables', '-w', '5', '-N', CHAIN, check=False)
+        if creation.returncode:
+            # Независимый nft restore может вернуть цепочку между проверками.
+            # Новый маркер при конфликте не даёт присвоить чужую цепочку.
+            if not previously_owned:
+                STATE.unlink()
+                raise RuntimeError('Не удалось создать новую цепочку AWG; чужие правила не изменены')
+            current, restored = chain_status()
+            if current == 'native':
+                repair_native_chain(restored)
+            elif current != 'iptables':
+                raise RuntimeError('Не удалось создать цепочку AWG: '+getattr(creation,'stderr','').strip()[:240])
     firewall_rule(CHAIN, '-o', TUN, '-j', 'ACCEPT')
     firewall_rule(CHAIN, '-o', 'awg0', '-j', 'ACCEPT')
-    if run('iptables', '-w', '5', '-C', CHAIN, '-j', 'REJECT', check=False).returncode:
-        run('iptables', '-w', '5', '-A', CHAIN, '-j', 'REJECT')
+    if run('iptables', '-w', '5', '-C', CHAIN, '-j', 'DROP', check=False).returncode:
+        run('iptables', '-w', '5', '-A', CHAIN, '-j', 'DROP')
+    # Сначала добавлен DROP: удаление прежнего REJECT не открывает выход.
+    while not run('iptables', '-w', '5', '-C', CHAIN, '-j', 'REJECT', check=False).returncode:
+        run('iptables', '-w', '5', '-D', CHAIN, '-j', 'REJECT')
     firewall_rule('FORWARD', '-i', 'awg0', '-j', CHAIN)
     firewall_rule('FORWARD', '-i', TUN, '-o', 'awg0', '-j', 'ACCEPT')
     # Запасной blackhole остаётся при исчезновении TUN: нет ухода в main.
@@ -134,8 +275,11 @@ if __name__ == '__main__':
     parser.add_argument('--config', default='/usr/local/etc/xray/config.json')
     parser.add_argument('--remove', action='store_true', help='Remove only routing owned by MD-Next')
     args = parser.parse_args()
-    if args.remove:
-        remove_owned()
-    else:
-        apply(args.config)
+    try:
+        if args.remove:
+            remove_owned()
+        else:
+            apply(args.config)
+    except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:
+        raise SystemExit(str(error))
     print('Маршрут AmneziaWG согласован с Xray')

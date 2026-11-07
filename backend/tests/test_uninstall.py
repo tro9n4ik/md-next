@@ -2,7 +2,16 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 import pytest
+from contextlib import nullcontext
+import sys
 from test_awg_routing import routes
+
+
+@pytest.fixture(autouse=True)
+def no_host_network(monkeypatch):
+    monkeypatch.setattr(routes,'routing_lock',nullcontext)
+    monkeypatch.setattr(routes.mtu,'remove',lambda:None)
+    if sys.platform=='win32':monkeypatch.setattr(routes,'validate_marker',lambda:None)
 
 
 def test_uninstall_without_marker_does_not_touch_network(tmp_path):
