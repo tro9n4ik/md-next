@@ -322,3 +322,28 @@ def test_failed_cancellation_fences_partially_started_source(tmp_path):
     calls.clear();(worker.STATE/'source-activated.json').write_text('{}')
     worker.keep_source_fenced()
     assert not calls,'Never touch the source after activation started'
+
+
+def test_controller_allows_only_reconciliation_after_activation_started(tmp_path,monkeypatch):
+    worker=load_script('migration-ssh.py');worker.STATE=tmp_path
+    control=load_script('migration-control.py');control.STATE=tmp_path
+    control.LIB=Path(worker.__file__).parent;control.worker=lambda:worker
+    control.fcntl=SimpleNamespace(LOCK_EX=1,LOCK_NB=2,flock=lambda *a:None)
+    commands=[]
+    control.subprocess=SimpleNamespace(run=lambda args,**kwargs:(commands.append(args) or SimpleNamespace(returncode=3 if args[0]=='systemctl' else 0,stdout='inactive')))
+    original=Path.read_text
+    monkeypatch.setattr(Path,'read_text',lambda path,*a,**k:'JWT_SECRET_KEY=synthetic\n' if path.as_posix()=='/opt/md-next/backend/.env' else original(path,*a,**k))
+    binding={'host':'8.8.8.8','port':22,'fingerprint':'SHA256:'+'a'*43,
+             'session_id':'a'*32,'installation':'b'*64,'target_commit':'c'*40,'target_machine':'d'*32,'final_snapshot':'e'*64}
+    (tmp_path/'target.json').write_text(json.dumps(binding))
+    (tmp_path/'source-activated.json').write_text(json.dumps({**binding,'state':'activation_started'}))
+    (tmp_path/'source-fenced.json').write_text('{}');(tmp_path/'managed-session.json').write_text('{}')
+    request={**{k:binding[k] for k in ('host','port','fingerprint')},'ssh_password':'synthetic','password':PASSWORD,'confirm':True,'confirm_protocol_tests':True}
+    for action in ('prepare','finalize','commit','activate','cancel'):
+        with pytest.raises(RuntimeError):control.start({**request,'action':action})
+    assert not any(args[0]=='systemd-run' for args in commands)
+    control.start({**request,'action':'reconcile'})
+    assert sum(args[0]=='systemd-run' for args in commands)==1
+    requests=list(tmp_path.glob('request-*.json'));assert len(requests)==1
+    launched=json.loads(requests[0].read_text())
+    assert launched['action']=='reconcile' and len(launched['operation_id'])==32
