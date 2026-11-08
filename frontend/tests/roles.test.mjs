@@ -143,6 +143,25 @@ test('Переезд показывает код ошибки, этап и бе�
   query.clear();
 });
 
+test('После потери ответа активации доступна проверка завершения без повторного переключения', () => {
+  const query=fixture();
+  query.setQueryData(['migration-job'], {phase:'error',stage:'acknowledging',message:'Подтверждение потеряно',activation_started:true,can_reconcile:true,managed:true,target:{host:'8.8.8.8',port:22,fingerprint:'test'}});
+  const html=render(MigrationTransfer,admin,query);
+  assert.match(html,/Проверить завершение/);
+  assert.match(html,/Этап: Подтверждение завершения/);
+  assert.doesNotMatch(html,/Начать переезд|>Подтвердить<|>Отменить</);
+  query.clear();
+});
+
+test('Активация остаётся активным этапом и блокирует повторную проверку', () => {
+  const query=fixture();
+  query.setQueryData(['migration-job'], {phase:'activating',message:'Активация',activation_started:true,can_reconcile:true});
+  const html=render(MigrationTransfer,admin,query);
+  assert.match(html,/role="progressbar"/);
+  assert.match(html,/disabled=""[^>]*>Проверить завершение/);
+  query.clear();
+});
+
 test('Перенос показывает ожидание перезагрузки в активной консоли', () => {
   const query=fixture();
   query.setQueryData(['migration-job'], {phase:'rebooting',message:'Ожидаем перезагрузку нового VPS.',history:[{stage:'TARGET_REBOOT_WAIT',message:'Ожидаем перезагрузку нового VPS.',at:1700000010}]});

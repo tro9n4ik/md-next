@@ -228,7 +228,7 @@ def test_preparation_finishes_before_source_backup(source_tree,tmp_path,monkeypa
     monkeypatch.setattr(worker.Path,'read_text',lambda path,*a,**kw:'source-machine' if path.as_posix()=='/etc/machine-id' else read(path,*a,**kw))
     cleanup = []
 
-    def execute(transport,command,**kw):
+    def execute(transport,command,stdin='',**kw):
         if 'machine-id' in command:
             return reconnect if transport is recovered else 'target-machine'
         if 'mktemp' in command:return '/root/mdnext-transfer-test'

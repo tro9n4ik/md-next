@@ -243,6 +243,6 @@ def capture(root, password, *, frozen=False, portable=False):
                     'version': (app/'backend/VERSION').read_text().strip(),
                     'commit': (app/'DEPLOYED_COMMIT').read_text().strip(),
                     'created_at': datetime.now(timezone.utc).isoformat(), 'frozen': frozen,
-                    'installation': hashlib.sha256(re.search(r'(?m)^JWT_SECRET_KEY=(.+)$', env).group(1).encode()).hexdigest(), **metadata}
+                    'installation': hashlib.sha256(re.search(r'(?m)^JWT_SECRET_KEY=(.+)$', env).group(1).rstrip('\r').encode()).hexdigest(), **metadata}
         if not re.fullmatch('[0-9a-f]{40}', manifest['commit']): raise ValueError('Сборка установки не определена')
         return encode_bundle(manifest, saved.read_bytes(), files, password), manifest

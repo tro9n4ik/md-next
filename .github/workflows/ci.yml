@@ -108,3 +108,4 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y nftables iptables tcpdump iproute2 iputils-ping
       - run: sudo python3 scripts/test-network-mtu.py --run
       - run: sudo python3 scripts/test-awg-routing.py --run
+      - run: sudo python3 scripts/test-migration-lease.py --run

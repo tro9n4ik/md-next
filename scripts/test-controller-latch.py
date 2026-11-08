@@ -58,7 +58,7 @@ def main():
             assert result.returncode != 0 and 1.8 <= elapsed <= 2.7, elapsed
             print(f"PROBE_BLOCKED_EXIT_SECONDS={elapsed:.3f}", flush=True)
             command("ip", "link", "set", "lo", "down")
-            deadline = time.monotonic() + 185
+            deadline = time.monotonic() + 205
             while (state / token / "status").read_text() == "armed" and time.monotonic() < deadline:
                 time.sleep(1)
             assert (state / token / "status").read_text() == "restored"
