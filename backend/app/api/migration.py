@@ -54,7 +54,7 @@ class TargetRequest(BaseModel):
 
 
 class JobRequest(TargetRequest):
-    action: str = Field(pattern='^(prepare|finalize|activate|commit|cancel)$')
+    action: str = Field(pattern='^(prepare|finalize|activate|commit|cancel|reconcile)$')
     fingerprint: str = Field(pattern=r'^SHA256:[A-Za-z0-9+/]{43}$')
     ssh_password: SecretStr | None = Field(default=None,min_length=1,max_length=512)
     password: SecretStr | None = Field(default=None,min_length=12,max_length=256)

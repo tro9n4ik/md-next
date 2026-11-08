@@ -36,16 +36,25 @@ def read_status():
         data={'phase':'idle','message':'Переезд ещё не запускался.'}
     except (ValueError,TypeError):
         data={'phase':'error','error_code':'MIG_STATE','message':'Не удалось прочитать сохранённое состояние. Проверьте оба сервера.'}
-    if data.get('phase') in {'connecting','preparing','rebooting','exporting','restoring','verifying'} and not running and time.time()-data.get('updated_at',0)>60:
+    if data.get('phase') in {'connecting','preparing','rebooting','exporting','restoring','verifying','activating','acknowledging','reconciling','cancelling'} and not running and time.time()-data.get('updated_at',0)>60:
         data.update(phase='error',error_code='MIG_INTERRUPTED',message='Процесс переезда прерван. Проверьте оба сервера перед продолжением.')
     data['source_fenced']=(STATE/'source-fenced.json').exists()
     data['activation_started']=(STATE/'source-activated.json').exists()
     data['managed']=(STATE/'managed-session.json').is_file()
     data['target_ready']=False
+    data['can_reconcile']=False
     if (STATE/'target.json').is_file():
         try:
             binding=json.loads((STATE/'target.json').read_text())
             data['target']={key:binding[key] for key in ('host','port','fingerprint')}
+            if data['activation_started']:
+                activated=json.loads((STATE/'source-activated.json').read_text())
+                fields=('session_id','installation','target_commit','target_machine','final_snapshot')
+                matched=all(binding.get(key) and activated.get(key)==binding[key] for key in fields)
+                data['can_reconcile']=bool(matched and data['managed'] and activated.get('state')!='completed')
+                if matched and activated.get('state')=='completed':
+                    data.update(phase='activated',stage='completed',message='Новый VPS активирован. Замените IP в DNS-записях ваших доменов и проверьте подключения.')
+                    data.pop('error_code',None);data.pop('exit_code',None)
             if (STATE/'target-ready.json').is_file():
                 ready=json.loads((STATE/'target-ready.json').read_text())
                 data['target_ready']=all(ready.get(key)==binding[key] for key in ('host','port','fingerprint'))
@@ -64,7 +73,8 @@ def start(request):
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         current=subprocess.run(['systemctl','is-active','md-next-migration.service'],capture_output=True,text=True,timeout=5)
         if current.returncode==0 or current.stdout.strip() in {'activating','reloading','deactivating'}:raise module.events.MigrationError('MIG_BUSY')
-        if (STATE/'source-activated.json').exists():raise module.events.MigrationError('MIG_STATE')
+        if (STATE/'source-activated.json').exists() and request['action']!='reconcile':raise module.events.MigrationError('MIG_STATE')
+        if request['action']=='reconcile' and not read_status().get('can_reconcile'):raise module.events.MigrationError('MIG_STATE')
         if request['action']=='prepare' and ((STATE/'source-fenced.json').exists() or (STATE/'target.json').exists()):raise module.events.MigrationError('MIG_STATE')
         if request['action']=='finalize' and not read_status().get('target_ready'):raise module.events.MigrationError('MIG_STATE')
         if request['action']=='commit' and (read_status().get('phase') not in {'prepared','awaiting_activation'} or not read_status().get('target_ready')):raise module.events.MigrationError('MIG_STATE')
@@ -73,6 +83,7 @@ def start(request):
         session=importlib.util.module_from_spec(spec);spec.loader.exec_module(session)
         request=session.hydrate(request,STATE,module.write_json)
         module.validate(request)
+        request['operation_id']=uuid.uuid4().hex
         path=STATE/('request-'+uuid.uuid4().hex+'.json')
         module.write_json(path,request)
         module.write_json(STATE/'job.json',{})

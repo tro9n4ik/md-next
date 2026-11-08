@@ -16,6 +16,8 @@ import tempfile
 import time
 import importlib.util
 import urllib.request
+import threading
+import uuid
 
 spec=importlib.util.spec_from_file_location('migration_events',Path(__file__).with_name('migration-events.py'))
 events=importlib.util.module_from_spec(spec);spec.loader.exec_module(events)
@@ -23,6 +25,43 @@ events=importlib.util.module_from_spec(spec);spec.loader.exec_module(events)
 STATE=Path('/var/lib/md-next/migration')
 LIB=Path('/usr/local/lib/md-next')
 ROOT=Path('/opt/md-next')
+ACTIVE_GUARD=None
+
+
+class NetworkGuard:
+    """Fresh pinned SSH renews a target lease; the target enforces a hard cap."""
+    def __init__(self,request,token,machine):
+        self.request,self.token,self.machine=request,token,machine
+        self.owner=threading.get_ident();self.error=None;self.done=threading.Event()
+        self.thread=threading.Thread(target=self.loop,daemon=True)
+
+    def start(self):
+        global ACTIVE_GUARD
+        ACTIVE_GUARD=self;self.thread.start()
+
+    def check(self):
+        if self.error:raise events.MigrationError('MIG_NETWORK_GUARD') from None
+
+    def renew(self):
+        sock,transport=connect_target(self.request,timeout=5)
+        try:
+            if execute(transport,'cat /etc/machine-id',timeout=5).strip()!=self.machine:
+                raise events.MigrationError('MIG_TARGET_BINDING')
+            if not self.done.is_set():
+                execute(transport,'/usr/bin/python3 /var/lib/md-next/network-latch/'+self.token+'/restore.py renew '+self.token,timeout=10)
+        finally:transport.close();sock.close()
+
+    def loop(self):
+        while not self.done.wait(40):
+            try:self.renew()
+            except Exception as error:
+                self.error=error;return
+
+    def stop(self):
+        global ACTIVE_GUARD
+        self.done.set()
+        if self.thread.ident is not None:self.thread.join(timeout=40)
+        if ACTIVE_GUARD is self:ACTIVE_GUARD=None
 
 
 def fingerprint(key):
@@ -41,7 +80,7 @@ def public_domain(value):
 
 
 def validate(request):
-    if request.get('action') not in {'prepare','finalize','activate','commit','cancel'}:raise ValueError('Invalid action')
+    if request.get('action') not in {'prepare','finalize','activate','commit','cancel','reconcile'}:raise ValueError('Invalid action')
     ip=ipaddress.ip_address(request['host'])
     if not ip.is_global or ip.is_multicast or ip.is_reserved or getattr(ip,'scope_id',None):raise ValueError('Нужен публичный IP нового VPS')
     if type(request.get('port')) is not int or not 1<=request['port']<=65535:raise ValueError('Invalid SSH port')
@@ -69,12 +108,14 @@ def status(phase,message,request,**details):
     previous={}
     try:previous=json.loads((STATE/'job.json').read_text())
     except (OSError,ValueError):pass
-    history=previous.get('history',[]) if previous.get('action')==request['action'] else []
+    operation=request.get('operation_id')
+    same=previous.get('operation_id')==operation if operation else previous.get('action')==request['action']
+    history=previous.get('history',[]) if same else []
     stage=details.pop('stage',phase)
     entry={'stage':stage,'message':message,'at':time.time()}
     if not history or (history[-1].get('stage'),history[-1].get('message'))!=(stage,message):history=(history+[entry])[-80:]
     write_json(STATE/'job.json',{'phase':phase,'stage':stage,'message':message,'history':history,
-        'host':request['host'],'port':request['port'],'action':request['action'],
+        'host':request['host'],'port':request['port'],'action':request['action'],'operation_id':operation,
         'actor_id':request.get('actor_id'),'updated_at':time.time(),**details})
 
 
@@ -84,7 +125,8 @@ def fail(error,request):
     except (OSError,ValueError):pass
     stage=previous.get('stage','source_preflight')
     defaults={'source_preflight':'MIG_SOURCE_CONFIG','connecting':'MIG_SSH_CONNECT',
-              'restoring':'MIG_RESTORE','verifying':'MIG_VERIFY'}
+              'restoring':'MIG_RESTORE','verifying':'MIG_VERIFY','activating':'MIG_ACTIVATION_PENDING',
+              'acknowledging':'MIG_ACTIVATION_PENDING','reconciling':'MIG_ACTIVATION_PENDING','cancelling':'MIG_RESTORE'}
     details=events.public_error(error,defaults.get(stage,'MIG_INTERNAL'))
     code=details.pop('code');message=details.pop('message')
     status('reboot_required' if code=='MIG_REBOOT_REQUIRED' else 'error',message,request,
@@ -104,6 +146,7 @@ def execute(ssh,command,stdin='',timeout=240,progress=None):
     channel.shutdown_write();deadline=time.monotonic()+timeout;output=bytearray();pending=b'';remote_error=None
     try:
         while True:
+            if ACTIVE_GUARD is not None and ACTIVE_GUARD.owner==threading.get_ident():ACTIVE_GUARD.check()
             if time.monotonic()>deadline:raise events.MigrationError('MIG_TIMEOUT')
             if channel.recv_ready():
                 chunk=channel.recv(65536)
@@ -125,9 +168,10 @@ def execute(ssh,command,stdin='',timeout=240,progress=None):
     finally:channel.close()
 
 
-def remote_cli(transport,action,password,extra=''):
+def remote_cli(transport,action,password,extra='',context=None):
     cmd='/opt/md-next/backend/venv/bin/python /usr/local/lib/md-next/migrate-panel.py '+action+' --password-stdin '+extra
-    return execute(transport,cmd,json.dumps({'password':password}),timeout=1200 if action=='verify' else 300)
+    timeout={'verify':1200,'activation-status':30,'prepare-session':60}.get(action,300)
+    return execute(transport,cmd,json.dumps({'password':password,**({'context':context} if context else {})}),timeout=timeout)
 
 
 def connect_target(request,timeout=15):
@@ -167,13 +211,14 @@ def cleanup_transfer(request, transport, directory, target_id):
         print('Не удалось удалить временный каталог переноса на целевом VPS.', file=sys.stderr)
 
 
-def arm_network(transport, sftp, directory):
+def arm_network(transport, sftp, directory,session=None):
     sftp.put(str(LIB / "controller-probe.py"), directory + "/controller-probe.py")
     sftp.chmod(directory + "/controller-probe.py",0o600)
     target = directory + "/network-latch.py"
     sftp.put(str(LIB / "network-latch.py"), target)
     sftp.chmod(target, 0o600)
-    result = json.loads(execute(transport, "/usr/bin/python3 " + shlex.quote(target) + " arm"))
+    if session is not None and not re.fullmatch('[0-9a-f]{32}',session):raise events.MigrationError('MIG_TARGET_BINDING')
+    result = json.loads(execute(transport, "/usr/bin/python3 " + shlex.quote(target) + " arm" + (' --session '+session if session else '')))
     token = result.get("token", "")
     if not re.fullmatch("[a-f0-9]{32}", token):
         raise RuntimeError("Не удалось включить страховку сети")
@@ -193,8 +238,11 @@ def confirm_network(request, token):
             raise RuntimeError("Нет HTTPS-адреса контроллера")
         # Resolve on the controller in a killable process; target never performs DNS.
         code = "import socket,sys; a=socket.getaddrinfo(sys.argv[1],None,type=socket.SOCK_STREAM); print((next((e[4][0] for e in a if e[0]==socket.AF_INET),a[0][4][0])))"
-        result = subprocess.run([sys.executable,"-c",code,urlsplit(url).hostname],capture_output=True,text=True,timeout=2.0,check=True)
-        address = str(__import__('ipaddress').ip_address(result.stdout.strip()))
+        if request.get('controller_address'):
+            address=str(ipaddress.ip_address(request['controller_address']))
+        else:
+            result = subprocess.run([sys.executable,"-c",code,urlsplit(url).hostname],capture_output=True,text=True,timeout=5.0,check=True)
+            address = str(ipaddress.ip_address(result.stdout.strip()))
         # The independently copied probe enforces its own 2-second wall-clock budget.
         # Kept inside the independent latch directory, beyond worker cleanup.
         probe = "/var/lib/md-next/network-latch/" + token + "/controller-probe.py"
@@ -239,6 +287,60 @@ def finish_session():
     session.finish(STATE,write_json)
 
 
+def keep_source_fenced():
+    # A failed cancel may have started only part of the old runtime.
+    if not (STATE/'source-fenced.json').exists() or (STATE/'source-activated.json').exists():return
+    runtime=load_runtime()
+    for service in runtime.SERVICES:
+        try:runtime.command('systemctl','stop',service,check=False)
+        except Exception:pass
+    path=ROOT/'backend/.env'
+    runtime.write(path,runtime.staging_env(path.read_bytes(),True),0o640)
+    runtime.command('/usr/bin/python3',str(ROOT/'scripts/install-privilege-separation.py'),'--configure-only')
+    runtime.command('systemctl','start','md-next-backend')
+
+
+def receipt_context(saved,*,final=True):
+    names={'session':'session_id','installation':'installation','commit':'target_commit',
+           'machine':'target_machine'}
+    if final:names['snapshot']='final_snapshot'
+    if any(not saved.get(key) for key in names.values()):raise events.MigrationError('MIG_TARGET_VERSION')
+    return {key:saved[value] for key,value in names.items()}
+
+
+def acknowledge_activation(request,saved,*,retry=False):
+    """Reconcile a receipt; never invoke activate or un-fence the source."""
+    context=receipt_context(saved)
+    pending=json.loads((STATE/'source-activated.json').read_text())
+    if any(pending.get(key)!=saved.get(key) for key in ('session_id','installation','target_commit','target_machine','final_snapshot')):
+        raise events.MigrationError('MIG_TARGET_BINDING')
+    token=pending.get('guard')
+    if not isinstance(token,str) or not re.fullmatch('[0-9a-f]{32}',token):raise events.MigrationError('MIG_TARGET_VERSION')
+    context={**context,'guard':token}
+    deadline=time.monotonic()+(90 if retry else 0)
+    while True:
+        try:
+            sock,transport=connect_target(request,timeout=5)
+            try:
+                if execute(transport,'cat /etc/machine-id',timeout=5).strip()!=context['machine']:
+                    raise events.MigrationError('MIG_TARGET_BINDING')
+                result=json.loads(remote_cli(transport,'activation-status',request['password'],context=context))
+                if any(result.get(k)!=v for k,v in context.items()):raise events.MigrationError('MIG_TARGET_BINDING')
+                if result.get('phase')!='completed':raise events.MigrationError('MIG_ACTIVATION_PENDING')
+                guard=json.loads(execute(transport,'/usr/bin/python3 /var/lib/md-next/network-latch/'+token+'/restore.py status '+token,timeout=10))
+            finally:transport.close();sock.close()
+            if guard.get('status')=='armed' and guard.get('live') is True:
+                confirm_network(request,token)
+            elif guard.get('status')!='confirmed':raise events.MigrationError('MIG_NETWORK_GUARD')
+            write_json(STATE/'source-activated.json',{'state':'completed',**saved})
+            finish_session()
+            status('activated','Новый VPS активирован. Замените IP в DNS-записях ваших доменов и проверьте подключения.',request,stage='completed')
+            return
+        except Exception as error:
+            if getattr(error,'code',None) in {'MIG_TARGET_BINDING','MIG_SSH_KEY','MIG_SSH_AUTH','MIG_NETWORK_GUARD'} or time.monotonic()>=deadline:raise
+            time.sleep(3)
+
+
 def latest_build():
     base='https://api.github.com/repos/tro9n4ik/md-next/'
     def api(path):
@@ -264,6 +366,7 @@ def latest_build():
 def run(request):
     import paramiko
     validate(request)
+    if not request.get('operation_id'):request={**request,'operation_id':uuid.uuid4().hex}
     if request['action']=='commit':
         # Подтверждение охватывает свежую финальную синхронизацию и активацию.
         run({**request,'action':'finalize'})
@@ -284,6 +387,7 @@ def run(request):
     sock,transport=connect_target(request)
     remote_dir=None
     latch_token=None
+    guard=None
     try:
         # Never prepare this same machine even when addressed through a second public IP.
         local_id=Path('/etc/machine-id').read_text().strip()
@@ -293,8 +397,12 @@ def run(request):
         except OSError as error:raise events.MigrationError('MIG_BUILD') from error
         if not re.fullmatch('[0-9a-f]{40}',commit):raise events.MigrationError('MIG_BUILD')
         sftp=paramiko.SFTPClient.from_transport(transport)
+        if hasattr(sftp,'get_channel'):sftp.get_channel().settimeout(60)
+        if request['action']!='prepare' and saved.get('target_machine') and saved['target_machine']!=target_id:
+            raise events.MigrationError('MIG_TARGET_BINDING')
         if request['action'] in {'finalize','activate'} and execute(transport,'cat /opt/md-next/DEPLOYED_COMMIT').strip()!=saved.get('target_commit'):
             raise events.MigrationError('MIG_BUILD')
+        if request['action'] in {'finalize','activate'}:receipt_context(saved,final=False)
         if request['action']=='prepare':
             # Проверяем идентичность источника без создания снимка до установки.
             env_text=(ROOT/'backend/.env').read_text()
@@ -334,11 +442,21 @@ def run(request):
                     sock,transport=reboot_target(request,sock,transport)
                     sftp=paramiko.SFTPClient.from_transport(transport)
             salt=os.urandom(16)
-            write_json(binding_path,{**binding,'target_commit':commit,'installation':installation,'salt':salt.hex(),'password_check':hashlib.scrypt(request['password'].encode(),salt=salt,n=2**14,r=8,p=1).hex()})
+            # SSH_CLIENT pins the original controller address before DNS cutover.
+            client=execute(transport,"printf '%s' \"$SSH_CLIENT\"",timeout=5).split()
+            controller=str(ipaddress.ip_address(client[0])) if client else None
+            if controller and not ipaddress.ip_address(controller).is_global:controller=None
+            saved={**binding,'target_commit':commit,'installation':installation,'target_machine':target_id,
+                   'session_id':hmac.new(request['password'].encode(),(json.dumps(binding,sort_keys=True)+installation+commit).encode(),hashlib.sha256).hexdigest()[:32],'controller_address':controller,
+                   'salt':salt.hex(),'password_check':hashlib.scrypt(request['password'].encode(),salt=salt,n=2**14,r=8,p=1).hex()}
+            try:remote_cli(transport,'prepare-session',request['password'],context=receipt_context(saved,final=False))
+            except Exception as error:raise events.MigrationError('MIG_TARGET_VERSION') from error
+            write_json(binding_path,saved)
             preparation.unlink(missing_ok=True)
         if request['action'] in {'prepare','finalize','activate'}:
             try: execute(transport,'test -f /usr/local/lib/md-next/migration-postflight.py && test -f /usr/local/lib/md-next/migration-dns.py',timeout=5)
             except Exception as error: raise events.MigrationError('MIG_TARGET_VERSION') from error
+        request={**request,'controller_address':saved.get('controller_address')}
         if request['action'] in {'prepare','finalize'}:
             status('exporting','Создаём полный зашифрованный комплект.',request)
             frozen=request['action']=='finalize'
@@ -371,11 +489,14 @@ def run(request):
                 runtime.write(env_path,runtime.staging_env(env_path.read_bytes(),True),0o640)
                 runtime.command('/usr/bin/python3',str(ROOT/'scripts/install-privilege-separation.py'),'--configure-only')
                 runtime.command('systemctl','start','md-next-backend')
+                saved={**saved,'final_snapshot':hashlib.sha256(blob).hexdigest()}
+                write_json(binding_path,saved)
             if remote_dir is None:
                 remote_dir=execute(transport,'umask 077; mktemp -d /root/mdnext-transfer-XXXXXXXX').strip()
                 if not re.fullmatch('/root/mdnext-transfer-[A-Za-z0-9]+',remote_dir):raise RuntimeError('Invalid remote directory')
             with tempfile.TemporaryDirectory(prefix='mdnext-transfer-',dir=STATE) as folder:
-                latch_token=arm_network(transport,sftp,remote_dir)
+                latch_token=arm_network(transport,sftp,remote_dir,session=saved['session_id'])
+                guard=NetworkGuard(request,latch_token,target_id);guard.start()
                 bundle=Path(folder)/'transfer.mdmove';runtime.write(bundle,blob)
                 # Keep the final encrypted snapshot for disaster recovery.
                 if frozen:runtime.write(STATE/'final.mdmove',blob)
@@ -385,7 +506,8 @@ def run(request):
             status('verifying','Проверяем конфигурации VPN и HTTPS на новом VPS.',request)
             try: execute(transport,'/usr/bin/python3 /usr/local/lib/md-next/migration-dns.py --check',timeout=120)
             except Exception as error: raise events.MigrationError('MIG_TARGET_DNS') from error
-            remote_cli(transport,'verify',request['password'])
+            remote_cli(transport,'verify',request['password'],context=receipt_context(saved) if frozen else None)
+            guard.check();guard.stop();guard=None
             confirm_network(request,latch_token)
             latch_token=None
             if not frozen:write_json(STATE/'target-ready.json',binding)
@@ -394,22 +516,39 @@ def run(request):
                    'Пробный перенос выполнен. Новый VPS изолирован; исходная панель работает. Проверьте протоколы, затем выполните финальную синхронизацию.',request)
         elif request['action']=='activate':
             if not (STATE/'source-fenced.json').exists():raise RuntimeError('Исходная панель не остановлена')
+            context=receipt_context(saved)
             remote_dir=execute(transport,'umask 077; mktemp -d /root/mdnext-transfer-XXXXXXXX').strip()
             if not re.fullmatch('/root/mdnext-transfer-[A-Za-z0-9]+',remote_dir):raise RuntimeError('Invalid remote directory')
-            latch_token=arm_network(transport,sftp,remote_dir)
+            latch_token=arm_network(transport,sftp,remote_dir,session=saved['session_id'])
+            guard=NetworkGuard(request,latch_token,target_id);guard.start()
+            context={**context,'guard':latch_token}
+            status('verifying','Повторно проверяем финальный снимок и готовность нового VPS.',request,stage='verifying')
             try: execute(transport,'/usr/bin/python3 /usr/local/lib/md-next/migration-dns.py --check',timeout=120)
             except Exception as error: raise events.MigrationError('MIG_TARGET_DNS') from error
-            remote_cli(transport,'verify',request['password'])
-            write_json(STATE/'source-activated.json',{'state':'activation_started',**binding})
-            remote_cli(transport,'activate',request['password'],'--confirm-cutover --confirm-protocol-tests')
-            confirm_network(request,latch_token)
+            remote_cli(transport,'verify',request['password'],context=context)
+            guard.check()
+            try:guard.renew()
+            except Exception as error:raise events.MigrationError('MIG_NETWORK_GUARD') from error
+            status('activating','Активируем проверенный финальный снимок на новом VPS.',request,stage='activating')
+            write_json(STATE/'source-activated.json',{'state':'activation_started',**saved,'guard':latch_token})
+            try:remote_cli(transport,'activate',request['password'],'--confirm-cutover --confirm-protocol-tests',context=context)
+            except Exception:
+                # A lost SSH reply does not prove that activation failed.
+                pass
+            guard.check();guard.stop();guard=None
+            status('acknowledging','Проверяем подтверждение активации и новое SSH-соединение.',request,stage='acknowledging')
+            acknowledge_activation(request,saved,retry=True)
             latch_token=None
-            write_json(STATE/'source-activated.json',binding)
-            finish_session()
-            status('activated','Новый VPS активирован. Переключите DNS вручную и проверьте подключения. Автоматический обратный перенос после активации запрещён.',request)
+        elif request['action']=='reconcile':
+            if not (STATE/'source-fenced.json').exists() or not (STATE/'source-activated.json').exists():raise events.MigrationError('MIG_STATE')
+            status('reconciling','Проверяем результат активации без повторного запуска служб.',request,stage='reconciling')
+            acknowledge_activation(request,saved,retry=True)
         else:
             if (STATE/'source-activated.json').exists():raise RuntimeError('После активации требуется согласование данных')
-            remote_cli(transport,'rollback',request['password'])
+            status('cancelling','Отменяем подготовку и проверяем исходное состояние нового VPS.',request,stage='cancelling')
+            if saved.get('session_id'):
+                remote_cli(transport,'cancel-target',request['password'],context=receipt_context(saved,final=False))
+            else:remote_cli(transport,'rollback',request['password'])
             if (STATE/'source-fenced.json').exists():
                 path=ROOT/'backend/.env';runtime.write(path,runtime.staging_env(path.read_bytes(),False),0o640)
                 runtime.command('/usr/bin/python3',str(ROOT/'scripts/install-privilege-separation.py'),'--configure-only')
@@ -420,6 +559,7 @@ def run(request):
             finish_session()
             status('cancelled','Целевой сервер возвращён в изолированное исходное состояние; исходные службы возобновлены. Проверьте DNS и подключения.',request)
     finally:
+        if guard is not None:guard.stop()
         if remote_dir and re.fullmatch('/root/mdnext-transfer-[A-Za-z0-9]+',remote_dir):
             cleanup_transfer(request, transport, remote_dir, target_id)
         transport.close();sock.close()
@@ -429,18 +569,17 @@ if __name__=='__main__':
     request_path=Path(sys.argv[1])
     if request_path.parent!=STATE or not re.fullmatch(r'request-[0-9a-f]{32}\.json',request_path.name):raise SystemExit(1)
     request=json.loads(request_path.read_text());request_path.unlink()
+    request.setdefault('operation_id',uuid.uuid4().hex)
     try:
         import fcntl
         with (STATE.parent/'maintenance.lock').open('w') as lock:
             fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-            run(request)
+            try:run(request)
+            except Exception:
+                # Keep the maintenance lock until fencing recovery is complete.
+                try:keep_source_fenced()
+                except Exception:pass
+                raise
     except Exception as error:
-        if (STATE/'source-fenced.json').exists() and not (STATE/'source-activated.json').exists():
-            try:
-                runtime=load_runtime();path=ROOT/'backend/.env'
-                runtime.write(path,runtime.staging_env(path.read_bytes(),True),0o640)
-                runtime.command('/usr/bin/python3',str(ROOT/'scripts/install-privilege-separation.py'),'--configure-only')
-                runtime.command('systemctl','start','md-next-backend')
-            except Exception:pass
         fail(error,request)
         raise SystemExit(1)

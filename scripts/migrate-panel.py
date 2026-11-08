@@ -289,6 +289,126 @@ with sqlite3.connect(sys.argv[1]) as db:
     if result.returncode:raise events.MigrationError('MIG_SCHEMA')
 
 
+def migration_context(context):
+    sizes = {'session': 32, 'installation': 64, 'commit': 40, 'machine': 32}
+    if not isinstance(context, dict) or any(not isinstance(context.get(k), str) or
+            not re.fullmatch('[0-9a-f]{'+str(size)+'}', context[k]) for k, size in sizes.items()):
+        raise events.MigrationError('MIG_TARGET_BINDING')
+    result = {k: context[k] for k in sizes}
+    if 'snapshot' in context:
+        if not isinstance(context['snapshot'], str) or not re.fullmatch('[0-9a-f]{64}', context['snapshot']):
+            raise events.MigrationError('MIG_TARGET_BINDING')
+        result['snapshot'] = context['snapshot']
+    if 'guard' in context:
+        if not isinstance(context['guard'],str) or not re.fullmatch('[0-9a-f]{32}',context['guard']):
+            raise events.MigrationError('MIG_TARGET_BINDING')
+        result['guard']=context['guard']
+    if result['commit'] != (ROOT/'DEPLOYED_COMMIT').read_text().strip() or result['machine'] != (FILESYSTEM/'etc/machine-id').read_text().strip():
+        raise events.MigrationError('MIG_TARGET_BINDING')
+    return result
+
+
+def session_state(context):
+    context = migration_context(context)
+    saved = json.loads((STATE/'target-session.json').read_text())
+    if any(saved.get(key) != context[key] for key in ('session', 'installation', 'commit', 'machine')):
+        raise events.MigrationError('MIG_TARGET_BINDING')
+    return context, saved
+
+
+def empty_owned_target(context):
+    # Missing backup alone never proves that cancellation is safe.
+    marker = json.loads((STATE/'prepare.json').read_text())
+    if marker.get('phase') != 'installed' or marker.get('source') != context['installation'] or marker.get('commit') != context['commit']:
+        raise events.MigrationError('MIG_TARGET_BINDING')
+    spec = importlib.util.spec_from_file_location('migration_target', Path(__file__).with_name('migration-target.py'))
+    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    module.ROOT, module.STATE = ROOT, STATE
+    module.check_empty_staging()
+
+
+def prepare_session(context):
+    context = migration_context(context)
+    empty_owned_target(context)
+    path = STATE/'target-session.json'
+    if path.exists():
+        previous = json.loads(path.read_text())
+        replace_empty=previous.get('phase')=='prepared' and previous.get('installation')==context['installation'] and previous.get('machine')==context['machine']
+        if previous.get('phase') != 'cancelled' and not replace_empty and any(previous.get(key) != value for key, value in context.items()):
+            raise events.MigrationError('MIG_TARGET_BINDING')
+    write(path, json.dumps({**context, 'phase': 'prepared'}).encode())
+
+
+def cancel_target(context, password):
+    context, saved = session_state(context)
+    if (STATE/'activated').exists() or (STATE/'activation-receipt.json').exists():
+        raise events.MigrationError('MIG_ACTIVATION_PENDING')
+    release_session_guard(context)
+    baseline = STATE/'before-restore.mdmove'
+    started=any((STATE/name).exists() for name in ('restored.json','importing.json'))
+    if saved.get('phase') in {'prepared','cancelled'} and not started:
+        empty_owned_target(context)
+    elif baseline.exists():
+        restore(baseline.read_bytes(), password, rollback=True)
+    else:raise events.MigrationError('MIG_RESTORE')
+    write(STATE/'target-session.json', json.dumps({**context, 'phase': 'cancelled'}).encode())
+
+
+def activation_context(context):
+    context, saved = session_state(context)
+    manifest = json.loads((STATE/'restored.json').read_text())
+    if saved.get('phase') != 'restored' or not manifest.get('frozen') or not context.get('snapshot') or manifest.get('snapshot') != context['snapshot'] or manifest.get('installation') != context['installation']:
+        raise events.MigrationError('MIG_TARGET_BINDING')
+    return context
+
+
+def activation_result(context):
+    # Only read state/readiness. Never replay activation here.
+    context = activation_context(context)
+    try:receipt = json.loads((STATE/'activation-receipt.json').read_text())
+    except FileNotFoundError:return {**context,'phase':'pending'}
+    except (ValueError,TypeError) as error:raise events.MigrationError('MIG_TARGET_BINDING') from error
+    if not isinstance(receipt,dict):raise events.MigrationError('MIG_TARGET_BINDING')
+    if any(receipt.get(key) != value for key, value in context.items()):
+        raise events.MigrationError('MIG_TARGET_BINDING')
+    complete = receipt.get('phase') == 'completed' and not (STATE/'importing.json').exists()
+    complete = complete and (STATE/'activated').read_text() == 'Activated; rollback requires manual database reconciliation.\n'
+    complete = complete and 'MDNEXT_MIGRATION_STAGING=1' not in (ROOT/'backend/.env').read_text().splitlines()
+    if complete:
+        complete = all(command('systemctl', 'is-active', '--quiet', unit, check=False).returncode == 0
+                       for unit in ('nginx', 'xray', 'md-next-backend'))
+    return {**context, 'phase': 'completed' if complete else 'pending'}
+
+
+def network_guard_module():
+    spec=importlib.util.spec_from_file_location('activation_latch',Path(__file__).with_name('network-latch.py'))
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    module.STATE=STATE.parent/'network-latch'
+    return module
+
+
+def release_session_guard(context):
+    active=STATE.parent/'network-latch/active'
+    if not active.exists():return
+    try:
+        token=active.read_text()
+        if not re.fullmatch('[0-9a-f]{32}',token):raise ValueError()
+        module=network_guard_module();path=module.folder(token)
+        if module.lease(path).get('session')!=context['session']:raise ValueError()
+        command('/usr/bin/python3',str(path/'restore.py'),'rollback',token)
+        if (path/'status').read_text()!='restored':raise ValueError()
+    except Exception as error:raise events.MigrationError('MIG_NETWORK_GUARD') from error
+
+
+def check_activation_guard(context):
+    if not context or not context.get('guard'):raise events.MigrationError('MIG_NETWORK_GUARD')
+    module=network_guard_module()
+    try:
+        path=module.folder(context['guard'])
+        if (path/'status').read_text()!='armed' or not module.live(path) or module.lease(path).get('session')!=context['session']:raise ValueError()
+    except Exception as error:raise events.MigrationError('MIG_NETWORK_GUARD') from error
+
+
 def restore(blob, password, *, rollback=False, target_address=None):
     spec = importlib.util.spec_from_file_location("migration_postflight", Path(__file__).with_name("migration-postflight.py"))
     postflight = importlib.util.module_from_spec(spec); spec.loader.exec_module(postflight)
@@ -297,6 +417,11 @@ def restore(blob, password, *, rollback=False, target_address=None):
     try:manifest, database, files = bundle.decode_bundle(blob, password)
     except ValueError as error:raise events.MigrationError('MIG_BUNDLE') from error
     portable=manifest.get('restore_mode')=='clean-install' and not rollback
+    target_session=None
+    if not rollback and (STATE/'target-session.json').exists():
+        target_session=json.loads((STATE/'target-session.json').read_text())
+        if target_session.get('installation')!=manifest.get('installation') or target_session.get('phase') not in {'prepared','restoring','restored'}:
+            raise events.MigrationError('MIG_TARGET_BINDING')
     try:
         certificate_links = postflight.certbot_link_plan(files)
         certificate_executables = postflight.certbot_executable_plan(files, manifest)
@@ -363,6 +488,8 @@ def restore(blob, password, *, rollback=False, target_address=None):
     if component_files and not (STATE/'adguard-owned').exists():
         if any((FILESYSTEM/name).exists() or (FILESYSTEM/name).is_symlink() for name in component_files):
             raise events.MigrationError('MIG_TARGET_OCCUPIED')
+    if target_session:
+        write(STATE/'target-session.json',json.dumps({**target_session,'phase':'restoring'}).encode())
     try:
         (STATE/'verified.json').unlink(missing_ok=True)
         timer_state=STATE/'certbot-timer.json'
@@ -420,7 +547,8 @@ def restore(blob, password, *, rollback=False, target_address=None):
             except Exception as error:raise events.MigrationError('MIG_ADGUARD') from error
         validate_components()
         if not rollback:
-            write(STATE/'restored.json',json.dumps({**manifest,'imported_files':sorted(set(files)|component_files)}).encode())
+            write(STATE/'restored.json',json.dumps({**manifest,'snapshot':hashlib.sha256(blob).hexdigest(),'imported_files':sorted(set(files)|component_files)}).encode())
+            if target_session:write(STATE/'target-session.json',json.dumps({**target_session,'phase':'restored'}).encode())
         else:
             (STATE/'adguard-owned').unlink(missing_ok=True)
             (STATE/'restored.json').unlink(missing_ok=True)
@@ -444,7 +572,7 @@ def restore(blob, password, *, rollback=False, target_address=None):
 
 def main():
     parser=argparse.ArgumentParser(description='Переезд MD-Next; DNS переключается вручную')
-    parser.add_argument('action',choices=['export','inspect','restore','verify','activate','rollback','resume-source','api-export'])
+    parser.add_argument('action',choices=['export','inspect','restore','verify','activate','rollback','resume-source','api-export','prepare-session','cancel-target','activation-status'])
     parser.add_argument('--file',type=Path)
     parser.add_argument('--target-address',help='IP целевого VPS для DNS подписок')
     parser.add_argument('--freeze',action='store_true')
@@ -457,7 +585,15 @@ def main():
     with (STATE/'lock').open('w') as lock, (STATE.parent/'maintenance.lock').open('w') as maintenance:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         fcntl.flock(maintenance,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        payload=json.loads(sys.stdin.read()) if args.password_stdin or args.action=='api-export' else {}
+        context=payload.get('context')
+        if args.action in {'prepare-session','cancel-target','activation-status'}:
+            if args.action=='prepare-session':prepare_session(context)
+            elif args.action=='cancel-target':cancel_target(context,payload['password'])
+            else:print(json.dumps(activation_result(context)))
+            return
         if args.action=='verify':
+            if context is not None:activation_context(context)
             if (STATE/'importing.json').exists():raise events.MigrationError('MIG_RESTORE')
             if not (STATE/'restored.json').is_file():raise RuntimeError('Сначала восстановите комплект')
             if 'MDNEXT_MIGRATION_STAGING=1' not in (ROOT/'backend/.env').read_text().splitlines():raise RuntimeError('Проверка разрешена только в изолированном режиме')
@@ -525,6 +661,8 @@ asyncio.run(main())
             write(STATE/'verified.json',json.dumps({'at':time.time(),'database':database_digest(),'configuration':configuration_digest()}).encode())
             print('Проверены применение VPN и HTTPS панели. До активации проверьте каждый протокол с внешнего устройства, направив его на новый IP.');return
         if args.action=='activate':
+            if (STATE/'activated').exists():raise events.MigrationError('MIG_ACTIVATION_PENDING')
+            context=activation_context(context) if (STATE/'target-session.json').exists() else None
             if (STATE/'importing.json').exists():raise events.MigrationError('MIG_RESTORE')
             if not args.confirm_cutover or not (STATE/'restored.json').is_file():
                 raise RuntimeError('Сначала восстановите комплект и подтвердите финальное переключение')
@@ -541,12 +679,17 @@ asyncio.run(main())
                     raise events.MigrationError('MIG_FAIL2BAN', exit_code=result.returncode)
             if manifest.get('components',{}).get('adguard'):
                 command('systemctl','enable','md-next-adguard')
+            if context:
+                check_activation_guard(context)
+                write(STATE/'activation-receipt.json',json.dumps({**context,'phase':'activating'}).encode())
             write(STATE/'activated',b'Activation started; automatic rollback forbidden.\n')
             path=ROOT/'backend/.env';write(path,staging_env(path.read_bytes(),False),0o640)
             command('/usr/bin/python3',str(ROOT/'scripts/install-privilege-separation.py'))
             start_services()
             command('systemctl','enable','--now','certbot.timer')
+            if context:check_activation_guard(context)
             write(STATE/'activated',b'Activated; rollback requires manual database reconciliation.\n')
+            if context:write(STATE/'activation-receipt.json',json.dumps({**context,'phase':'completed','at':time.time()}).encode())
             print('Службы активированы. Проверьте профили из внешней сети и переключите DNS вручную.');return
         if args.action=='resume-source':
             if not args.confirm_cutover or not (STATE/'source-fenced.json').exists() or (STATE/'source-activated.json').exists():
@@ -556,7 +699,7 @@ asyncio.run(main())
             start_services()
             (STATE/'source-fenced.json').unlink()
             print('Исходные службы запущены. Проверьте их состояние.');return
-        password=json.loads(sys.stdin.read())['password'] if args.action=='api-export' or args.password_stdin else getpass.getpass('Пароль комплекта: ')
+        password=payload['password'] if args.action=='api-export' or args.password_stdin else getpass.getpass('Пароль комплекта: ')
         bundle=library()
         if args.action in ('export','api-export'):
             active=[]
