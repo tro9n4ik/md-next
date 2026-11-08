@@ -185,6 +185,8 @@ def test_incomplete_receipt_never_becomes_success(prepared):
     runtime,_,_,_=prepared;context=completed_receipt(prepared)
     (runtime.STATE/'activation-receipt.json').write_text(json.dumps({**context,'phase':'activating'}))
     assert runtime.activation_result(context)['phase']=='pending'
+    (runtime.STATE/'activation-receipt.json').unlink()
+    assert runtime.activation_result(context)['phase']=='pending'
 
 
 @pytest.mark.parametrize('action',['activate','verify'])

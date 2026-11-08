@@ -364,7 +364,10 @@ def activation_context(context):
 def activation_result(context):
     # Only read state/readiness. Never replay activation here.
     context = activation_context(context)
-    receipt = json.loads((STATE/'activation-receipt.json').read_text())
+    try:receipt = json.loads((STATE/'activation-receipt.json').read_text())
+    except FileNotFoundError:return {**context,'phase':'pending'}
+    except (ValueError,TypeError) as error:raise events.MigrationError('MIG_TARGET_BINDING') from error
+    if not isinstance(receipt,dict):raise events.MigrationError('MIG_TARGET_BINDING')
     if any(receipt.get(key) != value for key, value in context.items()):
         raise events.MigrationError('MIG_TARGET_BINDING')
     complete = receipt.get('phase') == 'completed' and not (STATE/'importing.json').exists()
