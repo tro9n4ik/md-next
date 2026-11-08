@@ -286,6 +286,19 @@ def finish_session():
     session.finish(STATE,write_json)
 
 
+def keep_source_fenced():
+    # A failed cancel may have started only part of the old runtime.
+    if not (STATE/'source-fenced.json').exists() or (STATE/'source-activated.json').exists():return
+    runtime=load_runtime()
+    for service in runtime.SERVICES:
+        try:runtime.command('systemctl','stop',service,check=False)
+        except Exception:pass
+    path=ROOT/'backend/.env'
+    runtime.write(path,runtime.staging_env(path.read_bytes(),True),0o640)
+    runtime.command('/usr/bin/python3',str(ROOT/'scripts/install-privilege-separation.py'),'--configure-only')
+    runtime.command('systemctl','start','md-next-backend')
+
+
 def receipt_context(saved,*,final=True):
     names={'session':'session_id','installation':'installation','commit':'target_commit',
            'machine':'target_machine'}
@@ -555,18 +568,17 @@ if __name__=='__main__':
     request_path=Path(sys.argv[1])
     if request_path.parent!=STATE or not re.fullmatch(r'request-[0-9a-f]{32}\.json',request_path.name):raise SystemExit(1)
     request=json.loads(request_path.read_text());request_path.unlink()
+    request.setdefault('operation_id',uuid.uuid4().hex)
     try:
         import fcntl
         with (STATE.parent/'maintenance.lock').open('w') as lock:
             fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-            run(request)
+            try:run(request)
+            except Exception:
+                # Keep the maintenance lock until fencing recovery is complete.
+                try:keep_source_fenced()
+                except Exception:pass
+                raise
     except Exception as error:
-        if (STATE/'source-fenced.json').exists() and not (STATE/'source-activated.json').exists():
-            try:
-                runtime=load_runtime();path=ROOT/'backend/.env'
-                runtime.write(path,runtime.staging_env(path.read_bytes(),True),0o640)
-                runtime.command('/usr/bin/python3',str(ROOT/'scripts/install-privilege-separation.py'),'--configure-only')
-                runtime.command('systemctl','start','md-next-backend')
-            except Exception:pass
         fail(error,request)
         raise SystemExit(1)

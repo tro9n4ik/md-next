@@ -303,3 +303,22 @@ def test_guard_renews_only_after_fresh_pinned_connection_and_identity(monkeypatc
     assert not any(' renew ' in c for c in calls)
     guard.error=TimeoutError('synthetic')
     with pytest.raises(RuntimeError):guard.check()
+
+
+def test_failed_cancellation_fences_partially_started_source(tmp_path):
+    worker=load_script('migration-ssh.py');worker.STATE=tmp_path/'state';worker.STATE.mkdir()
+    worker.ROOT=tmp_path/'panel';env=worker.ROOT/'backend/.env';env.parent.mkdir(parents=True);env.write_bytes(b'JWT_SECRET_KEY=synthetic\n')
+    (worker.STATE/'source-fenced.json').write_text('{}')
+    calls=[]
+    def command(*args,**kwargs):
+        calls.append(args)
+        if args==('systemctl','stop','md-next-awg'):raise TimeoutError('synthetic stop timeout')
+    worker.load_runtime=lambda:SimpleNamespace(SERVICES=('md-next-awg','xray','md-next-backend'),command=command,
+        staging_env=lambda content,enabled:content+b'MDNEXT_MIGRATION_STAGING=1\n',write=lambda path,blob,mode:path.write_bytes(blob))
+    worker.keep_source_fenced()
+    assert calls[:3]==[('systemctl','stop',service) for service in ('md-next-awg','xray','md-next-backend')]
+    assert calls[-1]==('systemctl','start','md-next-backend')
+    assert b'MDNEXT_MIGRATION_STAGING=1' in env.read_bytes()
+    calls.clear();(worker.STATE/'source-activated.json').write_text('{}')
+    worker.keep_source_fenced()
+    assert not calls,'Never touch the source after activation started'
