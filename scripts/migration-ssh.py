@@ -211,13 +211,14 @@ def cleanup_transfer(request, transport, directory, target_id):
         print('Не удалось удалить временный каталог переноса на целевом VPS.', file=sys.stderr)
 
 
-def arm_network(transport, sftp, directory):
+def arm_network(transport, sftp, directory,session=None):
     sftp.put(str(LIB / "controller-probe.py"), directory + "/controller-probe.py")
     sftp.chmod(directory + "/controller-probe.py",0o600)
     target = directory + "/network-latch.py"
     sftp.put(str(LIB / "network-latch.py"), target)
     sftp.chmod(target, 0o600)
-    result = json.loads(execute(transport, "/usr/bin/python3 " + shlex.quote(target) + " arm"))
+    if session is not None and not re.fullmatch('[0-9a-f]{32}',session):raise events.MigrationError('MIG_TARGET_BINDING')
+    result = json.loads(execute(transport, "/usr/bin/python3 " + shlex.quote(target) + " arm" + (' --session '+session if session else '')))
     token = result.get("token", "")
     if not re.fullmatch("[a-f0-9]{32}", token):
         raise RuntimeError("Не удалось включить страховку сети")
@@ -494,7 +495,7 @@ def run(request):
                 remote_dir=execute(transport,'umask 077; mktemp -d /root/mdnext-transfer-XXXXXXXX').strip()
                 if not re.fullmatch('/root/mdnext-transfer-[A-Za-z0-9]+',remote_dir):raise RuntimeError('Invalid remote directory')
             with tempfile.TemporaryDirectory(prefix='mdnext-transfer-',dir=STATE) as folder:
-                latch_token=arm_network(transport,sftp,remote_dir)
+                latch_token=arm_network(transport,sftp,remote_dir,session=saved['session_id'])
                 guard=NetworkGuard(request,latch_token,target_id);guard.start()
                 bundle=Path(folder)/'transfer.mdmove';runtime.write(bundle,blob)
                 # Keep the final encrypted snapshot for disaster recovery.
@@ -518,7 +519,7 @@ def run(request):
             context=receipt_context(saved)
             remote_dir=execute(transport,'umask 077; mktemp -d /root/mdnext-transfer-XXXXXXXX').strip()
             if not re.fullmatch('/root/mdnext-transfer-[A-Za-z0-9]+',remote_dir):raise RuntimeError('Invalid remote directory')
-            latch_token=arm_network(transport,sftp,remote_dir)
+            latch_token=arm_network(transport,sftp,remote_dir,session=saved['session_id'])
             guard=NetworkGuard(request,latch_token,target_id);guard.start()
             context={**context,'guard':latch_token}
             status('verifying','Повторно проверяем финальный снимок и готовность нового VPS.',request,stage='verifying')

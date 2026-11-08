@@ -116,7 +116,8 @@ def compat_snapshots(path):
             write(path / ('compat-' + family + '.rules'), '\n'.join(snapshots))
 
 
-def arm():
+def arm(session=None):
+    if session is not None and not re.fullmatch('[0-9a-f]{32}',session):raise ValueError('Неверная сессия страховки')
     if (STATE / "active").exists():
         raise RuntimeError("Предыдущая страховка ещё действует")
     token = secrets.token_hex(16)
@@ -134,7 +135,7 @@ def arm():
         # Таймер использует собственную копию и переживает обрыв SSH.
         write(path / "restore.py", Path(__file__).read_text())
         now = time.monotonic()
-        write(path / 'lease.json', json.dumps({'boot': boot_id(), 'deadline': now + LEASE_SECONDS,
+        write(path / 'lease.json', json.dumps({'boot': boot_id(), 'session':session,'deadline': now + LEASE_SECONDS,
                                               'hard_deadline': now + MAX_SECONDS}))
         write(path / "status", "armed")
         write(STATE / "active", token)
@@ -196,6 +197,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=("arm", "confirm", "rollback", "renew", "tick", "status"))
     parser.add_argument("token", nargs="?")
+    parser.add_argument('--session')
     args = parser.parse_args()
     if os.geteuid() != 0:
         raise RuntimeError("Требуется root")
@@ -205,7 +207,7 @@ def main():
     with (STATE / "lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         if args.action == "arm":
-            print(json.dumps({"token": arm()}))
+            print(json.dumps({"token": arm(args.session)}))
         elif args.action == "rollback":
             rollback(args.token)
         elif args.action == 'renew':
@@ -218,7 +220,7 @@ def main():
                               'live': live(path) if (path / 'lease.json').exists() else False}))
         else:
             confirm(args.token)
-    if args.action == "confirm" or args.action == "tick" and (folder(args.token) / "status").read_text() == "restored":
+    if args.action == "confirm" or args.action in {"tick","rollback"} and (folder(args.token) / "status").read_text() == "restored":
         # Остановку службы выполняем после снятия lock.
         run("systemctl", "stop", unit(args.token) + ".timer")
         # После снятия transient-таймера systemd может уже выгрузить ещё не

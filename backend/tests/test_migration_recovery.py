@@ -124,6 +124,25 @@ def test_early_cancel_rejects_foreign_session_or_live_target(prepared):
     assert not calls
 
 
+@pytest.mark.parametrize('owned',[True,False])
+def test_cancellation_releases_only_its_own_network_guard(prepared,owned):
+    runtime,_,calls,context=prepared
+    state=runtime.STATE.parent/'network-latch';path=state/('f'*32);path.mkdir(parents=True)
+    (state/'active').write_text('f'*32);(path/'status').write_text('armed')
+    runtime.network_guard_module=lambda:SimpleNamespace(folder=lambda token:path,
+        lease=lambda folder:{'session':context['session'] if owned else 'e'*32})
+    def command(*args,**kwargs):
+        calls.append(args);(path/'status').write_text('restored');(state/'active').unlink()
+    runtime.command=command
+    if owned:
+        runtime.cancel_target(context,PASSWORD)
+        assert calls==[('/usr/bin/python3',str(path/'restore.py'),'rollback','f'*32)]
+        assert not (state/'active').exists()
+    else:
+        with pytest.raises(RuntimeError):runtime.cancel_target(context,PASSWORD)
+        assert not calls and (state/'active').exists()
+
+
 def test_cancel_after_restore_uses_original_backup(source_tree,prepared):
     from app.services import migration_bundle as bundle
     runtime,_,_,context=prepared

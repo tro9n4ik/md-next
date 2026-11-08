@@ -343,6 +343,7 @@ def cancel_target(context, password):
     context, saved = session_state(context)
     if (STATE/'activated').exists() or (STATE/'activation-receipt.json').exists():
         raise events.MigrationError('MIG_ACTIVATION_PENDING')
+    release_session_guard(context)
     baseline = STATE/'before-restore.mdmove'
     started=any((STATE/name).exists() for name in ('restored.json','importing.json'))
     if saved.get('phase') in {'prepared','cancelled'} and not started:
@@ -379,14 +380,32 @@ def activation_result(context):
     return {**context, 'phase': 'completed' if complete else 'pending'}
 
 
-def check_activation_guard(context):
-    if not context or not context.get('guard'):raise events.MigrationError('MIG_NETWORK_GUARD')
+def network_guard_module():
     spec=importlib.util.spec_from_file_location('activation_latch',Path(__file__).with_name('network-latch.py'))
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
     module.STATE=STATE.parent/'network-latch'
+    return module
+
+
+def release_session_guard(context):
+    active=STATE.parent/'network-latch/active'
+    if not active.exists():return
+    try:
+        token=active.read_text()
+        if not re.fullmatch('[0-9a-f]{32}',token):raise ValueError()
+        module=network_guard_module();path=module.folder(token)
+        if module.lease(path).get('session')!=context['session']:raise ValueError()
+        command('/usr/bin/python3',str(path/'restore.py'),'rollback',token)
+        if (path/'status').read_text()!='restored':raise ValueError()
+    except Exception as error:raise events.MigrationError('MIG_NETWORK_GUARD') from error
+
+
+def check_activation_guard(context):
+    if not context or not context.get('guard'):raise events.MigrationError('MIG_NETWORK_GUARD')
+    module=network_guard_module()
     try:
         path=module.folder(context['guard'])
-        if (path/'status').read_text()!='armed' or not module.live(path):raise ValueError()
+        if (path/'status').read_text()!='armed' or not module.live(path) or module.lease(path).get('session')!=context['session']:raise ValueError()
     except Exception as error:raise events.MigrationError('MIG_NETWORK_GUARD') from error
 
 

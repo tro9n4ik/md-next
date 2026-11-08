@@ -65,8 +65,12 @@ def main():
             assert (state/second/'status').read_text()=='confirmed'
             assert not (state/'active').exists()
             assert not (state/second/'nft.rules').exists()
+            third=latch.arm(session='a'*32);units.append(latch.unit(third))
+            assert latch.lease(state/third)['session']=='a'*32
+            command('/usr/bin/python3',str(source),'rollback',third)
+            assert (state/third/'status').read_text()=='restored' and not (state/'active').exists()
             print(json.dumps({'renewal_beyond_initial_lease':'ok','independent_expiry':'ok',
-                              'xt_reject_roundtrip':'ok','foreign_rules_preserved':True,'confirmed_receipt':'ok'}))
+                              'xt_reject_roundtrip':'ok','foreign_rules_preserved':True,'confirmed_receipt':'ok','session_cancel_cleanup':'ok'}))
     finally:
         for unit in units:
             subprocess.run(['systemctl','stop',unit+'.timer',unit+'.service'],capture_output=True,timeout=25)
