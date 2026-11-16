@@ -26,6 +26,35 @@ def test_foreign_nft_table_is_rejected(monkeypatch):
         mtu.owned_table()
 
 
+def test_legacy_nft_table_comment_is_read_from_table_header(monkeypatch):
+    def command(*args, **kwargs):
+        if "-j" in args:
+            return SimpleNamespace(returncode=0, stdout='{"nftables":[{"table":{"name":"mdnext_mss"}}]}')
+        return SimpleNamespace(returncode=0, stdout='table inet mdnext_mss {\n\tcomment "MD-Next managed MSS"\n\tchain forward {\n}\n}')
+    monkeypatch.setattr(mtu, "command", command)
+    assert mtu.owned_table() is True
+
+
+def test_legacy_nft_rule_comment_does_not_prove_table_ownership(monkeypatch):
+    def command(*args, **kwargs):
+        if "-j" in args:
+            return SimpleNamespace(returncode=0, stdout='{"nftables":[{"table":{"name":"mdnext_mss"}}]}')
+        return SimpleNamespace(returncode=0, stdout='table inet mdnext_mss {\n\tchain forward {\n\t\tcomment "MD-Next managed MSS"\n}\n}')
+    monkeypatch.setattr(mtu, "command", command)
+    with pytest.raises(RuntimeError):
+        mtu.owned_table()
+
+
+def test_legacy_nft_failed_text_read_is_rejected(monkeypatch):
+    def command(*args, **kwargs):
+        if "-j" in args:
+            return SimpleNamespace(returncode=0, stdout='{"nftables":[{"table":{"name":"mdnext_mss"}}]}')
+        return SimpleNamespace(returncode=1, stdout='')
+    monkeypatch.setattr(mtu, "command", command)
+    with pytest.raises(RuntimeError):
+        mtu.owned_table()
+
+
 def test_foreign_table_blocks_apply_before_interface_changes(monkeypatch):
     calls = []
     monkeypatch.setattr(mtu.shutil, "which", lambda name: name)
