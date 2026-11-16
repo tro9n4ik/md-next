@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
-import { Plus, Search, Trash2, Pause, Play, KeyRound, Users, Folder, FolderPlus, SlidersHorizontal, ArrowRight, RefreshCw, Network } from 'lucide-react';
+import { Plus, Search, Trash2, Pause, Play, KeyRound, Users, Folder, FolderPlus, SlidersHorizontal, ArrowRight, RefreshCw, Network, ArrowDownWideNarrow } from 'lucide-react';
 import { useCurrentUser } from '../contexts/AuthContext';
 import { apiFetch } from '../utils/api';
 import { formatBytes, translateProfile } from '../utils/ru';
@@ -28,7 +28,7 @@ type Client = ClientLimits & {
   group_id: number | null; group: ClientGroup | null; last_seen_at: string | null;
   exit_route?: ExitRoute;
 };
-type SortField = 'status' | 'name' | 'traffic' | 'protocol' | 'created';
+type SortField = 'status' | 'name' | 'traffic' | 'protocol' | 'created' | 'online';
 
 async function responseError(response: Response, fallback: string) {
   const body = await response.json().catch(() => ({}));
@@ -203,6 +203,12 @@ const ClientsTable: React.FC<{ description?: string }> = ({ description = 'По�
           {([['all', 'Все'], ['active', 'Доступ разрешён'], ['disabled', 'Доступ закрыт']] as const).map(([value, label]) => <button key={value} aria-pressed={status === value} onClick={() => setFilter('status', value)} className={status === value ? 'selected' : ''}>{label}</button>)}
         </div>
         {isAdmin && exits.data && <label className="client-exit-filter"><Network size={15} /><select aria-label="Фильтр по выходу" value={exitFilter} onChange={event => setFilter('exit', event.target.value)}><option value="">Все выходы</option><option value="0">Общий маршрут</option>{exits.data.nodes.map(node => <option key={node.id} value={node.id}>{node.name} · закреплено: {node.assigned_clients ?? 0}</option>)}</select></label>}
+        <button type="button" className="ui-button ui-button-secondary" aria-pressed={sort === 'online'} onClick={() => {
+          const next = new URLSearchParams(params);
+          next.set('sort', sort === 'online' ? 'created' : 'online');
+          next.set('order', 'desc');
+          setParams(next);
+        }}><ArrowDownWideNarrow size={17} />Сначала онлайн</button>
         <label className="client-search"><Search size={17} /><input aria-label="Поиск клиентов" value={search} onChange={event => setSearch(event.target.value)} placeholder="Имя, телефон или почта" /></label>
       </div>
       {error && !createOpen && <div role="alert" className="client-form-error mx-5 my-3">{error}</div>}

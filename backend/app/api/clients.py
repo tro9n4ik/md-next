@@ -128,7 +128,7 @@ def _client_sort_key(client: Client, sort: str, profiles: list[ClientProfile]):
 @router.get("")
 async def get_clients(
     q: str = "", status_filter: Literal["all", "active", "disabled"] | None = None,
-    sort: Literal["name", "status", "traffic", "protocol", "created"] = "created",
+    sort: Literal["name", "status", "traffic", "protocol", "created", "online"] = "created",
     order: Literal["asc", "desc"] = "desc", status: Literal["all", "active", "disabled"] | None = None,
     group_id: int | None = None,
     exit_node_id: int | None = Query(default=None, ge=0),
@@ -168,7 +168,7 @@ async def get_clients(
         nodes = {node.id: node for node in (await db.execute(select(Node))).scalars()}
         common = await common_exit(db, nodes)
         routes = {client.id: {"exit_route": client_exit_summary(client, nodes, common)} for client in clients}
-    return [
+    result = [
         {
             "id": c.id, "name": c.name, "phone": c.phone, "email": c.email,
             "group_id": c.group_id,
@@ -189,6 +189,11 @@ async def get_clients(
         }
         for c in clients
     ]
+    if sort == "online":
+        activity_order = {"online": 0 if order == "desc" else 1,
+                          "offline": 1 if order == "desc" else 0, "unknown": 2}
+        result.sort(key=lambda row: (activity_order[row["connection_status"]], row["name"].casefold(), row["id"]))
+    return result
 
 
 @router.get("/exit-options", dependencies=[Depends(require_admin)])
