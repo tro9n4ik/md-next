@@ -46,6 +46,47 @@ async def test_missing_does_not_execute(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_certbot_version_falls_back_to_system_metadata(monkeypatch):
+    calls = []
+    monkeypatch.setattr(inventory, "find_command", lambda _: "/usr/bin/certbot")
+    async def run(*args, **kwargs):
+        calls.append(args)
+        if args[0] == "certbot":
+            return 1, "", "PermissionError: /etc/letsencrypt/cli.ini"
+        assert args == ("/usr/bin/python3", "-I", "-c", "from importlib.metadata import version; print(version('certbot'))")
+        return 0, "4.0.0\n", ""
+    monkeypatch.setattr(inventory, "run_cmd", run)
+    row = await inventory._probe(next(spec for spec in inventory.COMPONENTS if spec[0] == "certbot"))
+    assert row["version"] == "4.0.0"
+    assert row["status"] == "installed"
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_custom_certbot_does_not_use_unrelated_system_package(monkeypatch):
+    calls = []
+    monkeypatch.setattr(inventory, "find_command", lambda _: "/usr/local/bin/certbot")
+    async def run(*args, **kwargs):
+        calls.append(args)
+        return 1, "", "PermissionError"
+    monkeypatch.setattr(inventory, "run_cmd", run)
+    row = await inventory._probe(next(spec for spec in inventory.COMPONENTS if spec[0] == "certbot"))
+    assert row["version"] is None
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_certbot_metadata_failure_keeps_version_unknown(monkeypatch):
+    monkeypatch.setattr(inventory, "find_command", lambda _: "/usr/bin/certbot")
+    async def run(*args, **kwargs):
+        return 1, "", "PackageNotFoundError"
+    monkeypatch.setattr(inventory, "run_cmd", run)
+    row = await inventory._probe(next(spec for spec in inventory.COMPONENTS if spec[0] == "certbot"))
+    assert row["version"] is None
+    assert row["status"] == "installed"
+
+
+@pytest.mark.asyncio
 async def test_timeout_keeps_other_components(monkeypatch):
     monkeypatch.setattr(inventory, "find_command", lambda _: "/installed")
     async def run(*args, **kwargs):
