@@ -56,7 +56,16 @@ def owned_table():
     if result.returncode:
         return False
     tables = [row["table"] for row in json.loads(result.stdout)["nftables"] if "table" in row]
-    if len(tables) != 1 or tables[0].get("comment") != OWNER:
+    if len(tables) != 1:
+        raise RuntimeError("Имя nftables занято чужой таблицей")
+    owner = tables[0].get("comment")
+    if owner is None:
+        # nftables 1.0.6 пропускает комментарии таблиц в JSON. Проверяем только заголовок таблицы.
+        plain = command("nft", "list", "table", "inet", TABLE, check=False)
+        header = [line.strip() for line in plain.stdout.splitlines()[:2]]
+        if plain.returncode or header != [f"table inet {TABLE} {{", f'comment "{OWNER}"']:
+            raise RuntimeError("Имя nftables занято чужой таблицей")
+    elif owner != OWNER:
         raise RuntimeError("Имя nftables занято чужой таблицей")
     return True
 
