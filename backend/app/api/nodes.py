@@ -449,7 +449,13 @@ async def join_node_script(token: str, request: Request, db: AsyncSession = Depe
         with open(agent_path, "rb") as agent_source:
             content = content.replace("__KEDRLINK_SOURCE__", base64.b64encode(agent_source.read()).decode())
 
-    return PlainTextResponse(content, media_type="text/plain")
+    bootstrap_path = os.path.join(os.path.dirname(script_path), "node-install-bootstrap.sh")
+    with open(bootstrap_path, encoding="utf-8") as source:
+        bootstrap = source.read()
+    payload = content.encode("utf-8")
+    bootstrap = bootstrap.replace("__INSTALLER_BASE64__", base64.b64encode(payload).decode())
+    bootstrap = bootstrap.replace("__INSTALLER_SHA256__", hashlib.sha256(payload).hexdigest())
+    return PlainTextResponse(bootstrap, media_type="text/plain", headers={"Cache-Control": "no-store"})
 
 @router.post("/register", status_code=status.HTTP_201_CREATED, dependencies=[Depends(limit_node_registration)])
 async def register_node(node_data: NodeRegister, db: AsyncSession = Depends(get_db)):

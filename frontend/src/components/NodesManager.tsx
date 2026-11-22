@@ -424,7 +424,8 @@ const AdminNodesManager: React.FC = () => {
         {createInviteMutation.isError && <p role="alert" className="text-sm text-red-700">{createInviteMutation.error.message}</p>}
         <button className="ui-button ui-button-primary w-full" disabled={createInviteMutation.isPending}>{createInviteMutation.isPending ? 'Создаём…' : 'Сгенерировать одноразовую команду'}</button>
       </form> : <div className="space-y-4">
-        <p className="text-sm">Управляющий канал: <strong>{transportLabel(generatedInvite.transport)}</strong></p>
+          <p className="text-sm">Управляющий канал: <strong>{transportLabel(generatedInvite.transport)}</strong></p>
+          <div className="rounded-xl border border-neutral-200 p-4 text-sm text-neutral-600 space-y-2"><p>Выполните команду от root. Дождитесь сообщения «Установка запущена отдельной службой». После этого обрыв SSH не остановит установку. Перезагрузка сервера остановит задание.</p><p>Ход установки: <code>journalctl -u md-next-node-install -f</code></p><p>Результат после повторного входа: <code>systemctl status md-next-node-install --no-pager</code>. Успех — <code>active (exited)</code> и код <code>0/SUCCESS</code>; ошибка — <code>failed</code>. Появление ноды в панели до завершения задания ещё не подтверждает готовность.</p></div>
         <p className="flex gap-2 rounded-xl bg-amber-50 p-3 text-sm text-amber-800"><AlertTriangle size={20} className="shrink-0" />Сохраните команду сейчас: токен показывается только один раз.</p>
         <pre className="whitespace-pre-wrap break-all rounded-xl bg-neutral-950 p-4 font-mono text-xs text-emerald-400">{joinCommand}</pre>
         <button className="ui-button ui-button-secondary" onClick={handleCopyCommand}>{copied ? <Check size={16} /> : <Copy size={16} />}{copied ? 'Скопировано' : 'Скопировать'}</button>

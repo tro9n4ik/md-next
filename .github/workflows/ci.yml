@@ -17,7 +17,7 @@ jobs:
       - run: python -m pip install -r requirements-dev.txt
         working-directory: backend
       - name: Проверка установщика и настоящего systemd в одноразовой VM
-        run: sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT env "PATH=$PATH" MDNEXT_RUN_SYSTEMD_INSTALL_TEST=1 python -m pytest tests/test_kedrlink_installer.py -q --tb=short
+        run: sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT env "PATH=$PATH" MDNEXT_RUN_SYSTEMD_INSTALL_TEST=1 python -m pytest tests/test_kedrlink_installer.py tests/test_node_install_bootstrap.py -q --tb=short
         working-directory: backend
   node-transport:
     runs-on: ubuntu-latest
