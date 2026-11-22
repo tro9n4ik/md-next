@@ -91,8 +91,11 @@ async def test_actual_installer_and_systemd(auth_headers, tmp_path, monkeypatch)
             token = result.json()["token"]
             rendered = await request("GET","/api/v1/nodes/join",{},params={"token":token})
             assert rendered.status_code == 200
+            import base64
+            payload = rendered.text.split("<<'MDNEXT_PAYLOAD'\n", 1)[1].split("\nMDNEXT_PAYLOAD", 1)[0]
+            installer = base64.b64decode(payload).decode()
             # Execute the real agent functions, not Xray/WARP installation.
-            prefix, marker, _ = rendered.text.partition('run_step "Подготовка системных зависимостей"')
+            prefix, marker, _ = installer.partition('run_step "Подготовка системных зависимостей"')
             assert marker
             script = tmp_path/f"join-{transport}.sh"
             script.write_text(prefix+'''
