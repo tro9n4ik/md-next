@@ -55,6 +55,10 @@ nohup "$@" </dev/null >/dev/null 2>&1 &
         while not marker.exists() and time.monotonic() < deadline:
             time.sleep(.05)
         assert marker.read_text() == 'done'
+        deadline = time.monotonic() + 5
+        while list(runtime.glob('job.*/install.sh')) and time.monotonic() < deadline:
+            time.sleep(.05)
+        assert not list(runtime.glob('job.*/install.sh'))
 
 
 def test_real_systemd_survives_launcher_exit(tmp_path):

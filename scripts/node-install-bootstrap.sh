@@ -32,7 +32,7 @@ systemd-run --unit=md-next-node-install --description='Установка нод
     --property="ExecStopPost=/bin/rm -f $job/install.sh" \
     --setenv="MD_NEXT_NODE_LOG_FILE=$root/details.log" \
     --setenv="MD_NEXT_NODE_WARP=${MD_NEXT_NODE_WARP:-1}" \
-    /bin/bash "$job/install.sh" </dev/null
+    /bin/bash -c '/bin/bash "$1"; code=$?; /bin/rm -f -- "$1"; exit "$code"' md-next-node-install "$job/install.sh" </dev/null
 trap - EXIT
 echo 'Установка запущена отдельной службой. Можно закрыть SSH.'
 echo 'Ход установки: journalctl -u md-next-node-install -f'
