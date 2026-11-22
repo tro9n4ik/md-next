@@ -270,7 +270,9 @@ async def test_node_invites_and_register_flow(auth_headers):
         with mock.patch.dict("os.environ", {"PANEL_PUBLIC_URL": unsafe_url}):
             quoted_join = await ac.get(f"/api/v1/nodes/join?token={token}")
         assert quoted_join.status_code == 200
-        assignment = next(line for line in quoted_join.text.splitlines() if line.startswith("PANEL_URL_INJECTED="))
+        import base64
+        payload = quoted_join.text.split("<<'MDNEXT_PAYLOAD'\n", 1)[1].split("\nMDNEXT_PAYLOAD", 1)[0]
+        assignment = next(line for line in base64.b64decode(payload).decode().splitlines() if line.startswith("PANEL_URL_INJECTED="))
         assert shlex.split(assignment.split("=", 1)[1]) == [unsafe_url.rstrip("/")]
 
         # Успешная регистрация ноды возвращает secret

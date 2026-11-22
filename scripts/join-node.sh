@@ -4,7 +4,7 @@
 set -e
 
 export DEBIAN_FRONTEND=noninteractive
-LOG_FILE="/tmp/md-next-node-install.log"
+LOG_FILE="${MD_NEXT_NODE_LOG_FILE:-/tmp/md-next-node-install.log}"
 echo "=== MD-Next Node Install Log Started: $(date) ===" > "$LOG_FILE"
 
 # Цвета для вывода

@@ -1,11 +1,16 @@
 """Transport negotiation is pinned to the invitation, never client-controlled."""
 import pytest
+import base64
 from sqlalchemy import select
 
 from app.api.nodes import _hash_token
 from app.models.node_invite import NodeInvite
 from conftest import TestingSessionLocal
 from test_subadmins import request, account
+
+
+def installer(response):
+    return base64.b64decode(response.text.split("<<'MDNEXT_PAYLOAD'\n", 1)[1].split("\nMDNEXT_PAYLOAD", 1)[0]).decode()
 
 
 @pytest.mark.asyncio
@@ -15,7 +20,11 @@ async def test_existing_invites_keep_standard_transport(auth_headers):
     assert result.json()["transport"] == "xray"
     script = await request("GET", "/api/v1/nodes/join", {}, params={"token": result.json()["token"]})
     assert script.status_code == 200
-    assert "TRANSPORT_INJECTED=xray" in script.text
+    assert "TRANSPORT_INJECTED=xray" in installer(script)
+    import hashlib
+    assert hashlib.sha256(installer(script).encode()).hexdigest() in script.text
+    assert script.headers['cache-control'] == 'no-store'
+    assert 'systemd-run --unit=md-next-node-install' in script.text
 
 
 @pytest.mark.asyncio
@@ -36,8 +45,8 @@ async def test_transport_mismatch_does_not_consume_invitation(auth_headers):
     # The selected management channel is injected into the installer.
     script = await request("GET", "/api/v1/nodes/join", {}, params={"token": token})
     assert script.status_code == 200
-    assert "TRANSPORT_INJECTED=mdnt" in script.text
-    assert "__KEDRLINK_SOURCE__" not in script.text
+    assert "TRANSPORT_INJECTED=mdnt" in installer(script)
+    assert "__KEDRLINK_SOURCE__" not in installer(script)
 
 
 @pytest.mark.asyncio
