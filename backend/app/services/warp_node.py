@@ -30,6 +30,7 @@ async def test_node_proxy(node, port: int, probe, *, control: bool = False, upli
         "protocol": node.protocol, "secret": node.secret,
         "public_key": getattr(node, "public_key", None),
                     "short_id": getattr(node, "short_id", None),
+        "reality_server_name": getattr(node, "reality_server_name", None),
     }, uplink_port=uplink_port)
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))

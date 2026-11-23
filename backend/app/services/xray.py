@@ -120,6 +120,7 @@ class XrayService:
                     "protocol": active_node.protocol, "secret": node_secret,
                     "public_key": getattr(active_node, "public_key", None),
                     "short_id": getattr(active_node, "short_id", None),
+                    "reality_server_name": getattr(active_node, "reality_server_name", None),
                 }, uplink_port=uplink_port))
                 node_tags.append(f"node-{active_node.id}")
             else:

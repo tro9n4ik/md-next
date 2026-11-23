@@ -7,12 +7,14 @@ import datetime
 import logging
 import shlex
 import time
+from urllib.parse import urlsplit
 from collections import deque
 from typing import List, Optional, Literal
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 from app.services.input_validation import validate_host
+from app.services.node_transport import validate_reality_domain
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import update, delete, or_, insert, func, literal, text
@@ -104,6 +106,12 @@ class NodeRegister(BaseModel):
     public_key: str | None = Field(default=None, pattern=r'^[A-Za-z0-9_-]{43}$')
     short_id: str = Field(default='', pattern=r'^(?:[0-9a-f]{2}){0,8}$')
     identity: UUID | None = None
+    reality_server_name: str | None = None
+
+    @field_validator('reality_server_name')
+    @classmethod
+    def valid_reality_domain(cls, value):
+        return validate_reality_domain(value) if value is not None else None
 
     @model_validator(mode='after')
     def secure_transport_fields(self):
@@ -111,7 +119,7 @@ class NodeRegister(BaseModel):
             raise ValueError("Для KedrLink необходим управляющий протокол версии 1")
         if self.protocol == 'vless' and (not self.public_key or not self.identity):
             raise ValueError('Для VLESS Reality необходимы публичный ключ и UUID')
-        if self.protocol == 'trojan' and (self.public_key or self.identity or self.short_id):
+        if self.protocol == 'trojan' and (self.public_key or self.identity or self.short_id or self.reality_server_name):
             raise ValueError('Параметры Reality допустимы только для VLESS')
         return self
 
@@ -470,6 +478,15 @@ async def register_node(node_data: NodeRegister, db: AsyncSession = Depends(get_
 
 
 async def _register_node(node_data, db):
+    if node_data.reality_server_name is not None:
+        configured_url = os.getenv("PANEL_PUBLIC_URL", "")
+        if configured_url:
+            try:
+                configured_domain = validate_reality_domain(urlsplit(configured_url).hostname or "")
+            except ValueError:
+                raise HTTPException(status_code=503, detail="Проверьте домен панели в PANEL_PUBLIC_URL") from None
+            if node_data.reality_server_name != configured_domain:
+                raise HTTPException(status_code=400, detail="Домен защищённого канала должен совпадать с доменом этой панели")
     input_hash = _hash_token(node_data.token)
     now = datetime.datetime.now(datetime.timezone.utc)
 
@@ -507,6 +524,7 @@ async def _register_node(node_data, db):
         target_node.secret = node_secret
         target_node.public_key = node_data.public_key
         target_node.short_id = node_data.short_id
+        target_node.reality_server_name = node_data.reality_server_name
         target_node.last_seen = now
         invite.node_id = target_node.id
     else:
@@ -521,6 +539,7 @@ async def _register_node(node_data, db):
             secret=node_secret,
             public_key=node_data.public_key,
             short_id=node_data.short_id,
+            reality_server_name=node_data.reality_server_name,
             is_active=True,
             last_seen=now,
             priority=(last_priority or 0) + (1 if last_priority is not None else 0)
@@ -568,6 +587,8 @@ async def _register_node(node_data, db):
     log_event("info", "node_invite", "Приглашение использовано, узел подключён", {"invite_id": invite.id, "node_id": target_node.id, "name": target_node.name, "host": target_node.host})
 
     response = {"status": "connected", "node_id": target_node.id, "secret": node_secret, "transport": target_node.transport}
+    if target_node.reality_server_name is not None:
+        response["reality_server_name"] = target_node.reality_server_name
     if control_token:
         response["control"] = {"protocol": 1, "token": control_token}
     return response

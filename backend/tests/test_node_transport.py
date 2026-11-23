@@ -37,28 +37,33 @@ def test_registration_rejects_incomplete_reality():
         NodeRegister(**data, public_key="bad", identity=IDENTITY)
 
 @pytest.mark.asyncio
-async def test_secure_registration_persists_only_public_key(auth_headers):
+@pytest.mark.parametrize('domain', [None, 'panel.owned.example'])
+async def test_secure_registration_persists_only_public_key(auth_headers, monkeypatch, domain):
     from unittest.mock import patch
     from httpx import AsyncClient, ASGITransport
     from sqlalchemy import select
     from app.main import app
     from app.db.database import AsyncSessionLocal
     from app.models.node import Node
+    if domain:
+        monkeypatch.setenv('PANEL_PUBLIC_URL', 'https://' + domain)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         invite = (await client.post("/api/v1/nodes/invites", headers=auth_headers, json={"name": "secure-demo"})).json()
         with patch("app.services.xray.XrayService.apply_config", return_value=(True, "ok")):
             response = await client.post("/api/v1/nodes/register", json={
                 "token": invite["token"], "host": "192.0.2.50", "port": 443,
-                "protocol": "vless", "public_key": KEY, "identity": IDENTITY, "short_id": "0123456789abcdef",
+                "protocol": "vless", "public_key": KEY, "identity": IDENTITY, "short_id": "0123456789abcdef", "reality_server_name": domain,
             })
         assert response.status_code == 201
         assert response.json()["secret"] == IDENTITY
+        assert response.json().get("reality_server_name") == domain
         rows = (await client.get("/api/v1/nodes", headers=auth_headers)).json()
         assert all("secret" not in row for row in rows)
     async with AsyncSessionLocal() as db:
         node = (await db.execute(select(Node).where(Node.host == "192.0.2.50"))).scalar_one()
         assert node.public_key == KEY
         assert node.short_id == "0123456789abcdef"
+        assert node.reality_server_name == domain
         assert node.protocol == "vless"
         assert node.secret == IDENTITY
 

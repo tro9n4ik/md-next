@@ -112,6 +112,30 @@ prepare_node_dependencies() {
 }
 
 prepare_reality_node() {
+  # Each installation uses its own panel domain, never a shared third-party target.
+  NODE_SERVER_NAME=$(python3 - "$PANEL_URL" <<'PY'
+import re, socket, ssl, sys
+from urllib.parse import urlsplit
+url = urlsplit(sys.argv[1])
+if url.scheme != 'https' or url.username or url.password or url.port not in (None, 443):
+    raise SystemExit('Для ноды нужен HTTPS-адрес панели на порту 443.')
+domain = (url.hostname or '').encode('idna').decode('ascii').lower()
+if len(domain) > 253 or not re.fullmatch(r'(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?', domain):
+    raise SystemExit('У панели должен быть собственный домен с действительным TLS-сертификатом.')
+context = ssl.create_default_context()
+context.minimum_version = ssl.TLSVersion.TLSv1_3
+context.set_alpn_protocols(['h2'])
+try:
+    with socket.create_connection((domain, 443), timeout=15) as connection:
+        with context.wrap_socket(connection, server_hostname=domain) as tls:
+            if tls.selected_alpn_protocol() != 'h2':
+                raise ValueError('HTTPS панели должен поддерживать HTTP/2.')
+except (OSError, ValueError) as error:
+    raise SystemExit('Не удалось проверить TLS домена панели: ' + str(error))
+print(domain)
+PY
+  ) || return 1
+  export NODE_SERVER_NAME
   # Private key stays on this node and is never sent to the panel.
   key_output=$(xray x25519) || return 1
   NODE_PRIVATE_KEY=$(printf '%s' "$key_output" | python3 -c 'import sys,re; s=sys.stdin.read(); m=re.search(r"Private\s*Key:\s*([A-Za-z0-9_-]{43})",s,re.I); print(m.group(1) if m else "")') || return 1
@@ -127,6 +151,8 @@ prepare_reality_node() {
 }
 
 register_node() {
+  local node_server_name_json
+  node_server_name_json=$(python3 -c 'import json,os; print(json.dumps(os.getenv("NODE_SERVER_NAME") or None))') || return 1
   PUBLIC_IP=$(curl -fsS --connect-timeout 10 --max-time 20 https://api.ipify.org) || return 1
   SECURE_PANEL_URL=$(echo "$PANEL_URL" | sed 's|^http://|https://|')
 
@@ -141,6 +167,7 @@ register_node() {
              \"control_protocol\": $CONTROL_PROTOCOL,
              \"public_key\": \"$NODE_PUBLIC_KEY\",
              \"short_id\": \"$NODE_SHORT_ID\",
+             \"reality_server_name\": $node_server_name_json,
              \"identity\": \"$NODE_IDENTITY\"
            }") || {
       echo "ОШИБКА: Не удалось зарегистрировать ноду на панели $SECURE_PANEL_URL."
@@ -149,6 +176,12 @@ register_node() {
   }
 
   NODE_SECRET=""
+  if [ -n "${NODE_SERVER_NAME:-}" ]; then
+    if ! printf '%s' "$RESPONSE" | python3 -c 'import json,os,sys; assert json.load(sys.stdin).get("reality_server_name") == os.environ["NODE_SERVER_NAME"]'; then
+      echo 'Панель не подтвердила домен защищённого канала. Обновите панель перед подключением ноды.'
+      return 1
+    fi
+  fi
   if command -v python3 > /dev/null 2>&1; then
       NODE_SECRET=$(echo "$RESPONSE" | python3 -c "import sys, json; print(json.load(sys.stdin).get('secret', ''))" 2>/dev/null || true)
   fi
@@ -176,7 +209,7 @@ register_node() {
 configure_xray_node() {
   local temporary service_user service_group
   temporary=$(mktemp --suffix=.json /usr/local/etc/xray/md-next-config.XXXXXX) || return 1
-  export NODE_PORT NODE_SECRET
+  export NODE_PORT NODE_SECRET NODE_SERVER_NAME
   if ! python3 - "$temporary" <<'PY'
 import json, os, sys
 config = {
@@ -184,7 +217,7 @@ config = {
         "port": int(os.environ["NODE_PORT"]), "protocol": "vless",
         "settings": {"clients": [{"id": os.environ["NODE_SECRET"], "flow": "xtls-rprx-vision"}], "decryption": "none"},
         "streamSettings": {"network": "tcp", "security": "reality",
-                           "realitySettings": {"target": "www.cloudflare.com:443", "serverNames": ["www.cloudflare.com"],
+                           "realitySettings": {"target": os.environ["NODE_SERVER_NAME"] + ":443", "serverNames": [os.environ["NODE_SERVER_NAME"]],
                                                "privateKey": os.environ["NODE_PRIVATE_KEY"], "shortIds": [os.environ["NODE_SHORT_ID"]]}},
     }],
     "outbounds": [{"protocol": "freedom", "streamSettings": {"sockopt": {"domainStrategy": "UseIPv4"}}, "settings": {
@@ -252,10 +285,14 @@ done
 ROLLBACK
 chmod 700 "$b/rollback.sh"
 trap 'code=$?; if [ "$code" -ne 0 ]; then bash "$b/rollback.sh"; fi' EXIT
+# A stale Cloudflare entry can block APT before its signing key is refreshed.
+# Its original contents were saved above and the rollback restores them.
+rm -f -- /etc/apt/sources.list.d/cloudflare-client.list
 apt-get update -o Acquire::Retries=1 -o Acquire::https::Timeout=20
 apt-get install -y curl gpg
 curl -fsSL --connect-timeout 10 --max-time 30 https://pkg.cloudflareclient.com/pubkey.gpg -o "$b/pubkey.gpg"
 gpg --batch --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg "$b/pubkey.gpg"
+chmod 644 /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
 printf 'deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ %s main\n' "$VERSION_CODENAME" > /etc/apt/sources.list.d/cloudflare-client.list
 apt-get update -o Acquire::Retries=1 -o Acquire::https::Timeout=20
 apt-get install -y cloudflare-warp
