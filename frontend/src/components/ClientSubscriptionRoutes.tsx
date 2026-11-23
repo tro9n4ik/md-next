@@ -41,7 +41,7 @@ export default function ClientSubscriptionRoutes({ clientId }: { clientId: numbe
   });
   const change = (value: Choices) => { setDraft(value); setNotice(''); };
 
-  return <section ref={section} data-unsaved-controlled className="ui-card ui-panel" aria-labelledby="subscription-routes-title">
+  return <section ref={section} data-unsaved-controlled className="ui-card ui-panel access-country-picker" aria-labelledby="subscription-routes-title">
     <h2 id="subscription-routes-title" className="ui-card-title flex items-center gap-2"><Globe2 size={20} />Страны в подписке</h2>
     <p className="mt-2 text-sm text-neutral-500">Разрешите этому клиенту самостоятельно выбирать выход в интернет в Happ или другом VPN-приложении.</p>
     {!saved || !selected ? <div className="mt-4" role="status">
@@ -49,13 +49,13 @@ export default function ClientSubscriptionRoutes({ clientId }: { clientId: numbe
       {query.isError && <button className="ui-button ui-button-secondary" onClick={() => query.refetch()}><RefreshCw size={15} />Повторить</button>}
     </div> : <>
       {query.isError && <p className="mt-3 text-sm text-amber-700" role="alert">Не удалось обновить список нод. <button onClick={() => query.refetch()}>Повторить</button></p>}
-      <label className="mt-5 flex items-center gap-3 text-sm font-medium">
+      <label className="access-country-toggle">
         <input type="checkbox" checked={selected.enabled} disabled={mutation.isPending}
           onChange={event => change({ ...selected, enabled: event.target.checked })} />
         Добавлять другие страны в подписку
       </label>
-      {selected.enabled && <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        {saved.nodes.map(node => <label key={node.id} className="flex items-center gap-3 rounded-lg border border-neutral-200 p-3 text-sm">
+      {selected.enabled && <div className="access-country-grid">
+        {saved.nodes.map(node => <label key={node.id} className="access-country-option">
           <input type="checkbox" checked={selected.node_ids.includes(node.id)}
             disabled={mutation.isPending || (!node.selectable && !selected.node_ids.includes(node.id))}
             onChange={event => change({ ...selected, node_ids: event.target.checked
@@ -73,7 +73,7 @@ export default function ClientSubscriptionRoutes({ clientId }: { clientId: numbe
         </label>)}
         {!saved.nodes.some(node => node.selectable) && <p className="text-sm text-amber-700">Сначала подключите выходные ноды в разделе «Узлы».</p>}
       </div>}
-      <p className="mt-4 text-xs text-neutral-500">Основной маршрут сохраняется. Дополнительные страны доступны для разрешённых VLESS, XHTTP, Hysteria 2 и «Обхода БС». Трафик всех стран входит в общий лимит клиента. AmneziaWG и Telegram MTProto используют основной маршрут.</p>
+      <details className="access-explanation"><summary>Что изменится для клиента</summary><p>Основной маршрут сохраняется. Дополнительные страны доступны для разрешённых VLESS, XHTTP, Hysteria 2 и «Обхода БС». Трафик всех стран входит в общий лимит клиента. AmneziaWG и Telegram MTProto используют основной маршрут.</p></details>
       <div className="ui-actionbar mt-4">
         <p role={mutation.isError ? 'alert' : 'status'} className={mutation.isError ? 'text-sm text-red-700' : 'text-sm text-neutral-500'}>
           {notice || 'По умолчанию дополнительные страны отключены. Выберите только те ноды, которые разрешены клиенту.'}

@@ -73,8 +73,8 @@ export default function ClientExitRoute({ clientId, clientName }: { clientId: nu
 
   return <section id="client-exit-route" ref={section} data-unsaved-controlled className="ui-card client-exit-editor" aria-labelledby="client-exit-title">
     <header className="client-exit-heading"><span className="client-exit-icon"><Network size={22} /></span><div>
-      <span className="client-exit-eyebrow">Персональный маршрут</span><h2 id="client-exit-title">Выход в интернет</h2>
-      <p>Распределяйте клиентов между нодами и выбирайте страну выхода для каждого.</p>
+      <span className="client-exit-eyebrow">Персональный маршрут</span><h2 id="client-exit-title">Основной маршрут</h2>
+      <p>Выберите, через какую страну клиент выходит в интернет по умолчанию.</p>
     </div>{data && <span className="client-exit-saved">{dirty ? <Pin size={13} /> : <Check size={13} />}{dirty ? 'Есть изменения' : 'Сохранено'}</span>}</header>
     {!data ? <div className="client-exit-loading" role="status">{query.isError ? query.error.message : 'Загрузка маршрутов…'}
       {query.isError && <button className="ui-button ui-button-secondary" onClick={() => query.refetch()}><RefreshCw size={15} />Повторить</button>}</div> : <>
@@ -85,7 +85,7 @@ export default function ClientExitRoute({ clientId, clientName }: { clientId: nu
         </button>
         <button type="button" aria-pressed={selected !== null} className={selected !== null ? 'selected' : ''} disabled={mutation.isPending || (!firstNode && selected === null)}
           onClick={() => { if (selected === null && firstNode) change(firstNode.id); }}>
-          <Pin size={20} /><span><b>Своя нода</b><small>Сохраняет выход при общей смене ноды</small></span><span className="client-exit-radio">{selected !== null && <Check size={12} />}</span>
+          <Pin size={20} /><span><b>Закрепить страну</b><small>Отдельный маршрут для этого клиента</small></span><span className="client-exit-radio">{selected !== null && <Check size={12} />}</span>
         </button>
       </div>
       {selected === null ? <div className="client-exit-common"><Globe2 size={21} /><div><b>Сейчас: {commonName(data.common)}</b>
@@ -103,8 +103,8 @@ export default function ClientExitRoute({ clientId, clientName }: { clientId: nu
         <p className="client-exit-policy"><ShieldCheck size={17} /><span>Этот выход имеет приоритет над общими правилами маршрутизации и выходом WARP. Блокировка рекламы и запрещённые направления сохраняются. Промежуточный канал к нодам через WARP продолжает работать, если включён.</span></p>
       </>}
       {!data.nodes.some(node => node.selectable) && <p className="client-exit-warning">Для индивидуального выхода сначала подключите и настройте ноду в разделе «Узлы».</p>}
-      <div className="client-exit-details"><p>Работает для VLESS, XHTTP, Hysteria 2, «Обхода БС» и AmneziaWG. Адрес панели, ключи, лимиты и ссылка подписки сохраняются. Telegram MTProto использует общий выход.</p>
-        <p>Нода определяет выход только для трафика, который клиент отправляет через VPN. Доступность сервисов также зависит от адреса выхода и региона аккаунта. <Link to="/wiki?article=client-exit">Подробнее в Wiki</Link></p></div>
+      <details className="client-exit-details"><summary>Как работает маршрут</summary><p>Работает для VLESS, XHTTP, Hysteria 2, «Обхода БС» и AmneziaWG. Адрес панели, ключи, лимиты и ссылка подписки сохраняются. Telegram MTProto использует общий выход.</p>
+        <p>Нода определяет выход только для трафика, который клиент отправляет через VPN. Доступность сервисов также зависит от адреса выхода и региона аккаунта. <Link to="/wiki?article=client-exit">Подробнее в Wiki</Link></p></details>
       <div className="ui-actionbar client-exit-actions"><p role={mutation.isError ? 'alert' : 'status'} className={mutation.isError ? 'client-exit-error' : ''}>{notice || 'Смена выхода применяется на сервере. Уже открытые соединения могут прерваться.'}</p>
         <button className="ui-button ui-button-primary" disabled={!dirty || mutation.isPending || (selected !== null && !chosen?.selectable)} onClick={() => mutation.mutate()}>{mutation.isPending ? 'Применяем…' : 'Сохранить маршрут'}</button></div>
     </>}
