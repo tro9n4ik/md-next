@@ -18,6 +18,7 @@ from app.services.events import log_event
 from app.services.nginx import apply_reality_sni
 from app.services.client_limits import access_allowed, cdn_quota_exhausted
 from app.services.cdn import cdn_access_allowed
+from app.services.subscription_routes import expand_profiles, profile_email
 
 _USE_STORED_ACTIVE_NODE = object()
 logger = logging.getLogger(__name__)
@@ -51,6 +52,7 @@ class ClientService:
         cdn_clients: list[dict] = []
         hysteria_clients: list[dict] = []
         settings = await get_profile_settings(db)
+        profiles = expand_profiles(profiles, settings)
         if "vless_reality_tcp" in kinds:
             try:
                 await apply_reality_sni(settings["protocol.reality.server_name"])
@@ -60,9 +62,9 @@ class ClientService:
         for profile, client in profiles:
             if not access_allowed(client):
                 continue
-            email = f"c{client.id}-{profile.kind}@md-next"
+            email = profile_email(profile, client.id)
             if profile.kind == "vless_xhttp_tls" and profile.uuid and settings.get("cdn.enabled") == "true" and cdn_access_allowed(client, profile, settings) and not cdn_quota_exhausted(client):
-                cdn_clients.append({"id": profile.uuid, "email": f"c{client.id}-cdn@md-next"})
+                cdn_clients.append({"id": profile.uuid, "email": profile_email(profile, client.id, cdn=True)})
             if not profile.is_enabled:
                 continue
             if profile.kind == "vless_reality_tcp" and profile.uuid:

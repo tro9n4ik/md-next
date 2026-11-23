@@ -103,8 +103,9 @@ async def create_profiles(db: AsyncSession, client: Client) -> list[ClientProfil
     return profiles
 
 
-def make_profile_data(client: Client, profile: ClientProfile, settings: dict[str, str]) -> str:
-    name = urllib.parse.quote(client.name, safe="")
+def make_profile_data(client: Client, profile: ClientProfile, settings: dict[str, str], *, label: str | None = None) -> str:
+    profile_name = label or client.name
+    name = urllib.parse.quote(profile_name, safe="")
     host = settings.get("protocol.reality.server_address", os.getenv("SERVER_HOST", "127.0.0.1"))
     sni = settings.get("protocol.reality.server_name", os.getenv("XRAY_SERVER_NAME", host))
     public_key = settings.get("protocol.reality.public_key", os.getenv("XRAY_PUBLIC_KEY", ""))
@@ -113,7 +114,7 @@ def make_profile_data(client: Client, profile: ClientProfile, settings: dict[str
     flow = settings.get("protocol.reality.flow", "xtls-rprx-vision")
     if profile.kind == "vless_reality_tcp":
         return XrayService.generate_vless_link(
-            profile.uuid or "", host, 443, sni, public_key, client.name,
+            profile.uuid or "", host, 443, sni, public_key, profile_name,
             fingerprint=fingerprint, short_id=short_id, flow=flow,
         )
     if profile.kind == "vless_xhttp_reality":

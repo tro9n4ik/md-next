@@ -40,7 +40,7 @@ def validate_domain(value: str) -> str:
     return value
 
 
-def make_cdn_link(client, profile, settings: dict[str, str], *, preview: bool = False) -> str:
+def make_cdn_link(client, profile, settings: dict[str, str], *, preview: bool = False, label: str | None = None) -> str:
     if profile.kind != "vless_xhttp_tls" or not profile.uuid:
         return ""
     if not preview and settings.get("cdn.enabled", "false") != "true":
@@ -58,7 +58,7 @@ def make_cdn_link(client, profile, settings: dict[str, str], *, preview: bool = 
               "extra": json.dumps(cdn_transport(), separators=(",", ":")), "alpn": "h2"}
     quota = getattr(client, 'cdn_monthly_traffic_limit', 0) or 0
     suffix = f" · {traffic_size(quota)}/мес" if quota else ""
-    name = quote(f"{client.name} · Обход БС{suffix}", safe="")
+    name = quote(label if label is not None else f"{client.name} · Обход БС{suffix}", safe="")
     return f"vless://{profile.uuid}@{domain}:443?{urlencode(params)}#{name}"
 
 
