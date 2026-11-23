@@ -13,6 +13,7 @@ async def test_subscription_name_persistence_and_owner(auth_headers):
         db.add(c); await db.flush()
         db.add(ClientProfile(client_id=c.id, kind='vless_reality_tcp', uuid='stable-uuid', is_enabled=True))
         await db.commit()
+        client_id = c.id
     async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as api:
         assert (await api.get('/api/v1/settings/subscription', headers=auth_headers)).json()['name'] == 'MD-NEXT'
         old = await api.get('/api/v1/sub/name-test')
@@ -25,4 +26,7 @@ async def test_subscription_name_persistence_and_owner(auth_headers):
         new = await api.get('/api/v1/sub/name-test')
         assert base64.b64decode(new.headers['profile-title'][7:]).decode() == 'Моя подписка'
         assert new.text == old.text
-        assert unquote(urlsplit(base64.b64decode(new.text).decode()).fragment) == 'Владелец'
+        assert unquote(urlsplit(base64.b64decode(new.text).decode()).fragment) == '🌐 VLESS Reality TCP'
+    async with TestingSessionLocal() as db:
+        owner = await db.get(Client, client_id)
+        assert owner.name == 'Владелец' and owner.sub_token == 'name-test'
