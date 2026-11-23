@@ -40,6 +40,7 @@ expected = {
     'nodes-demo.jpg', 'warp-demo.jpg', 'protocols-demo.jpg',
     'subadmins-demo.jpg', 'dashboard-dark-demo.jpg',
     'client-create-demo.jpg', 'settings-demo.jpg', 'wiki-demo.jpg',
+    'client-access-demo.jpg', 'client-countries-demo.jpg', 'client-manage-demo.jpg',
 }
 assert set(manifest['files']) == expected, 'Missing screenshot metadata'
 assert manifest.get('demo') is True, 'Screenshots must use demo data'

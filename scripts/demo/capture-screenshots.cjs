@@ -62,6 +62,12 @@ function fixture(url,method) {
   if(p==='/api/v1/settings/subscription')return {name:'MD-Next Demo'};
   if(p==='/api/v1/warp/uplink')return {enabled:false,ready:true,paused:false,preparing:false,can_prepare:true,node_id:1,node_name:'Нидерланды',job:{phase:'idle',message:'Локальный WARP подготовлен'},check:null};
   if(p==='/api/v1/clients')return clients.map(c=>({...c,exit_route:{mode:'common',node_id:null,node:nodes[0],status:'healthy'}}));
+  if(p==='/api/v1/clients/1/profiles'){
+    const profiles=[['vless_reality_tcp','VLESS Reality TCP'],['vless_xhttp_reality','VLESS XHTTP Reality'],['vless_xhttp_tls','VLESS XHTTP TLS'],['hysteria2','Hysteria 2'],['awg','AmneziaWG'],['mtproto','Telegram MTProto'],['cdn','Обход БС']].map(([kind,label],i)=>({id:i+1,kind,label,is_enabled:kind!=='awg',key_available:true,data:'https://panel.example.test/demo-profile'}));
+    return {client:clients[0],profiles,access:profiles.map(profile=>({...profile,available:true})),adblock_enabled:false,subscription_url:'https://panel.example.test/sub/demo'};
+  }
+  if(p==='/api/v1/clients/1/exit-route')return {route:{mode:'common',node_id:null,node:nodes[0],status:'healthy'},common:{mode:'node',node:nodes[0]},nodes:nodes.map(n=>({...n,selectable:true,assigned_clients:2,following_clients:1}))};
+  if(p==='/api/v1/clients/1/subscription-routes')return {enabled:true,node_ids:[1,2],nodes:nodes.map(n=>({...n,selectable:true})),route:{mode:'common',node_id:null,status:'healthy'}};
   if(p==='/api/v1/client-groups')return {groups,total:clients.length,ungrouped_count:1};
   if(p==='/api/v1/events')return [
     ['Клиент добавлен','clients'],['Проверка нод завершена','nodes'],['Правила WARP сохранены','warp'],['Резервная копия создана','backup'],
@@ -128,6 +134,9 @@ function fixture(url,method) {
     await page.getByRole('button',{name:'Тёмная тема',exact:true}).click();await capture('dashboard-dark-demo.jpg','/');
     await page.getByRole('button',{name:'Светлая тема',exact:true}).click();
     await open('/clients');await page.getByText('Рабочий ноутбук',{exact:true}).waitFor();await capture('clients-demo.jpg','/clients');
+    await open('/clients/1/access');await page.getByRole('button',{name:'Скопировать подписку',exact:true}).waitFor();await capture('client-access-demo.jpg','/clients/1/access');
+    await page.getByRole('button',{name:'Страны',exact:true}).click();await page.getByRole('button',{name:'Выбор стран Страны в приложении'}).click();await capture('client-countries-demo.jpg','/clients/1/access');
+    await page.getByRole('button',{name:'Управление',exact:true}).click();await capture('client-manage-demo.jpg','/clients/1/access');
     await open('/nodes');await page.getByRole('button',{name:'Добавить ноду',exact:true}).waitFor();await capture('nodes-demo.jpg','/nodes');
     await open('/clients/new');await page.getByLabel('Имя клиента',{exact:true}).waitFor();await capture('client-create-demo.jpg','/clients/new');
     await open('/settings');await page.getByLabel('Название подписки',{exact:true}).waitFor();await capture('settings-demo.jpg','/settings');
