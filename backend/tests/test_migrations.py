@@ -52,6 +52,19 @@ def test_fresh_db_migration(alembic_config):
     conn.close()
 
 
+def test_owned_domain_upgrade_preserves_legacy_nodes(alembic_config):
+    cfg, db_file = alembic_config
+    command.upgrade(cfg, "0023_node_transport")
+    with sqlite3.connect(db_file) as db:
+        db.execute("INSERT INTO nodes (id,name,host,port,protocol) VALUES (1,'legacy','192.0.2.1',443,'vless')")
+    command.upgrade(cfg, "head")
+    with sqlite3.connect(db_file) as db:
+        assert db.execute("SELECT reality_server_name FROM nodes WHERE id=1").fetchone() == (None,)
+        db.execute("UPDATE nodes SET reality_server_name='panel.owned.example' WHERE id=1")
+    with pytest.raises(RuntimeError, match="собственным доменом"):
+        command.downgrade(cfg, "0023_node_transport")
+
+
 def test_transport_upgrade_preserves_existing_nodes_and_invites(alembic_config):
     cfg, db_file = alembic_config
     command.upgrade(cfg, "0022_persist_host_identity")

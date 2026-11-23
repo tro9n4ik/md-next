@@ -26,7 +26,8 @@ def selectable(node) -> bool:
         return False
     try:
         node_outbound({"id": node.id, "host": node.host, "port": node.port, "protocol": node.protocol,
-                       "secret": node.secret, "public_key": node.public_key, "short_id": node.short_id}, uplink_port=None)
+                       "secret": node.secret, "public_key": node.public_key, "short_id": node.short_id,
+                       "reality_server_name": getattr(node, "reality_server_name", None)}, uplink_port=None)
     except (ValueError, TypeError):
         return False
     return True

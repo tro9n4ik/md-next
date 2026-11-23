@@ -4,9 +4,24 @@ from uuid import UUID
 import os
 import re
 
+# Compatibility only for nodes registered before owned domains were persisted.
+# New installers always submit their own panel domain.
 REALITY_SERVER_NAME = "www.cloudflare.com"
 NODE_UPLINK_TAG = "uplink-warp"
 UPLINK_FROM_ENV = object()
+
+
+def validate_reality_domain(value: str) -> str:
+    """Only a DNS name; never accept a URL, port or injected Xray destination."""
+    if not isinstance(value, str) or value != value.strip():
+        raise ValueError("Некорректный домен защищённого канала")
+    try:
+        domain = value.encode("idna").decode("ascii").lower()
+    except UnicodeError:
+        raise ValueError("Некорректный домен защищённого канала") from None
+    if len(domain) > 253 or not re.fullmatch(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?", domain):
+        raise ValueError("Для защищённого канала нужен домен с действительным TLS-сертификатом")
+    return domain
 
 
 def resolve_uplink_port(port=UPLINK_FROM_ENV) -> int | None:
@@ -60,7 +75,7 @@ def node_outbound(node: dict, *, uplink_port=UPLINK_FROM_ENV) -> dict:
                                     # принудительно переводить клиентов на TCP.
                                     "users": [{"id": identity, "encryption": "none", "flow": "xtls-rprx-vision-udp443"}]}]},
             "streamSettings": {"network": "tcp", "security": "reality",
-                               "realitySettings": {"serverName": REALITY_SERVER_NAME,
+                               "realitySettings": {"serverName": validate_reality_domain(node["reality_server_name"]) if node.get("reality_server_name") is not None else REALITY_SERVER_NAME,
                                                    "fingerprint": "firefox", "password": key, "shortId": short_id}},
         }, uplink_port)
     return _with_node_uplink({

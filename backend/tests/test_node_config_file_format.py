@@ -8,8 +8,8 @@ import pytest
 
 def test_generated_node_config_limits_loopback_access_to_warp_services(tmp_path, monkeypatch):
     source = (Path(__file__).resolve().parents[2] / 'scripts/join-node.sh').read_text(encoding='utf-8')
-    builder = source.split("<<'PY'\n", 1)[1].split('\nPY\n', 1)[0]
-    for key, value in {'NODE_PORT': '443', 'NODE_SECRET': '11111111-1111-4111-8111-111111111111', 'NODE_PRIVATE_KEY': 'test-private', 'NODE_SHORT_ID': '0123456789abcdef'}.items():
+    builder = source.split('configure_xray_node() {', 1)[1].split("<<'PY'\n", 1)[1].split('\nPY\n', 1)[0]
+    for key, value in {'NODE_PORT': '443', 'NODE_SECRET': '11111111-1111-4111-8111-111111111111', 'NODE_PRIVATE_KEY': 'test-private', 'NODE_SHORT_ID': '0123456789abcdef', 'NODE_SERVER_NAME': 'panel.example.test'}.items():
         monkeypatch.setenv(key, value)
     import sys
     path = tmp_path / 'node.json'
@@ -48,7 +48,7 @@ CHECK
   [ "$XRAY_REJECT" = '0' ]
 }
 '''
-    env = {**os.environ, 'XRAY_REJECT': reject, 'NODE_PORT': '4443', 'NODE_SECRET': '11111111-1111-4111-8111-111111111111', 'NODE_PRIVATE_KEY': 'synthetic-private-key', 'NODE_SHORT_ID': '0123456789abcdef'}
+    env = {**os.environ, 'XRAY_REJECT': reject, 'NODE_PORT': '4443', 'NODE_SECRET': '11111111-1111-4111-8111-111111111111', 'NODE_PRIVATE_KEY': 'synthetic-private-key', 'NODE_SHORT_ID': '0123456789abcdef', 'NODE_SERVER_NAME': 'panel.example.test'}
     result = subprocess.run(['bash', '-c', 'set -e\n' + mocks + function + '\nconfigure_xray_node\n'], env=env, capture_output=True, text=True, timeout=10)
     assert not list(config_dir.glob('md-next-config.*')), 'Temporary configuration must be cleaned up'
     if reject == '1':

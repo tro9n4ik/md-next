@@ -39,6 +39,7 @@ class Node(Base):
     control_command_finished_at = Column(DateTime(timezone=True), nullable=True)
     public_key = Column(String, nullable=True) # Публичный ключ для Reality
     short_id = Column(String(16), nullable=True) # Legacy nodes retain empty shortId
+    reality_server_name = Column(String(253), nullable=True)
     secret = Column(NodeSecret(), nullable=True)
     is_active = Column(Boolean, default=True)
     is_enabled = Column(Boolean, default=True)
