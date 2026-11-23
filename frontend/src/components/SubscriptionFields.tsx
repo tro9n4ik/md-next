@@ -1,13 +1,14 @@
 import React from 'react';
 import type { SubscriptionValues } from '../utils/subscriptions';
 
-const SubscriptionFields: React.FC<{ value: SubscriptionValues; onChange: (value: SubscriptionValues) => void; editing?: boolean }> = ({ value, onChange, editing }) => {
+const SubscriptionFields: React.FC<{ value: SubscriptionValues; onChange: (value: SubscriptionValues) => void; editing?: boolean; columns?: boolean }> = ({ value, onChange, editing, columns }) => {
   const change = (field: keyof SubscriptionValues, text: string) => onChange({ ...value, [field]: text });
   const input = 'mt-1 w-full rounded-lg border border-neutral-300 bg-white p-2.5 text-sm';
-  return <div className="space-y-3">
+  return <div className={columns ? 'access-fields-columns' : 'space-y-3'}>
+    <div className="space-y-3">
     <label className="block text-sm font-medium text-neutral-700">{editing ? 'Продление подписки' : 'Срок подписки'}
       <select value={value.period} onChange={event => change('period', event.target.value)} className={input}>
-        {editing && <option value="keep">Оставить текущий срок</option>}
+        {editing && <option value="keep">{columns ? "Без изменений" : "Оставить текущий срок"}</option>}
         <option value="week">{editing ? 'Продлить на неделю' : 'Неделя'}</option>
         <option value="month">{editing ? 'Продлить на месяц' : 'Месяц'}</option>
         <option value="year">{editing ? 'Продлить на год' : 'Год'}</option>
@@ -18,6 +19,7 @@ const SubscriptionFields: React.FC<{ value: SubscriptionValues; onChange: (value
     {value.period === 'custom' && <label className="block text-sm font-medium text-neutral-700">Дата окончания
       <input required type="datetime-local" value={value.date} onChange={event => change('date', event.target.value)} className={input} />
     </label>}
+    </div><div className="space-y-3">
     <label className="block text-sm font-medium text-neutral-700">Трафик на месяц
       <select value={value.quotaGB === '' ? 'unlimited' : 'limited'} onChange={event => change('quotaGB', event.target.value === 'unlimited' ? '' : '100')} className={input}>
         <option value="unlimited">Без ограничений</option><option value="limited">Установить лимит</option>
@@ -26,14 +28,16 @@ const SubscriptionFields: React.FC<{ value: SubscriptionValues; onChange: (value
     {value.quotaGB !== '' && <label className="block text-sm font-medium text-neutral-700">Лимит, ГБ
       <input required type="number" min="0.001" step="any" max="8388607" value={value.quotaGB} onChange={event => change('quotaGB', event.target.value || '0')} className={input} />
     </label>}
+    </div><div className="space-y-3">
     <label className="block text-sm font-medium text-neutral-700">Обход БС: трафик на месяц
       <select value={value.cdnQuotaGB === '' ? 'unlimited' : 'limited'} onChange={event => change('cdnQuotaGB', event.target.value === 'unlimited' ? '' : '10')} className={input}>
-        <option value="unlimited">Без ограничений</option><option value="limited">Установить отдельный лимит</option>
+        <option value="unlimited">Без ограничений</option><option value="limited">{columns ? "Отдельный лимит" : "Установить отдельный лимит"}</option>
       </select>
     </label>
     {value.cdnQuotaGB !== '' && <label className="block text-sm font-medium text-neutral-700">Лимит обхода БС, ГБ
       <input required type="number" min="0.001" step="any" max="8388607" value={value.cdnQuotaGB} onChange={event => change('cdnQuotaGB', event.target.value || '0')} className={input} />
     </label>}
+    </div>
     <p className="text-xs text-neutral-500">Лимиты обновляются каждый месяц от даты создания клиента. Трафик CDN входит и в общий лимит. Исчерпание отдельного лимита отключает только обход БС. Продление подписки не обнуляет трафик.</p>
   </div>;
 };
