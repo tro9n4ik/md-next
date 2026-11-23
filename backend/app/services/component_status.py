@@ -13,7 +13,7 @@ COMPONENTS = (
     ("adguard", "AdGuard Home", ("/opt/md-next-adguard/AdGuardHome", "--version"), "md-next-adguard", "Фильтрация DNS для клиентов с AdBlock"),
     ("nginx", "Nginx", ("nginx", "-v"), "nginx", "Сайт, HTTPS и проксирование панели"),
     ("awg", "AmneziaWG Tools", ("awg", "--version"), None, "Инструменты туннеля AmneziaWG"),
-    ("warp", "Cloudflare WARP", ("warp-cli", "--version"), "warp-svc", "Локальная служба; WARP на ноде проверяется отдельно"),
+    ("warp", "Cloudflare WARP (локальный клиент)", ("warp-cli", "--version"), "warp-svc", "Клиент на сервере панели. При работе WARP через ноду локальный клиент не требуется."),
     ("fail2ban", "Fail2ban", ("fail2ban-client", "--version"), "fail2ban", "Защита от перебора паролей и сканирования"),
     ("certbot", "Certbot", ("certbot", "--version"), None, "Выпуск и продление HTTPS-сертификатов"),
     ("node", "Node.js", ("node", "--version"), None, "Сборка интерфейса при обновлении"),
@@ -34,6 +34,13 @@ async def _probe(spec: tuple) -> dict:
         return result
     try:
         code, stdout, stderr = await run_cmd(*command, timeout=3, env={"LC_ALL": "C"})
+        if key == "certbot" and code != 0 and Path(find_command(command[0]) or "").resolve() == Path("/usr/bin/certbot").resolve():
+            # Системный Certbot читает закрытый cli.ini даже при запросе версии.
+            code, stdout, stderr = await run_cmd(
+                "/usr/bin/python3", "-I", "-c",
+                "from importlib.metadata import version; print(version('certbot'))",
+                timeout=3, env={"LC_ALL": "C"},
+            )
         if code == 0:
             result["version"] = _version(stdout + "\n" + stderr)
         if service:
