@@ -19,6 +19,7 @@ from app.bot.notification_cards import card, safe
 from app.services.client_limits import refresh_period, subscription_block_reason, cdn_quota_exhausted
 from app.services.client_activity import source_checked, record_activity
 from app.services.mtproto import collect_deltas, fetch_traffic_stats
+from app.services.subscription_routes import traffic_email
 
 logger = logging.getLogger(__name__)
 
@@ -44,9 +45,11 @@ async def _collect_client_traffic() -> None:
             name = stat.get("name", "")
             parts = name.split(">>>")
             if len(parts) == 4 and parts[0] == "user" and parts[2] == "traffic":
-                up, down = xray_deltas.get(parts[1], (0, 0))
+                email = traffic_email(parts[1])
+                up, down = xray_deltas.get(email, (0, 0))
                 amount = max(0, int(stat.get("value", 0)))
-                xray_deltas[parts[1]] = (amount if parts[3] == "uplink" else up, amount if parts[3] == "downlink" else down)
+                xray_deltas[email] = (up + amount if parts[3] == "uplink" else up,
+                                      down + amount if parts[3] == "downlink" else down)
     except Exception as exc:
         logger.warning("Ошибка сбора трафика клиентов Xray: %s", exc)
 

@@ -305,6 +305,8 @@ async def _delete_node(node_id, db, current_user):
     for priority, candidate in enumerate(remaining):
         candidate.priority = priority
 
+    from app.services.subscription_routes import remove_node
+    await remove_node(db, node_id)
     await db.delete(node)
     await db.flush()
 

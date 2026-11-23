@@ -4,8 +4,9 @@ import os
 import uuid
 import secrets
 import time
+import json
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -24,6 +25,7 @@ from app.services.profiles import make_profile_data, get_profile_settings, creat
 from app.services.cdn import make_cdn_link, cdn_access_allowed
 from app.services.events import log_event
 from app.models.setting import Setting
+from app.services.subscription_routes import additional_links, primary_label, read_routes, setting_key, ROUTE_KINDS
 from app.services.happ_routing import build_happ_routing_link
 from app.services.adblock import enabled_for_client, ADS_DOMAIN
 from app.services.routing_rules import validate_rule_value
@@ -97,6 +99,12 @@ class ClientGroupUpdate(BaseModel):
 class ClientExitUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     node_id: int | None = Field(gt=0, le=2147483647, strict=True)
+
+
+class ClientSubscriptionRoutesUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = Field(strict=True)
+    node_ids: list[Annotated[int, Field(gt=0, le=2147483647, strict=True)]] = Field(max_length=50)
 
 
 class ClientAccessUpdate(BaseModel):
@@ -211,6 +219,56 @@ async def get_client_exit(client_id: int, db: AsyncSession = Depends(get_db)):
     options = await exit_options(db)
     nodes = {node.id: node for node in (await db.execute(select(Node))).scalars()}
     return {**options, "route": client_exit_summary(client, nodes, options["common"])}
+
+
+@router.get("/{client_id}/subscription-routes", dependencies=[Depends(require_admin)])
+async def get_subscription_routes(client_id: int, db: AsyncSession = Depends(get_db)):
+    client = await db.get(Client, client_id)
+    if client is None:
+        raise HTTPException(404, detail="Клиент не найден")
+    from app.services.client_exit import exit_options, client_exit_summary
+    options = await exit_options(db)
+    nodes = {node.id: node for node in (await db.execute(select(Node))).scalars()}
+    row = await db.get(Setting, setting_key(client_id))
+    choices = read_routes({row.key: row.value} if row else {}, client_id)
+    return {**choices, "nodes": options["nodes"], "route": client_exit_summary(client, nodes, options["common"])}
+
+
+@router.put("/{client_id}/subscription-routes", dependencies=[Depends(require_admin)])
+async def set_subscription_routes(client_id: int, data: ClientSubscriptionRoutesUpdate, db: AsyncSession = Depends(get_db)):
+    from app.services.cluster import _route_lock
+    async with _route_lock:
+        client = await db.get(Client, client_id)
+        if client is None:
+            raise HTTPException(404, detail="Клиент не найден")
+        if len(set(data.node_ids)) != len(data.node_ids):
+            raise HTTPException(422, detail="Каждую ноду можно выбрать только один раз")
+        if data.enabled:
+            if not data.node_ids:
+                raise HTTPException(422, detail="Выберите хотя бы один дополнительный выход")
+            if not ROUTE_KINDS.intersection(await enabled_profile_kinds(db)):
+                raise HTTPException(422, detail="Для выбора стран включите VLESS или Hysteria 2 в настройках протоколов")
+            for node_id in data.node_ids:
+                await _validate_exit_node(db, node_id)
+        value = json.dumps({"enabled": data.enabled, "node_ids": data.node_ids})
+        row = await db.get(Setting, setting_key(client_id))
+        if row and row.value == value:
+            return await get_subscription_routes(client_id, db)
+        try:
+            if row:
+                row.value = value
+            else:
+                db.add(Setting(key=setting_key(client_id), value=value))
+            if data.enabled:
+                await create_profiles(db, client)
+            await _sync_protocols(db)
+            await db.commit()
+        except Exception as exc:
+            await db.rollback()
+            await ClientService.restore_committed_configs(db)
+            raise HTTPException(502, detail="Не удалось применить страны подписки; прежние настройки восстановлены") from exc
+        log_event("info", "client", "Изменён выбор стран в подписке", {"client_id": client_id, "enabled": data.enabled, "node_ids": data.node_ids})
+        return await get_subscription_routes(client_id, db)
 
 
 async def _validate_exit_node(db, node_id):
@@ -517,17 +575,20 @@ async def get_subscription(token: str, request: Request, format: Literal["raw", 
     settings = await get_profile_settings(db)
     links = []
     if access_allowed(client):
+        main_label = await primary_label(db, client)
         for profile in profiles:
             if profile.kind not in globally_enabled:
                 continue
             if profile.kind in {"awg", "mtproto"}:
                 continue
-            link = make_profile_data(client, profile, settings) if profile.is_enabled else ""
+            label = f"{main_label} {PROFILE_LABELS.get(profile.kind, profile.kind)}"
+            link = make_profile_data(client, profile, settings, label=label) if profile.is_enabled else ""
             if link:
                 links.append(link)
-            cdn_link = make_cdn_link(client, profile, settings)
+            cdn_link = make_cdn_link(client, profile, settings, label=f"{main_label} Обход БС")
             if cdn_link:
                 links.append(cdn_link)
+        links.extend(await additional_links(db, client, profiles, settings, globally_enabled))
     content = base64.b64encode("\n".join(links).encode("utf-8")).decode("ascii")
     dns_rows = (await db.execute(select(Setting).where(Setting.key.like("dns.%")))).scalars().all()
     happ_settings = {row.key: row.value for row in dns_rows}
@@ -665,7 +726,7 @@ async def delete_client(client_id: int, db: AsyncSession = Depends(get_db), curr
     if client is None or (current_user.role != "admin" and client.created_by_id != current_user.id):
         raise HTTPException(status_code=404, detail="Клиент не найден")
     deleted_name = client.name
-    await db.execute(delete(Setting).where(Setting.key.in_([f"client.cdn.{client_id}", f"client.adblock.{client_id}"])))
+    await db.execute(delete(Setting).where(Setting.key.in_([f"client.cdn.{client_id}", f"client.adblock.{client_id}", setting_key(client_id)])))
     from app.models.operations import TelegramLink
     await db.execute(delete(TelegramLink).where(TelegramLink.client_id == client_id))
     await db.delete(client)

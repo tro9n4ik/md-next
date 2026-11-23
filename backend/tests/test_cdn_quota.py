@@ -147,7 +147,7 @@ async def test_happ_metadata_distinguishes_cdn_and_general_quota(normal, general
         assert lines[0] == r.headers["routing"]
         assert len(lines[1:]) == 1 + int(normal)
         from urllib.parse import unquote
-        assert '100 Б/мес' in unquote(base64.b64decode(r.text).decode())
+        assert unquote(lines[-1].rsplit('#', 1)[-1]) == '🌐 Обход БС'
         page = await api.get('/api/v1/sub/cdn-quota?format=page')
         assert 'aria-label="Трафик обхода БС"' in page.text
         assert 'из 100 Б' in page.text and 'Осталось 70 Б' in page.text

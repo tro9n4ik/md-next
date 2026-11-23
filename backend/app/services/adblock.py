@@ -4,6 +4,7 @@ from sqlalchemy import select
 from app.models.setting import Setting
 from app.services.client_limits import access_allowed
 from app.services.routing_rules import validate_rule_value
+from app.services.subscription_routes import profile_email
 ADS_DOMAIN = "geosite:category-ads-all"
 
 async def enabled_for_client(db, client_id: int) -> bool:
@@ -19,14 +20,14 @@ async def build_adblock_rules(db, profiles, kinds: set[str]) -> list[dict]:
         if client.id not in enabled or not access_allowed(client):
             continue
         if profile.kind == "vless_xhttp_tls" and profile.uuid and profile.kind in kinds:
-            users.add(f"c{client.id}-cdn@md-next")
+            users.add(profile_email(profile, client.id, cdn=True))
         if not profile.is_enabled or profile.kind not in kinds:
             continue
         if profile.kind == "awg":
             if profile.ip_address:
                 sources.add(str(ipaddress.ip_interface(profile.ip_address).ip))
         elif profile.kind.startswith("vless_") or profile.kind == "hysteria2":
-            users.add(f"c{client.id}-{profile.kind}@md-next")
+            users.add(profile_email(profile, client.id))
     if not users and not sources:
         return []
     validate_rule_value(ADS_DOMAIN)

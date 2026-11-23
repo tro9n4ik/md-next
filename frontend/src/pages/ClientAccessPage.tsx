@@ -11,6 +11,7 @@ import { apiFetch } from '../utils/api';
 import SubscriptionFields from '../components/SubscriptionFields';
 import ClientQuickActions from '../components/ClientQuickActions';
 import ClientExitRoute from '../components/ClientExitRoute';
+import ClientSubscriptionRoutes from '../components/ClientSubscriptionRoutes';
 import { clientStatus, formatSubscriptionDate, subscriptionPayload } from '../utils/subscriptions';
 import type { ClientLimits, SubscriptionValues } from '../utils/subscriptions';
 import { formatBytes } from '../utils/ru';
@@ -150,6 +151,7 @@ const ClientAccessPage: React.FC = () => {
     actions={<button onClick={() => navigate('/clients')} className="ui-button ui-button-secondary"><ArrowLeft size={16} />К клиентам</button>}>
     {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
     {isAdmin && <ClientExitRoute key={clientId} clientId={clientId} clientName={data.client.name} />}
+    {isAdmin && <ClientSubscriptionRoutes key={`countries-${clientId}`} clientId={clientId} />}
     {isAdmin && <><SubscriptionEditor key={`${data.client.id}-${data.client.monthly_traffic_limit}-${data.client.cdn_monthly_traffic_limit}-${data.client.expires_at}`} client={data.client} refresh={refresh} />
     <ClientQuickActions client={data.client} refresh={refresh} />
     <ProfileAccessEditor key={`${data.client.id}-${JSON.stringify(data.access)}-${data.adblock_enabled}`} data={data} refresh={refresh} /></>}

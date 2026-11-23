@@ -9,6 +9,7 @@ from app.models.node import Node
 from app.models.setting import Setting
 from app.services.client_limits import access_allowed
 from app.services.node_transport import node_outbound
+from app.services.subscription_routes import profile_email
 
 
 def node_summary(node):
@@ -71,19 +72,19 @@ def build_client_exit_rules(profiles, kinds, nodes_by_id, global_rules):
     """
     groups = {}
     for profile, client in profiles:
-        node_id = client.exit_node_id
+        node_id = getattr(profile, "route_node_id", None) or client.exit_node_id
         if node_id is None or not access_allowed(client) or profile.kind not in kinds:
             continue
         users, sources = groups.setdefault(node_id, (set(), set()))
         if profile.kind == "vless_xhttp_tls" and profile.uuid:
             # У CDN свой email; основной XHTTP TLS может быть запрещён отдельно.
-            users.add(f"c{client.id}-cdn@md-next")
+            users.add(profile_email(profile, client.id, cdn=True))
         if not profile.is_enabled:
             continue
         if profile.kind == "awg" and profile.ip_address:
             sources.add(str(ipaddress.ip_interface(profile.ip_address).ip))
         elif (profile.kind.startswith("vless_") and profile.uuid) or (profile.kind == "hysteria2" and profile.auth):
-            users.add(f"c{client.id}-{profile.kind}@md-next")
+            users.add(profile_email(profile, client.id))
     rules = []
     for node_id, (users, sources) in sorted(groups.items()):
         node = nodes_by_id.get(node_id)
