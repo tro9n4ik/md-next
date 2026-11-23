@@ -1,0 +1,9 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "SHA-256 демонстрационного скриншота: размер и сумма проверяются check-release-consistency.py"
+condition = "AND"
+paths = ['''^docs/assets/screenshots\.json$''']
+regexTarget = "line"
+regexes = ['''^\s*"client-access-demo\.jpg": "[a-f0-9]{64}",?$''']

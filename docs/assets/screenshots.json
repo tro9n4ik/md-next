@@ -1,21 +1,24 @@
 {
   "version": "2.5.14",
-  "source_base_commit": "d9fedeae28fe2b1058b3c7045d7f5db7f082c7dd",
+  "source_base_commit": "d2f445e25c3613284853b39ddad03d4df56401f3",
   "demo": true,
   "generated_from_worktree": true,
   "captured_at": "2026-11-02T07:30:00.000Z",
   "files": {
-    "client-create-demo.jpg": "07f320942a58c13a6b9c5bbd60f5cffe3de36901c529499814ff930e410899a3",
-    "clients-demo.jpg": "eead4841e2e3c64f59c40164f5719a2c525c3cb7646275988cca3f848d82ee20",
-    "dashboard-dark-demo.jpg": "4f107e697bd2178e9ac98ee69c1578a252181dae4849811cf84f268d032058b3",
-    "dashboard-demo.jpg": "d29658242446495c772db485cbfcb3a862d65d137688188eb48a096158570cc0",
-    "nodes-demo.jpg": "375f05707b31c6e61d28e8f9c9110b5e8dd942c6c8ff3dd2f57e14c1a1721313",
-    "protocols-demo.jpg": "7f0339e1f9ce6149b3b2e971a045926d933ddcb0fffb1c502e57d46e03599a78",
-    "settings-demo.jpg": "556c9b1c154a7e3c725fac5bb7ea7734c3b197731b887003cd17eb0a635b656d",
-    "subadmins-demo.jpg": "9cc05532e3f4a23b0994c7e483e9226766ce24e9d3b70467e2076bdf17656140",
-    "telegram-demo.jpg": "faf6447f6167840e6d069feb2ee83c5a7af63eb9ce2f645813308a5b884ee260",
-    "warp-demo.jpg": "0053115b2c2f7ea818dbb3129c1510437fa32e332c9d2f717d0d3cd9892482d9",
-    "wiki-demo.jpg": "a14361dd4cbf71e603442e5f2058a8a8a729362bbc43d2b8cbf3ef88c228583d"
+    "client-access-demo.jpg": "d706f278436cb34eafce40e6f84696df77066a25a6e9d15f3dd198dc63f47403",
+    "client-countries-demo.jpg": "29a3e557cdd760de980d0450886cc3a69b377197bf6e719e8384dcabd7ecc7fb",
+    "client-create-demo.jpg": "25928efd226265327f9adf0283f6c80ecc42aab07889fd262dde3b41deb676a3",
+    "client-manage-demo.jpg": "8f286c9f3ede6d0a5f581d65f60e615da0ebd14a455afb685a512c65dd2a0d4e",
+    "clients-demo.jpg": "84774cd03d8ee6e258e1aa6a96a9819407b026379110acb66099c069f8a185c3",
+    "dashboard-dark-demo.jpg": "77cb2f8c19d76babc5057ffbb5cae282a911dd6f40a0a0663db8eb4961c4b827",
+    "dashboard-demo.jpg": "cddec4b7a43d5c858510d76153c89f7efd0508d0967cc40be359586cafe05964",
+    "nodes-demo.jpg": "470fc797cc18de8a0beb97097c04e6b1aeb2c80a166b1f4f5a33acf6c7a10b36",
+    "protocols-demo.jpg": "456f4668d0b16bc88a2e4358036e1e78335f4983ce53452a14458db803658965",
+    "settings-demo.jpg": "750d79680a13cb0464fafe4e576ae6c9def74b85d7507d1a6ad9e0a768dc0bc9",
+    "subadmins-demo.jpg": "b008c5cf1a30b261974079001b8c348180ea858be9d45d0852551dbb64f2b68f",
+    "telegram-demo.jpg": "2f148e180f9dda54f7e75a6893e54a2fda30c6f1ee8dc0696aae38c915575303",
+    "warp-demo.jpg": "ba229a3020acad4fff36fc13616c9b1bce0a0e2da79ac05ab3eceee6d87c3364",
+    "wiki-demo.jpg": "7ab52c2e847838e0bdbffbb959f44e8fbc9f338c204ca3ca6048a2621c3bf9bc"
   },
   "captures": {
     "dashboard-demo.jpg": {
@@ -36,6 +39,30 @@
     },
     "clients-demo.jpg": {
       "route": "/clients",
+      "theme": "light",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      }
+    },
+    "client-access-demo.jpg": {
+      "route": "/clients/1/access",
+      "theme": "light",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      }
+    },
+    "client-countries-demo.jpg": {
+      "route": "/clients/1/access",
+      "theme": "light",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      }
+    },
+    "client-manage-demo.jpg": {
+      "route": "/clients/1/access",
       "theme": "light",
       "viewport": {
         "width": 1920,
