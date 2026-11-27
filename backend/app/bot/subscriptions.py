@@ -265,12 +265,11 @@ async def detail(message, client_id, *, edit=True):
             return
         limits = limit_info(client)
         status = {None: "🟢 Доступна", "disabled": "⏸ Приостановлена", "expired": "⌛ Срок истёк", "monthly_quota": "📦 Лимит исчерпан"}[limits['blocked_reason']]
-        text = (f"<b>📋 {escape(client.name)}</b> · #{client.id}\n\n{status}\n"
-                f"📞 {escape(client.phone or 'Не указан')}\n✉️ {escape(client.email or 'Не указана')}\n"
+        text = (f"<b>{escape(client.name)}</b>\n\n{status}\n"
                 f"📅 До: <b>{date_label(limits['expires_at'])}</b>\n"
                 f"📦 За месяц: <b>{limits['monthly_traffic_used'] / 1024 ** 3:.2f} ГБ / {traffic_label(limits['monthly_traffic_limit'])}</b>\n"
-                f"🛡 Обход БС: <b>{limits['cdn_monthly_traffic_used'] / 1024 ** 3:.2f} ГБ / {traffic_label(limits['cdn_monthly_traffic_limit'])}</b>\n"
-                f"🔄 Новый период: {date_label(limits['traffic_period_end'])}")
+                + (f"🛡 Обход БС: {limits['cdn_monthly_traffic_used'] / 1024 ** 3:.2f} ГБ / {traffic_label(limits['cdn_monthly_traffic_limit'])}"
+                   if limits['cdn_monthly_traffic_used'] or limits['cdn_monthly_traffic_limit'] else ''))
     return await show_screen(message, text, keyboard(
         [("📲 Выдать подключение", f"sub:link:{client_id}"), ("📅 Продлить", f"ops:extend:{client_id}")],
         [("✏️ Срок и лимиты", f"ops:conditions:{client_id}"), ("🔐 Профили", f"ops:profiles:{client_id}")],

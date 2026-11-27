@@ -35,7 +35,7 @@ def main_menu():
         [("➕ Новая подписка", "sub:new")],
         [("📋 Подписки", "ops:list:0")],
         [("🛠 Управление панелью", "adm:home")],
-        [("⚙️ Система", "md:system"), ("❔ Помощь", "md:help")],
+        [("🌍 Ноды", "adm:nodes"), ("⚙️ Система", "md:system"), ("❔ Помощь", "md:help")],
     )
 
 
@@ -190,15 +190,12 @@ async def home_text():
     async with AsyncSessionLocal() as db:
         clients = (await db.execute(select(Client))).scalars().all()
     active = sum(bool(limit_info(client)['access_allowed']) for client in clients)
-    return ("<b>MD-Next · Управление подписками</b>\n\n"
-            f"Всего подписок: <b>{len(clients)}</b>\nДоступны: <b>{active}</b> · Недоступны: <b>{len(clients)-active}</b>\n\n"
-            "Создайте подписку или выберите существующую. Срок, трафик и подключение — в её карточке.")
+    return f"<b>MD-Next</b>\nПодписки: {len(clients)} · доступны: {active}"
 
 
 @router.message(Command("status"))
 async def cmd_status(message: Message):
-    await show_screen(message, await status_text(), keyboard(
-        [("🔄 Обновить", "md:status")], [("🏠 Главное меню", "md:home")]))
+    await admin_console.section(message,message.from_user.id,'system')
 
 
 async def status_text():
@@ -338,14 +335,12 @@ async def menu_callback(callback: CallbackQuery):
         admin_tools.inputs.pop((callback.from_user.id, message.chat.id), None)
         await show_screen(message, await home_text(), main_menu(), edit=True)
     elif action == "md:system":
-        await show_screen(message, "<b>⚙️ Система</b>\n\nПроверьте состояние, выберите выход или запустите диагностику. Изменение ноды требует подтверждения.", keyboard(
-            [("📊 Состояние", "md:status"), ("🌐 Выход через ноду", "md:nodes")],
-            [("🩺 Проверить соединение", "ops:diagnostics"),('🔔 События','md:inbox')], [("🏠 Главное меню", "md:home")]), edit=True)
+        await admin_console.section(message,callback.from_user.id,'system')
     elif action.startswith('md:inbox'):
         from .inbox import screen
         await screen(message,action.removeprefix('md:inbox').lstrip(':') or None)
     elif action == "md:status":
-        await show_screen(message, await status_text(), keyboard([("🔄 Обновить", "md:status")], [("🏠 Главное меню", "md:home")]), edit=True)
+        await admin_console.section(message,callback.from_user.id,'system')
     elif action == "md:clients":
         await subscriptions.listing(message)
     elif action in ("md:new:vless", "md:new:awg"):
