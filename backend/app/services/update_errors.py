@@ -37,7 +37,7 @@ def classify_failure(stage='', log='', *, oom=False, error=None):
         code = 'disk'
     elif isinstance(error, subprocess.TimeoutExpired):
         code = 'timeout'
-    elif isinstance(error, URLError) or any(marker in text for marker in ('could not resolve host', 'temporary failure in name resolution', 'certificate verify failed', 'unable to get local issuer certificate', 'network is unreachable', 'failed to connect to')):
+    elif isinstance(error, URLError) or any(marker in text for marker in ('could not resolve host', 'temporary failure in name resolution', 'certificate verify failed', 'unable to get local issuer certificate', 'network is unreachable', 'failed to connect to', 'npm_network', 'etimedout', 'econnreset', 'eai_again', 'enotfound')):
         code = 'network'
     elif stage in {'python_dependencies', 'frontend_dependencies'}:
         code = 'dependencies'

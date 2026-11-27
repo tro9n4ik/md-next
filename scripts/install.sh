@@ -338,7 +338,7 @@ update_installation() {
   venv/bin/alembic upgrade head
 
   cd "$APP_DIR/frontend"
-  npm install --silent --no-audit --no-fund
+  python3 "$APP_DIR/scripts/npm-install.py" --directory "$APP_DIR/frontend"
   npm run build --silent
 
   write_backend_service
@@ -782,7 +782,7 @@ with open('/usr/local/etc/xray/config.json', 'w') as f:
 
 setup_frontend() {
   cd /opt/md-next/frontend
-  npm install --silent --no-audit --no-fund
+  python3 "$APP_DIR/scripts/npm-install.py" --directory "$APP_DIR/frontend"
   npm run build --silent
 }
 

@@ -179,7 +179,8 @@ class Updater:
         self.run([str(python), '-m', 'pip', 'install', '-r', str(repository / 'backend/requirements.txt')], env=build_env, timeout=900)
         self.run([str(python), '-c', 'import app.main'], cwd=repository / 'backend', env=environment(self.root))
         self.stage('frontend_dependencies')
-        self.run(['npm', 'ci', '--no-audit', '--no-fund'], cwd=repository / 'frontend', env=build_env, timeout=600)
+        self.run([self.request['python'], str(Path(__file__).with_name('npm-install.py')),
+                  '--directory', str(repository / 'frontend')], env=build_env, timeout=600)
         self.stage('frontend_build')
         self.run(['npm', 'run', 'build'], cwd=repository / 'frontend', env=build_env, timeout=300)
         return repository

@@ -75,6 +75,7 @@ def helper_sources():
               'awg-routing.py': ROOT/'scripts/awg-routing.py', 'network-latch.py': ROOT/'scripts/network-latch.py', 'controller-probe.py': ROOT/'scripts/controller-probe.py', 'network-mtu.py': ROOT/'scripts/network-mtu.py', 'network-policy.py': ROOT/'backend/app/services/network_policy.py', 'node-crypto.py': ROOT/'backend/app/services/crypto.py', 'host_identity.py': ROOT/'backend/app/services/host_identity.py', 'warp_registration.py': ROOT/'backend/app/services/warp_registration.py',
               'warp-uplink-runtime.py': ROOT/'scripts/warp-uplink-runtime.py',
               'disk-maintenance.py': ROOT/'scripts/disk-maintenance.py',
+              'npm-install.py': ROOT/'scripts/npm-install.py',
               'update-errors.py': ROOT/'backend/app/services/update_errors.py',
               'nginx.py': ROOT/'backend/app/services/nginx.py', 'app/services/shell.py': ROOT/'backend/app/services/shell.py',
               'app/services/privileges.py': ROOT/'backend/app/services/privileges.py'}
