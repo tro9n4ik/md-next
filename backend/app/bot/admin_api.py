@@ -11,7 +11,7 @@ from sqlalchemy import select
 from app.db.database import AsyncSessionLocal
 from app.models.user import User
 from app.services.telegram_settings import get_telegram_settings_from_db
-from .admin_catalog import OPERATIONS
+from .admin_catalog import OPERATIONS, label
 
 MAX_FILE_SIZE = 20 * 1024 * 1024
 
@@ -62,11 +62,12 @@ async def request(actor, chat, method, path, payload=None):
             detail = ""
         if isinstance(detail, list):
             # Не возвращаем Pydantic input/ctx: в них бывают пароли и ключи.
-            detail = "; ".join(" / ".join(map(str, item.get("loc", [])[1:])) + ": " + item.get("msg", "Ошибка ввода")
-                               for item in detail[:4])
+            detail = "; ".join(label(tuple(map(str,item.get('loc',[])[1:]))) + ': ' +
+                               (item.get('msg','').removeprefix('Value error, ') if any('а'<=c.lower()<='я' for c in item.get('msg','')) else 'проверьте значение')
+                               for item in detail[:2])
         if not isinstance(detail, str):
             detail = detail.get("message", "") if isinstance(detail, dict) else ""
-        raise ValueError(f"HTTP {response.status_code}: {detail[:1000] or 'Операция не выполнена. Проверьте журнал событий.'}")
+        raise ValueError(detail[:500] or 'Операция не выполнена. Проверьте журнал событий.')
     if response.status_code == 204:
         return {"message": "Готово"}
     if "application/json" in response.headers.get("content-type", ""):

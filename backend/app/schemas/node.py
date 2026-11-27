@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Literal
+import re
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
@@ -14,7 +15,14 @@ class NodeHosting(BaseModel):
             return None
         if any(ord(char) < 32 or ord(char) == 127 for char in value):
             raise ValueError('Ссылка не должна содержать управляющие символы')
-        url = HttpUrl(value.strip())
+        value = value.strip()
+        if value.startswith('//') or re.match(r'(?i)^(?:javascript|data|file|vbscript):', value) or re.match(r'^[a-zA-Z][a-zA-Z0-9+.-]*://', value):
+            try:
+                url = HttpUrl(value)
+            except ValueError:
+                raise ValueError('Укажите название хостера или ссылку HTTP/HTTPS.') from None
+        else:
+            return value
         if url.username or url.password:
             raise ValueError('Укажите ссылку без логина и пароля')
         result = str(url)

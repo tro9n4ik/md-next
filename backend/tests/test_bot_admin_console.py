@@ -64,7 +64,7 @@ async def test_non_owner_or_non_private_chat_never_reaches_api(actor, chat):
 
 @pytest.mark.asyncio
 async def test_bridge_uses_real_api_validation_and_owner_identity():
-    with pytest.raises(ValueError, match="HTTP 422"):
+    with pytest.raises(ValueError, match="Название"):
         await admin_api.call(42, 42, "group_new", payload={"name": ""})
     group = await admin_api.call(42, 42, "group_new", payload={"name": "Тестовая", "color": "blue"})
     result = await admin_api.call(42, 42, "groups")

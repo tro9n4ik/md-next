@@ -30,7 +30,7 @@ def reset_pending():
 
 def test_menu_has_owner_console_and_short_callback_data():
     menu=handlers.main_menu()
-    assert {'sub:new','md:system','md:help','ops:list:0','adm:home'} == {b.callback_data for row in menu.inline_keyboard for b in row}
+    assert {'sub:new','md:system','md:help','ops:list:0','adm:home','adm:nodes'} == {b.callback_data for row in menu.inline_keyboard for b in row}
     assert all(len(b.callback_data.encode()) <= 64 for row in menu.inline_keyboard for b in row)
 
 

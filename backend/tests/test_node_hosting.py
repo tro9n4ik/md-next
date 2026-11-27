@@ -16,6 +16,11 @@ def test_only_safe_http_links_are_accepted(url):
         NodeHosting(hosting_url=url)
 
 
+@pytest.mark.parametrize('name', ['Timeweb', 'Хостер у знакомого', 'Hetzner: сервер 2', 'host.example'])
+def test_hosting_can_be_a_plain_name(name):
+    assert NodeHosting(hosting_url='  '+name+'  ').hosting_url == name
+
+
 @pytest.mark.asyncio
 async def test_link_follows_invitation_and_can_be_changed_without_vpn_reconfiguration(auth_headers, monkeypatch):
     monkeypatch.setattr('app.api.nodes.ClientService.sync_xray_clients', AsyncMock(return_value=(True, '')))

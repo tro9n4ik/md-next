@@ -48,7 +48,7 @@ OPERATIONS = {item.key: item for item in (
     op("invite_revoke", "nodes", "Отозвать приглашение", "DELETE", "nodes/invites/{invite_id}"),
     op("invite_clean", "nodes", "Очистить историю приглашений", "DELETE", "nodes/invites/history"),
     op("node_toggle", "nodes", "Включить или отключить ноду", "PUT", "nodes/{node_id}/toggle"),
-    op("node_hosting", "nodes", "Ссылка на хостера", "PATCH", "nodes/{node_id}/hosting", "nodes/{node_id}"),
+    op("node_hosting", "nodes", "Хостер", "PATCH", "nodes/{node_id}/hosting", "nodes/{node_id}"),
     op("node_order", "nodes", "Порядок резервирования", "POST", "nodes/reorder", "nodes"),
     op("node_delete", "nodes", "Удалить ноду", "DELETE", "nodes/{node_id}", hint="Нода будет отключена от панели. Её сервер не удаляется."),
     op("node_control", "nodes", "Состояние агента ноды", "GET", "nodes/{node_id}/control"),
@@ -126,7 +126,7 @@ OPERATIONS = {item.key: item for item in (
 )}
 
 LABELS = {
-    "name": "Название", "username": "Логин", "password": "Пароль", "hosting_url": "Ссылка на хостера",
+    "name": "Название", "username": "Логин", "password": "Пароль", "hosting_url": "Хостер: название или ссылка",
     "ttl_hours": "Приглашение действует, часов", "transport": "Управляющий канал", "node_id": "Нода",
     "client_id": "Клиент", "group_id": "Группа", "user_id": "Субадминистратор", "rule_id": "Правило",
     "invite_id": "Приглашение", "enabled": "Включено", "is_active": "Доступ разрешён",

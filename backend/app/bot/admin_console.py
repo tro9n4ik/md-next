@@ -8,6 +8,7 @@ import os
 import re
 import secrets
 import shlex
+import sys
 import time
 from dataclasses import dataclass, field
 from html import escape
@@ -26,6 +27,10 @@ buttons = {}
 drafts = {}
 running = set()
 tasks = set()
+
+
+def sys_module():
+    return sys.modules[__name__]
 
 
 def escaped_text(value, limit=3000):
@@ -49,6 +54,10 @@ class Draft:
     current: dict = field(default_factory=dict)
     waiting: tuple | None = None
     page: int = 0
+    node_page: int | None = None
+    context: str = ''
+    node_state: tuple | None = None
+    return_view: tuple | None = None
     expires: float = field(default_factory=lambda: time.monotonic() + TTL)
 
 
@@ -86,6 +95,11 @@ async def draw(message, actor, title, text, rows):
     for row in rows:
         output = []
         for text_label, action, value in row:
+            if action == 'direct':
+                if not isinstance(value,str) or not value.startswith(('ops:','sub:','md:')):
+                    raise ValueError('Недопустимая кнопка.')
+                output.append((text_label[:60],value))
+                continue
             token = secrets.token_hex(8)
             buttons[token] = {"actor": actor, "chat": message.chat.id, "message": message.message_id,
                               "action": action, "value": value, "expires": time.monotonic() + TTL}
@@ -103,11 +117,98 @@ async def draw(message, actor, title, text, rows):
 async def home(message, actor):
     cancel(actor, message.chat.id)
     rows = [[(title, "section", (key, 0))] for key, title in SECTIONS.items()]
-    await draw(message, actor, "Управление панелью", "Все настройки доступны только владельцу.\nВыберите раздел.", rows)
+    await draw(message, actor, "Управление панелью", "", rows)
+
+
+def node_label(node):
+    code = str(node.get('country_code') or node.get('country') or '').upper()
+    flag = ''.join(chr(127397 + ord(char)) for char in code) if len(code) == 2 and code.isascii() and code.isalpha() and code not in {'XX', 'ZZ'} else '🌐'
+    return flag + ' ' + str(node.get('name') or 'Нода').replace('\n', ' ')[:34]
+
+
+async def nodes_home(message, actor):
+    await nodes_list(message, actor)
+
+
+async def nodes_list(message, actor, page=0):
+    nodes = await api.call(actor, message.chat.id, 'nodes')
+    route = await api.call(actor, message.chat.id, 'route')
+    active_id = (route.get('active_node') or {}).get('id')
+    nodes = sorted(nodes, key=lambda node: (node.get('priority', 0), node['id']))
+    size = 3
+    page = max(0, min(page, max(0, (len(nodes) - 1) // size)))
+    rows = []
+    for node in nodes[page * size:(page + 1) * size]:
+        active = node['id'] == active_id
+        enabled = node.get('is_enabled', True)
+        status = 'пауза' if not enabled else ('активная' if node.get('status') == 'healthy' else 'активная · нет связи') if active else 'в сети' if node.get('status') == 'healthy' else 'нет связи'
+        rows.append([(node_label(node) + ' · ' + status, 'nodes_list', page)])
+        rows.append([
+            ('● Активна' if active else 'Сделать активной', 'nodes_list' if active else 'node_action', page if active else ('active_node', node['id'], None, page)),
+            ('Приостановить' if enabled else 'Включить', 'node_action', ('node_toggle', node['id'], not enabled, page)),
+            ('Удалить', 'node_action', ('node_delete', node['id'], None, page)),
+        ])
+    nav = []
+    if page:
+        nav.append(('←', 'nodes_list', page - 1))
+    if (page + 1) * size < len(nodes):
+        nav.append(('→', 'nodes_list', page + 1))
+    if nav:
+        rows.append(nav)
+    rows.append([('＋ Добавить', 'start', 'node_new'), ('Настройки', 'nodes_settings', 'main')])
+    rows.append([('← Разделы', 'home', None)])
+    await draw(message, actor, 'Ноды', f'Всего: {len(nodes)}' if nodes else 'Нод пока нет.', rows)
+
+
+async def nodes_settings(message, actor, group):
+    cancel(actor, message.chat.id)
+    groups = {
+        'route': ('Маршрут', ('route_check', 'failover', 'node_order')),
+        'invites': ('Приглашения', ('invites', 'invite_revoke', 'invite_clean')),
+        'other': ('Настройки нод', ('node_hosting', 'history', 'node_control', 'node_command')),
+    }
+    if group == 'main':
+        rows = [[('Маршрут', 'nodes_settings', 'route'), ('Приглашения', 'nodes_settings', 'invites')],
+                [('Хостер и обслуживание', 'nodes_settings', 'other')]]
+        title = 'Настройки нод'
+    else:
+        title, keys = groups[group]
+        rows = [[(OPERATIONS[key].title, 'start', key)] for key in keys]
+    rows.append([('← Ноды', 'nodes_list', 0)])
+    await draw(message, actor, title, '', rows)
+
+
+async def node_action(message, actor, key, node_id, desired, page):
+    if key not in {'active_node', 'node_toggle', 'node_delete'}:
+        raise ValueError('Действие недоступно.')
+    node = await api.call(actor, message.chat.id, 'node', {'node_id': node_id})
+    if key == 'active_node' and not node.get('is_enabled', True):
+        raise ValueError('Сначала включите ноду.')
+    if key == 'node_toggle' and node.get('is_enabled', True) == desired:
+        await nodes_list(message, actor, page)
+        return
+    fields = [(('node_id',), {'type': 'integer'})] if key == 'active_node' else []
+    draft = Draft(key, params={} if key == 'active_node' else {'node_id': node_id},
+                  fields=fields, values={'node_id': node_id} if fields else {},
+                  node_page=page, context=node_label(node), node_state=(node.get('name'), node.get('host'), node.get('is_enabled', True)))
+    drafts[(actor, message.chat.id)] = draft
+    if key == 'node_toggle':
+        route = await api.call(actor, message.chat.id, 'route')
+        if desired or (route.get('active_node') or {}).get('id') != node_id:
+            cancel(actor, message.chat.id)
+            await safe_execute(message, actor, draft)
+            return
+    await review(message, actor, draft)
 
 
 async def section(message, actor, key, page=0):
     cancel(actor, message.chat.id)
+    if key == 'nodes':
+        await nodes_home(message, actor)
+        return
+    from . import admin_compact
+    if await admin_compact.section(sys_module(), message, actor, key):
+        return
     items = [op for op in OPERATIONS.values() if op.section == key]
     rows = [[(op.title, "start", op.key)] for op in items[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]]
     navigation = []
@@ -118,7 +219,7 @@ async def section(message, actor, key, page=0):
     if navigation:
         rows.append(navigation)
     rows.append([("← Все разделы", "home", None)])
-    await draw(message, actor, SECTIONS[key], "Выберите действие. Подтверждение требуется только для важных изменений.", rows)
+    await draw(message, actor, SECTIONS[key], "", rows)
 
 
 def secret(path):
@@ -151,7 +252,45 @@ def readable(value, path=()):
 
 
 async def result_screen(message, actor, key, value, page=0):
+    if key in {'nodes', 'node'}:
+        await nodes_list(message, actor, page)
+        return
     operation = OPERATIONS[key]
+    if operation.section == 'nodes' and not isinstance(value, bytes):
+        if key == 'node_new':
+            await draw(message, actor, 'Новая нода', escape(str(value.get('name', 'Нода'))),
+                       [[('Команда установки', 'invite_command', value['token'])], [('← Ноды', 'nodes_list', 0)]])
+        elif key == 'route_check':
+            await draw(message, actor, 'Выход в интернет', escaped_text(value.get('exit_ip', 'Не определён')),
+                       [[('← Ноды', 'nodes_list', 0)]])
+        elif key == 'node_control':
+            states = {'standard': 'Обычное подключение', 'unpaired': 'Агент не привязан', 'waiting': 'Ожидание агента', 'online': 'Агент на связи', 'offline': 'Агент не отвечает'}
+            await draw(message, actor, 'Агент ноды', states.get(value.get('state'), 'Статус неизвестен'),
+                       [[('← Ноды', 'nodes_list', 0)]])
+        elif key == 'history':
+            availability = value.get('availability')
+            text = 'За сутки: ' + (f'{availability:g}%' if isinstance(availability, (int, float)) else 'нет данных')
+            if value.get('last_failure'):
+                text += '\nПоследний сбой: ' + str(value['last_failure']).replace('T', ' ')[:16] + ' UTC'
+            await draw(message, actor, 'Доступность ноды', escaped_text(text), [[('← Ноды', 'nodes_list', 0)]])
+        elif operation.method != 'GET':
+            await nodes_list(message, actor)
+        else:
+            entries = value if isinstance(value, list) else value.get('items', []) if isinstance(value, dict) else []
+            page = max(0, min(page, max(0, (len(entries)-1)//5)))
+            lines = [str(item.get('name') or item.get('message') or item.get('status') or 'Запись')[:100] for item in entries[page*5:(page+1)*5] if isinstance(item, dict)]
+            rows = []
+            nav = []
+            if page:
+                nav.append(('←', 'result', (key, value, page-1)))
+            if (page+1)*5 < len(entries):
+                nav.append(('→', 'result', (key, value, page+1)))
+            if nav:
+                rows.append(nav)
+            rows.append([('← Ноды', 'nodes_list', 0)])
+            await draw(message, actor, operation.title, escaped_text('\n'.join(lines)) or 'Нет записей.',
+                       rows)
+        return
     if isinstance(value, bytes):
         await draw(message, actor, operation.title, "Готово. Файл отправлен ниже. Сохраните его перед переходом на другой экран.",
                    [[("← В раздел", "section", (operation.section, 0))]])
@@ -159,33 +298,9 @@ async def result_screen(message, actor, key, value, page=0):
         from .chat_screen import remember_attachment
         await remember_attachment(message, sent)
         return
-    lines = readable(value)
-    pages, chunk, count = [], [], 0
-    for line in lines:
-        length = len(escape(line))
-        if count + length > 2800:
-            pages.append(chunk)
-            chunk, count = [], 0
-        chunk.append(line)
-        count += length + 1
-    pages.append(chunk)
-    page = min(max(page, 0), len(pages) - 1)
-    rows = []
-    navigation = []
-    if page:
-        navigation.append(("← Назад", "result", (key, value, page - 1)))
-    if page + 1 < len(pages):
-        navigation.append(("Далее →", "result", (key, value, page + 1)))
-    if navigation:
-        rows.append(navigation)
-    if key == "node_new" and isinstance(value, dict) and value.get("token"):
-        rows.append([("Показать команду установки", "invite_command", value["token"])])
-    if key == "totp_setup" and isinstance(value, dict) and value.get("secret"):
-        rows.append([("Показать ключ для приложения 2FA", "totp_key", value["secret"])])
-    if operation.method == "GET":
-        rows.append([("Обновить", "start", key)])
-    rows.append([("← В раздел", "section", (operation.section, 0))])
-    await draw(message, actor, operation.title, escaped_text("\n".join(pages[page])) or "Готово.", rows)
+    from . import admin_compact
+    if await admin_compact.present(sys_module(),message,actor,key,value,page):
+        return
 
 
 SOURCES = {
@@ -231,7 +346,8 @@ async def choose(message, actor, draft, path, page=0, parameter=False):
 
 
 async def start(message, actor, key):
-    draft = Draft(key)
+    from .admin_compact import return_view
+    draft = Draft(key,return_view=return_view(key))
     drafts[(actor, message.chat.id)] = draft
     await continue_start(message, actor, draft)
 
@@ -280,7 +396,7 @@ async def form(message, actor, draft, page=None):
         } else "Сохранить" if operation.method in {"PUT", "PATCH"} else "Выполнить"
         rows.append([(submit_label, "review", None)])
     rows.append([("Отмена", "section", (operation.section, 0))])
-    text = "Выберите поле, чтобы изменить значение.\n" + escape(operation.hint)
+    text = ''
     if draft.key == "client_access":
         text = "Выберите профиль и включите или отключите его. Изменение сохраняется сразу."
     if not draft.fields:
@@ -365,8 +481,8 @@ async def templates(message, actor, draft, page=0):
         rows.append(nav)
     if len(values) < 20:
         rows.append([("Добавить шаблон", "template_add", None)])
-    rows.append([("Готово", "form", draft.page)])
-    await draw(message, actor, "Шаблоны подписок", "Выберите шаблон. Изменения применятся по кнопке «Сохранить» в форме.", rows)
+    rows.append([("Сохранить", "review", None)])
+    await draw(message, actor, "Шаблоны подписок", "", rows)
 
 
 async def template_item(message, actor, draft, index):
@@ -375,8 +491,8 @@ async def template_item(message, actor, draft, index):
     rows = [[(label((key,)) + ": " + (traffic_label(value) if key == "monthly_traffic_limit" else short(value)), "template_field", ("templates", str(index), key))]
             for key, value in item.items() if key != "id"]
     rows.append([("Убрать из списка", "template_remove", index)])
-    rows.append([("← Шаблоны", "templates", 0)])
-    await draw(message, actor, item["name"], "Настройте шаблон. 0 снимает ограничение трафика.", rows)
+    rows.append([("Сохранить", "review", None), ("← Шаблоны", "templates", 0)])
+    await draw(message, actor, item["name"], "", rows)
 
 
 async def template_field(message, actor, draft, path):
@@ -441,7 +557,8 @@ async def review(message, actor, draft):
         return
     operation = OPERATIONS[draft.key]
     changed = [(path, value) for path, _ in draft.fields if path != ("confirm",)
-               and (value := api.get_value(draft.values, path)) is not None]
+               and (value := api.get_value(draft.values, path)) is not None
+               and (not operation.current or value != api.get_value(draft.current,path))]
     lines = [f"{label(path)}: {short(value, path)}" for path, value in changed]
     lines += [f"{label((key,))}: {value}" for key, value in draft.params.items()]
     # При длинной форме не скрываем параметры: полная карточка остаётся доступна
@@ -449,7 +566,10 @@ async def review(message, actor, draft):
     if sum(map(len, lines)) > 2300:
         lines = [f"{label(path)}: {short(value, path)}" for path, value in changed
                  if value != api.get_value(draft.current, path)]
-    text = escaped_text("\n".join(lines), 2700) + "\n\n" + escape(operation.hint) + "\n\nПрименить действие?"
+    text = escaped_text(draft.context or "\n".join(lines[:4]), 800)
+    if draft.key in {'restore','migration_start','update_install','client_delete','client_sub','profile_regenerate'}:
+        text += '\n'+escaped_text(operation.hint,250)
+    text += "\n\nПрименить?"
     await draw(message, actor, operation.title, text,
                [[("✅ Подтвердить", "confirm", copy.deepcopy(draft))], [("Изменить", "form", draft.page)],
                 [("Отмена", "section", (operation.section, 0))]])
@@ -461,6 +581,11 @@ async def execute(message, actor, draft):
         raise ValueError("Предыдущее действие ещё выполняется.")
     running.add(message.chat.id)
     try:
+        if draft.node_state is not None:
+            identifier = draft.values.get('node_id') if draft.key == 'active_node' else draft.params['node_id']
+            current_node = await api.call(actor, message.chat.id, 'node', {'node_id': identifier})
+            if (current_node.get('name'), current_node.get('host'), current_node.get('is_enabled', True)) != draft.node_state:
+                raise ValueError('Нода уже изменилась. Обновите список.')
         payload = copy.deepcopy(draft.values) if draft.fields else None
         if draft.fields and ("confirm",) in dict(draft.fields):
             payload["confirm"] = True
@@ -470,6 +595,9 @@ async def execute(message, actor, draft):
                 raise ValueError("Настройки уже изменились. Откройте форму заново, чтобы не перезаписать изменения.")
         await draw(message, actor, operation.title, "⏳ Выполняю…", [])
         value = await api.call(actor, message.chat.id, draft.key, draft.params, payload)
+        if draft.node_page is not None:
+            await nodes_list(message, actor, draft.node_page)
+            return
         if draft.key in {"telegram", "restore"}:
             from .bot import get_bot
             active_bot = get_bot()
@@ -480,11 +608,18 @@ async def execute(message, actor, draft):
             except ValueError:
                 return
         if draft.key == "restore_preview" and isinstance(value, dict) and value.get("token"):
+            tables=value.get('tables',[])
+            summary=' · '.join(f'{title}: {sum(int(item.get(field,0)) for item in tables)}' for title,field in
+                             (('Добавится','added'),('Изменится','changed'),('Удалится','removed')))
             await draw(message, actor, "Проверка резервной копии",
-                       escape("\n".join(readable(value.get("tables", [])))[:2400]) + "\n\n" + escape(value.get("notice", "")),
+                       escaped_text(summary)+'\n\n'+escaped_text(value.get('notice','Данные панели будут заменены.'),700),
                        [[("Перейти к восстановлению", "restore_ready", {
                            "token": value["token"], "password": payload["password"]})],
                         [("Отмена", "section", ("backups", 0))]])
+            return
+        if draft.return_view is not None and not isinstance(value,bytes):
+            from .admin_compact import open_view
+            await open_view(sys_module(),message,actor,*draft.return_view)
             return
         await result_screen(message, actor, draft.key, value)
     finally:
@@ -527,6 +662,15 @@ async def callback(event):
     if event.data == "adm:home":
         await home(message, actor)
         return
+    if event.data == 'adm:nodes':
+        cancel(actor, message.chat.id)
+        try:
+            await nodes_list(message, actor)
+        except Exception as exc:
+            logger.warning('Список нод Telegram: %s', type(exc).__name__)
+            await draw(message, actor, 'Ноды', 'Не удалось загрузить. Попробуйте ещё раз.',
+                       [[('Обновить', 'nodes_list', 0)]])
+        return
     token = event.data.removeprefix("adm:b:")
     ticket = buttons.get(token)
     if not ticket or (ticket["actor"], ticket["chat"], ticket["message"]) != (actor, message.chat.id, message.message_id):
@@ -544,6 +688,27 @@ async def callback(event):
             await section(message, actor, *value)
         elif action == "start":
             await start(message, actor, value)
+        elif action == 'nodes_list':
+            cancel(actor, message.chat.id)
+            await nodes_list(message, actor, value)
+        elif action == 'nodes_settings':
+            await nodes_settings(message, actor, value)
+        elif action == 'compact_group':
+            from .admin_compact import menu
+            cancel(actor,message.chat.id)
+            await menu(sys_module(),message,actor,value)
+        elif action == 'compact_page':
+            from .admin_compact import open_view
+            cancel(actor,message.chat.id)
+            await open_view(sys_module(),message,actor,*value)
+        elif action == 'compact_bound':
+            from .admin_compact import bound_action
+            await bound_action(sys_module(),message,actor,value)
+        elif action == 'compact_template':
+            from .admin_compact import edit_template
+            await edit_template(sys_module(),message,actor,value)
+        elif action == 'node_action':
+            await node_action(message, actor, *value)
         elif action == "result":
             await result_screen(message, actor, *value)
         elif action == "invite_command":

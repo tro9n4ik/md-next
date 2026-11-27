@@ -40,18 +40,8 @@ async def client_list(message,actor,page=0):
     if kind=='soon': clients=[c for c in clients if c.expires_at and now<utc(c.expires_at)<=now+timedelta(days=7)]
     elif kind=='quota': clients=[c for c in clients if (info:=limit_info(c))['blocked_reason']=='monthly_quota' or info['cdn_quota_exhausted']]
     elif kind=='paused': clients=[c for c in clients if not c.is_active]
-    page=max(0,min(page,max(0,(len(clients)-1)//8)))
-    rows=[[('➕ Создать подписку','sub:new'),('🔎 Найти','ops:search')],
-          [('Все','ops:filter:all'),('⌛ Скоро истекают','ops:filter:soon')],
-          [('📦 Лимит исчерпан','ops:filter:quota'),('⏸ На паузе','ops:filter:paused')]]
-    for c in clients[page*8:page*8+8]: rows.append([(('🟢 ' if limit_info(c)['access_allowed'] else '🔴 ')+c.name[:35],f'ops:detail:{c.id}')])
-    nav=[]
-    if page: nav.append(('← Назад',f'ops:list:{page-1}'))
-    if (page+1)*8<len(clients): nav.append(('Далее →',f'ops:list:{page+1}'))
-    if nav: rows.append(nav)
-    rows.append([('🏠 Главное меню','md:home')])
-    label={'all':'Все','soon':'Скоро истекают','quota':'Лимит исчерпан','paused':'Приостановлены'}.get(kind,'Все')
-    await show_screen(message,f'<b>Подписки · найдено {len(clients)}</b>\nПоиск: {escape(q) or "—"} · Фильтр: {label}',keyboard(*rows),edit=True)
+    from . import admin_compact,admin_console
+    await admin_compact.client_list(admin_console,message,actor,clients,page,q)
 
 
 async def detail(message,client_id):
@@ -93,13 +83,13 @@ async def profile_menu(message,client_id):
     rows=[]
     for p in data['access']:
         if not p['available']:
-            rows.append([('⚪ '+p['label']+' · выключен в панели',f"ops:unavailable:{client_id}")])
+            continue
         else:
             rows.append([(('✅ ' if p['is_enabled'] else '⛔ ')+p['label'],f"ops:profile:{client_id}:{p['kind']}:{int(not p['is_enabled'])}")])
     rows.append([('⏸ Приостановить подписку' if data['client']['is_active'] else '▶️ Включить подписку',f'ops:toggle:{client_id}')])
     rows.append([('← Карточка',f'ops:detail:{client_id}')])
     status={None:'Подписка доступна','disabled':'Подписка приостановлена','expired':'Срок подписки истёк','monthly_quota':'Лимит подписки исчерпан'}.get(data['client']['blocked_reason'],'Подписка недоступна')
-    await show_screen(message,f"<b>Профили: {escape(data['client']['name'])}</b>\n{status}\n\n✅ Разрешён · ⛔ Запрещён · ⚪ Выключен в панели\nНажмите профиль и подтвердите включение или отключение. CDN управляется отдельно от XHTTP TLS. После изменения обновите подписку в приложении.",keyboard(*rows),edit=True)
+    await show_screen(message,f"<b>{escape(data['client']['name'])} · профили</b>\n{status}",keyboard(*rows),edit=True)
 
 
 async def diagnosis(message,actor=None,*,edit=False):
@@ -161,6 +151,11 @@ async def callback(callback):
         if action=='search':
             inputs[(actor,callback.message.chat.id)]={'kind':'search','expires':time.monotonic()+300}
             await show_screen(callback.message,'Отправьте имя, телефон или почту. /cancel отменяет ввод.',keyboard([('Отмена','ops:list:0')]),edit=True);return
+        if action=='filters':
+            await show_screen(callback.message,'<b>Фильтр</b>',keyboard(
+                [('Все','ops:filter:all'),('Истекают','ops:filter:soon')],
+                [('Лимит','ops:filter:quota'),('Пауза','ops:filter:paused')],
+                [('← Подписки','ops:list:0')]),edit=True);return
         if action.startswith('filter:'):
             filters[actor]={'filter':action.split(':')[1],'q':'','expires':time.monotonic()+1800}
             await client_list(callback.message,actor);return
