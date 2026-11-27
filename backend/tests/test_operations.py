@@ -203,8 +203,11 @@ async def test_bot_profiles_and_subscription_toggle_change_raw_access():
     cb=SimpleNamespace(data='',from_user=SimpleNamespace(id=42),message=screen,answer=AsyncMock())
     async def perform(action):
         cb.data=action;await admin_tools.callback(cb)
-        assert admin_tools.pending
-        cb.data='ops:confirm:'+next(iter(admin_tools.pending));await admin_tools.callback(cb)
+        if action.startswith('ops:profile:'):
+            assert not admin_tools.pending
+        else:
+            assert admin_tools.pending
+            cb.data='ops:confirm:'+next(iter(admin_tools.pending));await admin_tools.callback(cb)
         assert not admin_tools.pending
     async def raw():
         import base64
