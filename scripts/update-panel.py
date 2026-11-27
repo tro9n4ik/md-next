@@ -79,7 +79,8 @@ def active_awg_units():
 class Updater:
     def __init__(self, root, state, request):
         self.root, self.state, self.request = root, state, request
-        self.data = {'commit': request['commit'], 'started_at': time.time()}
+        self.data = {'commit': request['commit'], 'started_at': time.time(),
+                     'phase': 'queued', 'message': 'Подготовка обновления.'}
         self.backup = None
         self.activated = False
         self.old_venv = None
