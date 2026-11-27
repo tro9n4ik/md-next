@@ -30,6 +30,8 @@ def test_sigkill_without_oom_evidence_is_not_reported_as_memory_failure():
     ('backup', '', OSError(errno.ENOSPC, 'synthetic'), 'disk'),
     ('download', '', subprocess.TimeoutExpired(['git'], 10), 'timeout'),
     ('download', 'Could not resolve host: github.com', None, 'network'),
+    ('frontend_dependencies', 'npm error code ETIMEDOUT', None, 'network'),
+    ('frontend_dependencies', 'NPM_NETWORK: all sources unavailable', None, 'network'),
     ('python_dependencies', 'resolution failed', None, 'dependencies'),
     ('migration', 'synthetic DB failure', None, 'migration'),
     ('health', '', None, 'health'),
