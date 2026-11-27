@@ -50,11 +50,10 @@ async def request(actor, chat, method, path, payload=None):
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=bounded_app),
                                  base_url="http://telegram.internal") as client:
         try:
-            async with asyncio.timeout(180):
-                arguments = {"content": payload} if isinstance(payload, bytes) else {"json": payload}
-                response = await client.request(method, path, **arguments,
-                    headers={"Authorization": "Bearer " + token})
-        except TimeoutError:
+            arguments = {"content": payload} if isinstance(payload, bytes) else {"json": payload}
+            response = await asyncio.wait_for(client.request(method, path, **arguments,
+                headers={"Authorization": "Bearer " + token}), timeout=180)
+        except (TimeoutError, asyncio.TimeoutError):
             raise ValueError("Ответ не получен вовремя. Проверьте состояние операции перед повтором.") from None
     if response.status_code >= 400:
         try:
