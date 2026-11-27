@@ -32,6 +32,6 @@ export default function Drawer({ title, children, onClose, busy = false, dirty =
       <h2 id={titleId} className="ui-card-title">{title}</h2>
       <button type="button" aria-label="Закрыть" disabled={busy} onClick={onClose} className="ui-button ui-button-secondary !min-h-9 !p-2"><X size={18} /></button>
     </header>
-    <div className="min-h-0 flex-1 overflow-y-auto p-5 sm:p-6">{children}</div>
+    <div className="min-h-0 overflow-y-auto p-5 sm:p-6">{children}</div>
   </dialog>;
 }
