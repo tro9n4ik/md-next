@@ -291,6 +291,18 @@ EOF
   python3 "$(dirname "${BASH_SOURCE[0]}")/install-awg-runtime.py" || return 1
 }
 
+prepare_build_cache() {
+  python3 "$APP_DIR/scripts/disk-maintenance.py" --prepare-cache
+  if [ -L /var/lib/md-next/maintenance.lock ]; then
+    echo "Небезопасный файл блокировки обслуживания" >&2
+    return 1
+  fi
+  exec 9>>/var/lib/md-next/maintenance.lock
+  flock -n 9 || { echo "Уже выполняется обновление, переезд или очистка" >&2; return 1; }
+  export PIP_CACHE_DIR=/var/cache/md-next/pip
+  export npm_config_cache=/var/cache/md-next/npm
+}
+
 update_installation() {
   if [ ! -d "$APP_DIR/backend" ] || [ ! -f /etc/systemd/system/md-next-backend.service ]; then
     echo "Установка MD-Next не найдена в $APP_DIR."
@@ -313,6 +325,7 @@ update_installation() {
   cp -a "$update_dir/repo/." "$APP_DIR/"
   [ ! -d "$backup_dir/fake" ] || cp -a "$backup_dir/fake/." "$APP_DIR/backend/app/static/fake/"
   rm -rf "$update_dir"
+  prepare_build_cache
   ensure_probe_env
   python3 "$APP_DIR/scripts/nginx-capacity.py"
   update_nginx_routes
@@ -334,6 +347,7 @@ update_installation() {
   python3 "$APP_DIR/scripts/install-privilege-separation.py"
   wait_backend_ready
   systemctl reload nginx
+  python3 "$APP_DIR/scripts/disk-maintenance.py" --install
   record_install_commit
   echo "MD-Next успешно обновлён. Резервная копия: $backup_dir"
 }
@@ -352,6 +366,8 @@ remove_installation() {
     exit 0
   fi
 
+  systemctl disable --now md-next-cache-clean.timer md-next-cache-clean.service 2>/dev/null || true
+  rm -f /etc/systemd/system/md-next-cache-clean.timer /etc/systemd/system/md-next-cache-clean.service
   systemctl disable --now md-next-backend md-next-mtproto.service 2>/dev/null || true
   rm -f /etc/systemd/system/md-next-mtproto.service /usr/local/bin/md-next-mtg
   rm -rf /etc/md-next-mtproto
@@ -997,6 +1013,7 @@ run_step "Установка AmneziaWG" install_awg
 run_step "Установка Node.js (v24)" install_node
 run_step "Установка Xray-core" install_xray
 run_step "Развертывание MD-Next из рабочей директории" setup_repo
+run_step "Подготовка отдельного кэша сборки" prepare_build_cache
 run_step "Настройка выхода AmneziaWG через ноды" install_awg_routing
 run_step "Настройка Backend, миграции БД и конфигурация Xray" setup_backend
 run_step "Создание сайта-заглушки" setup_placeholder
@@ -1005,6 +1022,7 @@ run_step "Настройка Nginx, SSL и системных сервисов" 
 run_step "Первичная синхронизация VPN" wait_backend_ready
 run_step "Изоляция панели от root" python3 /opt/md-next/scripts/install-privilege-separation.py
 run_step "Ожидание готовности API" wait_backend_ready
+run_step "Автоочистка временных файлов" python3 /opt/md-next/scripts/disk-maintenance.py --install
 run_step "Сохранение номера установленной сборки" record_install_commit
 
 if [ "${MDNEXT_MIGRATION_STAGING:-0}" = "1" ]; then

@@ -167,7 +167,10 @@ def dispatch(request):
     if operation == 'update-status':
         path = Path('/var/lib/md-next/updates/status.json')
         state = json.loads(path.read_text()) if path.exists() else {'phase': 'idle', 'message': 'Обновление ещё не запускалось.'}
-        fields = {'phase', 'message', 'commit', 'backup', 'started_at', 'finished_at'}
+        spec = importlib.util.spec_from_file_location('trusted_update_errors', LIB/'update-errors.py')
+        diagnostics = importlib.util.module_from_spec(spec); spec.loader.exec_module(diagnostics)
+        state = diagnostics.enrich_failure(state)
+        fields = {'phase', 'message', 'commit', 'backup', 'started_at', 'finished_at', 'stage', 'failure'}
         return [0, json.dumps({k: v for k, v in state.items() if k in fields}), '']
     if operation == 'update-start':
         if (Path('/var/lib/md-next/migration')/'source-fenced.json').exists():

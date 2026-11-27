@@ -49,6 +49,26 @@ def test_pre_agent_backup_migration_and_no_revived_agent_credentials(tmp_path, m
     assert all(restored[key] is None for key in backups.NODE_CONTROL_DEFAULTS if key != "transport")
 
 
+def test_backup_before_hosting_link_upgrade_and_new_link_roundtrip(tmp_path, monkeypatch):
+    config = Config()
+    config.set_main_option('script_location', str(Path(__file__).resolve().parents[1] / 'alembic'))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(backups, 'BACKUP_DIR', tmp_path/'backups')
+    command.upgrade(config, '0024_node_reality_domain')
+    with sqlite3.connect('md_next.db') as db:
+        db.execute("INSERT INTO nodes (name,host,port,protocol) VALUES ('legacy','192.0.2.1',443,'trojan')")
+    password = 'synthetic-hosting-backup-password'
+    old_meta = backups.create_backup(password)
+    old_blob = (backups.BACKUP_DIR/old_meta['name']).read_bytes()
+    command.upgrade(config, 'head')
+    assert backups.read_backup(old_blob, password)['tables']['nodes'][0]['hosting_url'] is None
+    with sqlite3.connect('md_next.db') as db:
+        db.execute("UPDATE nodes SET hosting_url='https://host.example/servers/42'")
+    new_meta = backups.create_backup(password)
+    restored = backups.read_backup((backups.BACKUP_DIR/new_meta['name']).read_bytes(), password)
+    assert restored['tables']['nodes'][0]['hosting_url'] == 'https://host.example/servers/42'
+
+
 @pytest.mark.asyncio
 async def test_node_secret_is_encrypted_in_sqlite_and_plain_in_application(monkeypatch):
     async with TestingSessionLocal() as db:

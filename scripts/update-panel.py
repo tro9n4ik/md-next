@@ -17,6 +17,7 @@ import time
 import urllib.request
 import pwd
 import stat
+import runpy
 
 ROOT = Path('/opt/md-next')
 STATE = Path('/var/lib/md-next/updates')
@@ -85,6 +86,7 @@ class Updater:
         self.new_venv = None
         self.log = None
         self.awg_units = []
+        self.temporary_parent = None
 
     def phase(self, phase, message):
         self.data.update(phase=phase, message=message)
@@ -96,6 +98,20 @@ class Updater:
         temporary.write_text(json.dumps(self.data, ensure_ascii=False))
         temporary.chmod(0o600)
         temporary.replace(self.state / 'status.json')
+
+    def stage(self, value):
+        self.data['stage'] = value
+        self.phase(self.data['phase'], self.data['message'])
+
+    def record_failure(self, error):
+        if self.log:
+            self.log.flush()
+        diagnostics = Path(__file__).with_name('update-errors.py')
+        if not diagnostics.exists():
+            diagnostics = Path(__file__).resolve().parents[1] / 'backend/app/services/update_errors.py'
+        classify = runpy.run_path(str(diagnostics))['enrich_failure']
+        failed = classify({**self.data, 'phase': 'error'}, self.state/'update.log', error=error)
+        self.data['failure'] = failed['failure']
 
     def run(self, args, cwd=None, env=None, timeout=300):
         return subprocess.run(args, cwd=cwd, env=env, stdout=self.log, stderr=subprocess.STDOUT, check=True, timeout=timeout)
@@ -129,6 +145,7 @@ class Updater:
 
     def prepare(self, directory):
         self.phase('preparing', 'Скачиваем проверенную сборку и готовим зависимости. Панель продолжает работать.')
+        self.stage('download')
         repository = directory / 'repository'
         git_env = dict(os.environ, GIT_TERMINAL_PROMPT='0')
         token = self.request.pop('token', '')
@@ -151,10 +168,19 @@ class Updater:
         self.new_venv.parent.mkdir(exist_ok=True)
         self.run([self.request['python'], '-m', 'venv', str(self.new_venv)])
         python = self.new_venv / 'bin/python'
-        self.run([str(python), '-m', 'pip', 'install', '-r', str(repository / 'backend/requirements.txt')], timeout=900)
+        cache_tools = runpy.run_path(str(Path(__file__).with_name('disk-maintenance.py')))
+        cache = cache_tools['trusted_directory'](Path('/var/cache/md-next'))
+        for name in ('pip', 'npm'):
+            cache_tools['trusted_directory'](cache / name)
+        build_env = dict(os.environ, PIP_CACHE_DIR=str(cache/'pip'), npm_config_cache=str(cache/'npm'),
+                         NODE_COMPILE_CACHE=str(directory/'node-compile-cache'))
+        self.stage('python_dependencies')
+        self.run([str(python), '-m', 'pip', 'install', '-r', str(repository / 'backend/requirements.txt')], env=build_env, timeout=900)
         self.run([str(python), '-c', 'import app.main'], cwd=repository / 'backend', env=environment(self.root))
-        self.run(['npm', 'ci', '--no-audit', '--no-fund'], cwd=repository / 'frontend', timeout=600)
-        self.run(['npm', 'run', 'build'], cwd=repository / 'frontend', timeout=300)
+        self.stage('frontend_dependencies')
+        self.run(['npm', 'ci', '--no-audit', '--no-fund'], cwd=repository / 'frontend', env=build_env, timeout=600)
+        self.stage('frontend_build')
+        self.run(['npm', 'run', 'build'], cwd=repository / 'frontend', env=build_env, timeout=300)
         return repository
 
     def save(self):
@@ -162,6 +188,7 @@ class Updater:
         self.backup = self.root.parent / ('md-next-update-backup-' + time.strftime('%Y%m%d-%H%M%S'))
         self.backup.mkdir(mode=0o700)
         self.phase('backup', 'Создаём копию приложения, базы и конфигураций перед обновлением.')
+        self.stage('backup')
         def include(info):
             parts = Path(info.name).parts
             # Writable website/state directories must never become root restore inputs.
@@ -183,6 +210,7 @@ class Updater:
     def activate(self, repository):
         files = subprocess.check_output(['git', '-C', str(repository), 'ls-files', '-z'], timeout=15).decode().split('\0')
         self.phase('installing', 'Применяем обновление. Панель кратковременно перезапускается.')
+        self.stage('activation')
         self.activated = True
         self.run(['systemctl', 'stop', 'md-next-backend'])
         snapshot_database(self.root / 'backend/md_next.db', self.backup / 'md_next.db')
@@ -216,6 +244,7 @@ class Updater:
             self.run([str(venv/'bin/python'),'-c',identity_code],cwd=self.root/'backend')
         migration = [str(venv / 'bin/python'), '-m', 'alembic', 'upgrade', 'head']
         if (self.root / 'backend/md_next.db').is_symlink(): migration = ['runuser', '-u', 'md-next', '--', *migration]
+        self.stage('migration')
         self.run(migration, cwd=self.root / 'backend', env=environment(self.root), timeout=180)
         shutil.copytree(repository / 'frontend/dist/assets', self.root / 'frontend/dist/assets', dirs_exist_ok=True)
         index = self.root / 'frontend/dist/index.html'
@@ -227,10 +256,14 @@ class Updater:
             self.run(['/usr/bin/python3', str(separator), '--configure-only'], timeout=120)
         self.run(['systemctl', 'start', 'md-next-backend'])
         self.phase('checking', 'Проверяем запуск панели и сохранность клиентов.')
+        self.stage('health')
         self.wait_ready()
         if self.saved_identities != identities(self.root):
             raise RuntimeError('Client identities changed')
         self.run(['systemctl', 'is-active', 'md-next-backend', 'xray', 'nginx'])
+        maintenance = self.root / 'scripts/disk-maintenance.py'
+        if maintenance.is_file():
+            self.run(['/usr/bin/python3', str(maintenance), '--install'], timeout=60)
         for name in ('DEPLOYED_COMMIT', 'FRONTEND_DEPLOYED_COMMIT'):
             marker = self.root / name
             marker.write_text(self.request['commit'] + '\n')
@@ -295,11 +328,17 @@ class Updater:
 
     def execute(self):
         try:
-            with tempfile.TemporaryDirectory(prefix='md-next-panel-update-') as temporary:
+            with tempfile.TemporaryDirectory(prefix='md-next-panel-update-', dir=self.temporary_parent) as temporary:
                 repository = self.prepare(Path(temporary))
                 self.save()
                 self.activate(repository)
-        except Exception:
+        except Exception as error:
+            try:
+                self.record_failure(error)
+            except Exception:
+                # Diagnostics must never prevent the rollback of a failed activation.
+                self.data['failure'] = {'code': 'unknown', 'title': 'Причину сбоя определить не удалось',
+                                        'hint': 'Проверьте серверный журнал обновления.', 'stage': 'Этап не определён'}
             if self.activated:
                 try:
                     self.rollback()
@@ -330,6 +369,8 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         fcntl.flock(maintenance, fcntl.LOCK_EX | fcntl.LOCK_NB)
         updater = Updater(ROOT, STATE, request)
+        cache_tools = runpy.run_path(str(Path(__file__).with_name('disk-maintenance.py')))
+        updater.temporary_parent = cache_tools['trusted_directory'](Path('/var/cache/md-next/tmp'))
         def terminate(signum, frame):
             raise RuntimeError('Update interrupted')
         signal.signal(signal.SIGTERM, terminate)
