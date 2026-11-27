@@ -221,7 +221,10 @@ async def callback(callback):
             if enabled and not profile['available']:raise ValueError('Профиль выключен в панели')
             if profile['is_enabled']==enabled:
                 await profile_menu(callback.message,client_id);return
-            await prepare(callback.message,actor,client_id,{'profiles':{profile['kind']:enabled}},('Включить' if enabled else 'Отключить')+' профиль «'+profile['label']+'». Другие профили, срок и лимит сохраняются.');return
+            from app.api.clients import update_client_access, ClientAccessUpdate
+            async with AsyncSessionLocal() as db:
+                await update_client_access(client_id, ClientAccessUpdate(profiles={profile['kind']: enabled}), db)
+            await profile_menu(callback.message,client_id);return
         if command=='bind':
             from app.api.operations import telegram_code
             async with AsyncSessionLocal() as db: data=await telegram_code(client_id,db)

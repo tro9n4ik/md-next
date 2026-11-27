@@ -89,7 +89,9 @@ def traffic_label(value):
 
 
 def review_text(draft):
+    from app.services.profiles import PROFILE_LABELS
     values = draft.values
+    excluded = [PROFILE_LABELS.get(kind, 'Обход БС') for kind, enabled in values.get('_profiles', {}).items() if not enabled]
     expiry = expiry_for_period(values["subscription_period"], values.get("expires_at"), datetime.now(timezone.utc))
     return ("<b>✅ Проверьте подписку</b>\n\n"
             f"Имя: <b>{escape(values['name'])}</b>\n"
@@ -98,7 +100,8 @@ def review_text(draft):
             f"Срок: <b>{PERIODS[values['subscription_period']]}</b>\n"
             f"Окончание: <b>{date_label(expiry)}</b>\n"
             f"Трафик в месяц: <b>{traffic_label(values['monthly_traffic_limit'])}</b>\n\n"
-            "Месячный период начинается с даты создания подписки. Доступ и профили появятся после подтверждения.")
+            + (f"Отключены профили: {escape(', '.join(excluded))}\n\n" if excluded else "") +
+            "Месячный период начинается с даты создания подписки. Нажмите «Создать подписку», чтобы выдать доступ.")
 
 
 async def render(draft, message, *, edit=True, error=None):
@@ -112,7 +115,19 @@ async def render(draft, message, *, edit=True, error=None):
         rows = [[("✅ Создать подписку", prefix + "confirm")],
                 [("✏️ Имя", prefix + "edit_name"), ("📞 Телефон", prefix + "edit_phone")],
                 [("✉️ Почта", prefix + "edit_email"), ("📅 Срок", prefix + "edit_period")],
-                [("📦 Трафик", prefix + "edit_quota")]]
+                [("📦 Трафик", prefix + "edit_quota"), ("🔌 Профили", prefix + "profiles")]]
+    elif draft.step == "profiles":
+        from app.services.profiles import enabled_profile_kinds, get_profile_settings, PROFILE_LABELS
+        async with AsyncSessionLocal() as db:
+            enabled = await enabled_profile_kinds(db)
+            settings = await get_profile_settings(db)
+        available = [kind for kind in PROFILE_LABELS if kind in enabled]
+        if "vless_xhttp_tls" in enabled and settings.get("cdn.enabled") == "true":
+            available.append("cdn")
+        text = "<b>Доступные профили</b>\n\nНажмите на профиль, чтобы включить или отключить. Выбор сохранится при создании клиента. Дополнительных подтверждений нет."
+        selected = draft.values.setdefault('_profiles', {})
+        rows = [[(("✅ " if selected.get(kind, True) else "⬜ ") + PROFILE_LABELS.get(kind, "Обход БС"), prefix + "profile_" + kind)] for kind in available]
+        rows.append([("← К подписке", prefix + "review")])
     else:
         prompts = {"name": "Отправьте имя владельца подписки.", "phone": "Отправьте номер телефона или пропустите этот шаг.",
                    "email": "Отправьте почту или пропустите этот шаг.", "period": "Выберите срок действия.",
@@ -223,7 +238,8 @@ async def create_subscription(message, draft):
     created_id = None
     try:
         async with AsyncSessionLocal() as session:
-            result = await create_client_record(ClientCreate(**values), db=session)
+            options = {'profile_access': draft.values['_profiles']} if '_profiles' in draft.values else {}
+            result = await create_client_record(ClientCreate(**values), db=session, **options)
             created_id = result["client"]["id"]
         from .admin_tools import detail as client_card
         await client_card(message, created_id)
@@ -294,6 +310,16 @@ async def callback_input(callback):
         if command == "skip" and draft.step in ("phone", "email"):
             draft.values[draft.step] = ""
             next_step(draft, "email" if draft.step == "phone" else "period")
+        elif command == "profiles" and draft.step == "review":
+            draft.step = "profiles"
+        elif command == "review" and draft.step == "profiles":
+            draft.step = "review"
+        elif command.startswith("profile_") and draft.step == "profiles":
+            from app.services.profiles import PROFILE_KINDS
+            kind = command.removeprefix("profile_")
+            if kind in {*PROFILE_KINDS, "cdn"}:
+                selected = draft.values.setdefault('_profiles', {})
+                selected[kind] = not selected.get(kind, True)
         elif command == "back":
             draft.values.pop("_editing", None)
             draft.step = {"phone": "name", "email": "phone", "period": "email", "date": "period", "quota": "period", "quota_custom": "quota", "review": "quota"}.get(draft.step, "name")

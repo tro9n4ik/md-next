@@ -34,6 +34,7 @@ def main_menu():
     return keyboard(
         [("➕ Новая подписка", "sub:new")],
         [("📋 Подписки", "ops:list:0")],
+        [("🛠 Управление панелью", "adm:home")],
         [("⚙️ Система", "md:system"), ("❔ Помощь", "md:help")],
     )
 
@@ -43,6 +44,9 @@ def back_menu():
 
 
 def invalidate_screen_actions(chat_id, identifier, markup):
+    console = globals().get('admin_console')
+    if console:
+        console.invalidate(chat_id, identifier, markup)
     callbacks={button.callback_data for row in markup.inline_keyboard for button in row} if markup else set()
     for token,value in list(pending_actions.items()):
         if (value.chat_id,value.message_id)==(chat_id,identifier) and 'md:confirm:'+token not in callbacks:
@@ -156,8 +160,15 @@ async def check_admin_middleware(handler, event, data):
         await event.answer("Откройте личный диалог с ботом.", **({"show_alert": True} if isinstance(event, CallbackQuery) else {}))
         return
     if isinstance(event,Message) and (event.text or '').startswith('/'):
+        admin_console.cancel(event.from_user.id, event.chat.id)
         subscriptions.drafts.pop((event.from_user.id,event.chat.id),None)
         admin_tools.inputs.pop((event.from_user.id,event.chat.id),None)
+    if isinstance(event, CallbackQuery):
+        if not (event.data or '').startswith('adm:'):
+            admin_console.cancel(event.from_user.id, message.chat.id)
+        else:
+            subscriptions.drafts.pop((event.from_user.id, message.chat.id), None)
+            admin_tools.inputs.pop((event.from_user.id, message.chat.id), None)
     result = await handler(event, data)
     if result is not UNHANDLED and isinstance(event, Message):
         from .chat_screen import clean_input
@@ -372,6 +383,8 @@ async def notify_admin(bot, text, notification_type: str = "failover", *, sessio
 from . import admin_tools
 admin_tools.register(router)
 subscriptions.register(router)
+from . import admin_console
+admin_console.register(router)
 
 
 @router.message(F.text)

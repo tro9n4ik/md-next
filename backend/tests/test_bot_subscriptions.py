@@ -136,3 +136,37 @@ async def test_complete_wizard_and_edit_back_to_review():
     assert draft.step=='review' and draft.values['monthly_traffic_limit']==int(25.5*1024**3)
     assert draft.values['name']=='Иван' and draft.values['phone']==''
     assert len(callback(draft,'confirm').data.encode())<64
+
+
+@pytest.mark.asyncio
+async def test_profiles_are_selected_before_creation_without_confirmation():
+    draft = sub.Draft(42, 42, 1, step='review', values={
+        'name': 'Выбор профилей', 'subscription_period': 'month', 'monthly_traffic_limit': 0})
+    sub.drafts[(42, 42)] = draft
+    with patch.object(sub, 'create_subscription', AsyncMock()) as create:
+        await sub.callback_input(callback(draft, 'profiles'))
+        assert draft.step == 'profiles'
+        await sub.callback_input(callback(draft, 'profile_awg'))
+        assert draft.values['_profiles']['awg'] is False
+        create.assert_not_awaited()
+        await sub.callback_input(callback(draft, 'review'))
+        assert draft.step == 'review'
+
+
+@pytest.mark.asyncio
+async def test_selected_profiles_are_applied_before_first_sync():
+    from app.api import clients
+    draft = sub.Draft(42, 42, 1, step='review', values={
+        'name': 'Без AWG', 'subscription_period': 'month', 'monthly_traffic_limit': 0,
+        '_profiles': {'awg': False}})
+    seen = []
+    async def inspect(db):
+        profiles = (await db.execute(select(ClientProfile))).scalars().all()
+        seen.extend(p.is_enabled for p in profiles if p.kind == 'awg')
+    with patch.object(clients, '_sync_protocols', side_effect=inspect), \
+         patch('app.services.awg.AWGService.generate_keypair', return_value=('private', 'public')), \
+         patch('app.bot.admin_tools.detail', AsyncMock()):
+        await sub.create_subscription(SimpleNamespace(answer=AsyncMock(), edit_text=AsyncMock()), draft)
+    assert seen == [False]
+    async with AsyncSessionLocal() as db:
+        assert (await db.execute(select(ClientProfile).where(ClientProfile.kind == 'awg'))).scalar_one().is_enabled is False
