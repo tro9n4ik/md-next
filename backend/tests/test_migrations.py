@@ -52,6 +52,18 @@ def test_fresh_db_migration(alembic_config):
     conn.close()
 
 
+def test_hosting_url_upgrade_is_optional_and_preserves_nodes_and_invites(alembic_config):
+    cfg, db_path = alembic_config
+    command.upgrade(cfg, '0024_node_reality_domain')
+    with sqlite3.connect(db_path) as db:
+        db.execute("INSERT INTO nodes (id,name,host,port,protocol) VALUES (1,'legacy','192.0.2.1',443,'trojan')")
+        db.execute("INSERT INTO node_invites (name,token_hash,expires_at) VALUES ('pending','synthetic-hosting-token','2030-01-01')")
+    command.upgrade(cfg, '0025_node_hosting_url')
+    with sqlite3.connect(db_path) as db:
+        assert db.execute('SELECT name,hosting_url FROM nodes').fetchone() == ('legacy', None)
+        assert db.execute('SELECT name,hosting_url FROM node_invites').fetchone() == ('pending', None)
+
+
 def test_owned_domain_upgrade_preserves_legacy_nodes(alembic_config):
     cfg, db_file = alembic_config
     command.upgrade(cfg, "0023_node_transport")

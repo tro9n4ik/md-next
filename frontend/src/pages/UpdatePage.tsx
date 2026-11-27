@@ -5,7 +5,7 @@ import { Send, Copy, Download, RefreshCw, Network, ShieldCheck, Globe, Cable, Cl
 import { request } from '../utils/operations';
 import PageLayout from '../components/ui/PageLayout';
 
-type Job = { phase: string; message: string; commit?: string; backup?: string; finished_at?: number };
+type Job = { phase: string; message: string; commit?: string; backup?: string; finished_at?: number; failure?: {code: string; title: string; hint: string; stage: string} };
 type Status = { installed: { version: string; commit: string }; job: Job; can_install: boolean };
 type Candidate = { commit: string; summary: string; available: boolean; ready: boolean; signature_verified: boolean; published_at: string; relation: string; identity_notice?: string };
 type Component = { key: string; name: string; version: string | null; status: string; description: string };
@@ -27,6 +27,7 @@ export default function UpdatePage() {
     <section className="ui-card ui-panel space-y-4">
       <h3 className="ui-card-title">Установленная сборка</h3>
       <p className="text-sm text-neutral-600">Установлена версия {status.data?.installed.version || '…'}{status.data?.installed.commit && <> · <code>{status.data.installed.commit.slice(0, 7)}</code></>}.</p>
+      {status.data?.job.failure && !busy && <section role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900"><div className="flex items-start gap-3"><CircleAlert size={20} className="mt-0.5 shrink-0" /><div><h3 className="font-semibold">Обновление не удалось: {status.data.job.failure.title.toLocaleLowerCase('ru-RU')}</h3><p className="mt-1 text-xs">Этап: {status.data.job.failure.stage}</p><p className="mt-3 leading-6">{status.data.job.failure.hint}</p><p className="mt-2 leading-6">{status.data.job.message}</p></div></div></section>}
       <button className="ui-button ui-button-secondary" disabled={busy || check.isPending || install.isPending} onClick={() => check.mutate()}><RefreshCw size={16} />{check.isPending ? 'Проверяем…' : 'Проверить обновления'}</button>
       {candidate && <div className="rounded-xl bg-neutral-50 p-4 space-y-2"><p className="font-medium">{candidate.available ? 'Доступна новая сборка' : candidate.relation === 'identical' ? 'Установлена актуальная сборка' : candidate.relation === 'behind' ? 'Установленная сборка новее main' : candidate.relation === 'diverged' ? 'Установленная сборка находится в другой ветке' : 'Не удалось определить установленную сборку'} · {candidate.commit.slice(0, 7)}</p><p className="text-sm text-neutral-600">{candidate.summary}</p>{candidate.identity_notice && <p className="text-sm text-neutral-600">{candidate.identity_notice}</p>}{candidate.available && !candidate.ready && <p className="text-sm text-amber-700">{candidate.signature_verified ? 'Сборка ещё не прошла все проверки. Обновление станет доступно после их завершения.' : 'Подпись этой сборки не подтверждена GitHub. Установка заблокирована.'}</p>}</div>}
       <section className="border-t border-neutral-200 pt-4 text-sm text-neutral-500"><h3 className="font-medium">Как проходит обновление</h3>

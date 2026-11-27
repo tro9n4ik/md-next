@@ -2,7 +2,7 @@ import { useConfirm } from '../contexts/ConfirmationContext';
 import Switch from './ui/Switch';
 import React, { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Copy, Check, Plus, Trash2, AlertTriangle, ArrowRight, ArrowUp, ArrowDown, RefreshCw, Server, ShieldCheck, Users, Globe, ChevronRight, KeyRound } from 'lucide-react';
+import { Copy, Check, Plus, Trash2, AlertTriangle, ArrowRight, ArrowUp, ArrowDown, RefreshCw, Server, ShieldCheck, Users, Globe, ChevronRight, KeyRound, ExternalLink, Pencil } from 'lucide-react';
 import CountryFlag from './ui/CountryFlag';
 import Drawer from './ui/Drawer';
 import { apiFetch } from '../utils/api';
@@ -13,6 +13,7 @@ import { transportLabel } from '../utils/nodeControl';
 import type { NodeTransport } from '../utils/nodeControl';
 
 interface NodeData {
+  hosting_url?: string | null;
   transport?: NodeTransport;
   id: number;
   name: string;
@@ -76,6 +77,10 @@ interface GeneratedInvite {
   expires_at: string;
 }
 
+function safeHostingLink(value?: string | null): string | null {
+  try { const url = new URL(value || ''); return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url.href : null; } catch { return null; }
+}
+
 const NumberField: React.FC<{ label: string; value: number; onChange: (value: number) => void; hint?: string; min?: number; max?: number }> = ({ label, value, onChange, hint, min = 0, max }) => (
   <label className="text-xs font-medium text-neutral-600">{label}
     <input required type="number" min={min} max={max} value={value} onChange={event => onChange(Number(event.target.value))} className="mt-1 w-full rounded-lg border border-neutral-200 p-2 text-sm" />
@@ -122,6 +127,9 @@ const AdminNodesManager: React.FC = () => {
   const [copyError, setCopyError] = useState('');
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [inviteName, setFormInviteName] = useState('Новый узел');
+  const [hostingUrl, setHostingUrl] = useState('');
+  const [hostingNode, setHostingNode] = useState<NodeData | null>(null);
+  const [hostingDraft, setHostingDraft] = useState('');
   const [ttlHours, setFormTtlHours] = useState(24);
   const [inviteTransport, setInviteTransport] = useState<NodeTransport>('xray');
   const [generatedInvite, setGeneratedInvite] = useState<GeneratedInvite | null>(null);
@@ -242,13 +250,13 @@ const AdminNodesManager: React.FC = () => {
   });
 
   const createInviteMutation = useMutation({
-    mutationFn: async (payload: { name: string; ttl_hours: number; transport: NodeTransport }) => {
+    mutationFn: async (payload: { name: string; ttl_hours: number; transport: NodeTransport; hosting_url: string }) => {
       const res = await apiFetch('/api/v1/nodes/invites', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      if (!res.ok) throw new Error('Не удалось создать инвайт');
+      if (!res.ok) { const error = await res.json().catch(() => null); throw new Error(typeof error?.detail === 'string' ? error.detail : 'Проверьте название и ссылку на хостера'); }
       return res.json();
     },
     onSuccess: (data: GeneratedInvite) => {
@@ -330,13 +338,22 @@ const AdminNodesManager: React.FC = () => {
     setCreateModalOpen(false);
     setGeneratedInvite(null);
     setFormInviteName('Новый узел');
+    setHostingUrl('');
     setFormTtlHours(24);
     setInviteTransport('xray');
   };
 
+  const hostingMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiFetch(`/api/v1/nodes/${hostingNode!.id}/hosting`, {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({hosting_url: hostingDraft})});
+      if (!response.ok) throw new Error('Не удалось сохранить. Проверьте ссылку: нужен адрес HTTP или HTTPS без логина и пароля.');
+    },
+    onSuccess: () => { setHostingNode(null); void queryClient.invalidateQueries({queryKey: ['nodes']}); },
+  });
+
   const activeCountry = nodes.find(node => node.id === route?.active_node?.id)?.country_code;
   const activeInvites = invites.filter(invite => !invite.revoked && !invite.used_at && new Date(invite.expires_at).getTime() > now).length;
-  const draftInvite = !generatedInvite && (inviteName !== 'Новый узел' || ttlHours !== 24 || inviteTransport !== 'xray');
+  const draftInvite = !generatedInvite && (inviteName !== 'Новый узел' || ttlHours !== 24 || inviteTransport !== 'xray' || hostingUrl.trim() !== '');
   const closeInvite = async () => { if (!draftInvite || await confirm({ title: 'Закрыть приглашение?', description: 'Приглашение не будет создано. Заполненные параметры будут потеряны.', confirmText: 'Закрыть форму', cancelText: 'Продолжить заполнение', tone: 'warning' })) handleCloseModal(); };
 
   return <div className="nodes-workspace">
@@ -371,7 +388,7 @@ const AdminNodesManager: React.FC = () => {
       <div className="node-list-columns" aria-hidden="true"><span>Узел и состояние</span><span>Адрес</span><span>Задержка</span><span>Приоритет и действия</span></div>
       <ul aria-label="Список нод" className="node-list">{nodes.map((node, index) => <li key={node.id} className={`node-list-row ${route?.active_node?.id === node.id ? 'node-list-row-active' : ''}`}>
         <div className="col-span-2 min-w-0 md:col-span-1"><div className="flex flex-wrap items-center gap-2"><CountryFlag code={node.country_code} /><h3 className="break-all text-sm font-semibold">{node.name}</h3>{route?.active_node?.id === node.id && <span className="text-xs font-medium text-emerald-700">Активная</span>}</div><p className={`mt-1 text-xs ${node.status === 'healthy' ? 'text-emerald-700' : node.status === 'disabled' ? 'text-neutral-500' : 'text-red-700'}`}>{node.status === 'healthy' ? 'Доступна' : node.status === 'disabled' ? 'Выключена' : 'Недоступна'}</p></div>
-        <div className="min-w-0"><p className="break-all font-mono text-xs text-neutral-700">{node.host || 'Скрыт политикой доступа'}</p><p className="mt-1 text-xs text-neutral-500">{node.port ?? '—'} · {node.protocol?.toUpperCase() || '—'}</p><p className="mt-1 text-xs">{transportLabel(node.transport)}</p>{node.transport === 'mdnt' && <NodeControl nodeId={node.id} />}</div>
+        <div className="min-w-0"><p className="break-all font-mono text-xs text-neutral-700">{node.host || 'Скрыт политикой доступа'}</p><p className="mt-1 text-xs text-neutral-500">{node.port ?? '—'} · {node.protocol?.toUpperCase() || '—'}</p><div className="mt-2 flex items-center gap-2">{safeHostingLink(node.hosting_url) && <a href={safeHostingLink(node.hosting_url)!} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-emerald-700 hover:underline"><ExternalLink size={12} />Хостер</a>}<button type="button" aria-label={`Изменить ссылку на хостера: ${node.name}`} className="inline-flex items-center gap-1 text-xs text-neutral-500 hover:underline" onClick={() => { hostingMutation.reset(); setHostingNode(node); setHostingDraft(node.hosting_url || ''); }}><Pencil size={12} />{node.hosting_url ? 'Изменить' : 'Указать хостера'}</button></div><p className="mt-1 text-xs">{transportLabel(node.transport)}</p>{node.transport === 'mdnt' && <NodeControl nodeId={node.id} />}</div>
         <p className="text-right text-xs text-neutral-500">{node.ping_ms ? `${node.ping_ms} мс` : '—'}</p>
         <div className="col-span-2 flex flex-wrap items-center gap-1.5 md:col-span-1 md:grid md:grid-cols-[2rem_2.25rem_2.25rem_9rem_2.25rem] md:items-center"><span className="mr-1 text-xs text-neutral-400">#{node.priority + 1}</span>
           <button aria-label={`Поднять приоритет: ${node.name}`} disabled={index === 0 || reorderMutation.isPending} onClick={() => { const ids = nodes.map(item => item.id); [ids[index - 1], ids[index]] = [ids[index], ids[index - 1]]; reorderMutation.mutate(ids); }} className="ui-button ui-button-secondary !min-h-9 !p-2"><ArrowUp size={16} /></button>
@@ -410,16 +427,25 @@ const AdminNodesManager: React.FC = () => {
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-neutral-200 pt-4"><p role={clearInviteHistoryMutation.isError ? 'alert' : 'status'} className={`text-xs ${clearInviteHistoryMutation.isError ? 'text-red-700' : 'text-neutral-500'}`}>{inviteCleanupNotice || 'Действующие приглашения и ноды сохраняются. Очистка удаляет использованные, отозванные и истёкшие приглашения.'}</p><button type="button" disabled={!invites.length || clearInviteHistoryMutation.isPending || createInviteMutation.isPending || revokeInviteMutation.isPending} onClick={async () => { if (await confirm({ title: 'Очистить историю приглашений?', description: 'Использованные, отозванные и истёкшие приглашения будут удалены. Действующие приглашения и подключённые ноды сохранятся.', confirmText: 'Очистить историю', tone: 'danger' })) clearInviteHistoryMutation.mutate(); }} className="ui-button ui-button-secondary"><Trash2 size={16} />{clearInviteHistoryMutation.isPending ? 'Очищаем…' : 'Очистить историю'}</button></div>
     </details>
 
+    {hostingNode && <Drawer title={`Хостер · ${hostingNode.name}`} busy={hostingMutation.isPending} dirty={hostingDraft !== (hostingNode.hosting_url || '')} onClose={async () => { if (hostingDraft === (hostingNode.hosting_url || '') || await confirm({title: 'Закрыть без сохранения?', description: 'Изменение ссылки не сохранится.', confirmText: 'Закрыть'})) setHostingNode(null); }}>
+      <form className="space-y-5" onSubmit={event => {event.preventDefault(); hostingMutation.mutate();}}>
+        <label className="block text-sm font-medium">Ссылка на хостера<input type="url" maxLength={2048} placeholder="https://hoster.example/servers" value={hostingDraft} onChange={event => setHostingDraft(event.target.value)} disabled={hostingMutation.isPending} className="mt-2 w-full rounded-lg border p-3" /></label>
+        <p className="text-xs text-neutral-500">Видна только администратору. Оставьте поле пустым, чтобы убрать ссылку.</p>
+        {hostingMutation.error && <p role="alert" className="text-sm text-red-700">{hostingMutation.error.message}</p>}
+        <div className="flex justify-end gap-3"><button className="ui-button ui-button-primary" disabled={hostingMutation.isPending}>{hostingMutation.isPending ? 'Сохранение…' : 'Сохранить'}</button></div>
+      </form>
+    </Drawer>}
+
     {nodeToDelete && <Drawer title="Удаление ноды" busy={deleteNodeMutation.isPending} onClose={() => { setNodeToDelete(null); setDeleteError(null); }}>
       <p className="text-sm leading-6">Удалить ноду <strong>{nodeToDelete.name}</strong> ({nodeToDelete.host})? Закреплённые за ней клиенты перейдут на общий выход. Конфигурация Xray будет перестроена.</p>
       {deleteError && <p role="alert" className="mt-4 text-sm text-red-700">{deleteError}</p>}
       <div className="mt-6 flex justify-end gap-3"><button className="ui-button ui-button-secondary" disabled={deleteNodeMutation.isPending} onClick={() => { setNodeToDelete(null); setDeleteError(null); }}>Отмена</button><button className="ui-button ui-button-danger" disabled={deleteNodeMutation.isPending} onClick={() => deleteNodeMutation.mutate(nodeToDelete.id)}>{deleteNodeMutation.isPending ? 'Удаление…' : 'Удалить'}</button></div>
     </Drawer>}
 
-    {createModalOpen && <Drawer title="Добавить ноду" busy={createInviteMutation.isPending} dirty={draftInvite} onClose={closeInvite}>
-      {!generatedInvite ? <form className="space-y-4" onSubmit={event => { event.preventDefault(); createInviteMutation.mutate({name: inviteName, ttl_hours: ttlHours, transport: inviteTransport}); }}>
+    {createModalOpen && <Drawer title={generatedInvite ? "Установка ноды" : "Добавить ноду"} busy={createInviteMutation.isPending} dirty={draftInvite} onClose={closeInvite}>
+      {!generatedInvite ? <form className="space-y-4" onSubmit={event => { event.preventDefault(); createInviteMutation.mutate({name: inviteName, ttl_hours: ttlHours, transport: inviteTransport, hosting_url: hostingUrl}); }}>
         <p className="text-sm text-neutral-500">Создайте одноразовую команду и выполните её на сервере новой ноды.</p>
-        <fieldset disabled={createInviteMutation.isPending} className="space-y-4"><label className="block text-sm font-medium">Название будущего узла<input required type="text" value={inviteName} onChange={event => setFormInviteName(event.target.value)} className="mt-2 w-full rounded-lg border p-3" /></label><label className="block text-sm font-medium">Срок действия токена<select className="mt-2 w-full rounded-lg border p-3" value={ttlHours} onChange={event => setFormTtlHours(Number(event.target.value))}><option value={1}>1 час</option><option value={24}>24 часа (1 день)</option><option value={168}>7 дней</option></select></label></fieldset>
+        <fieldset disabled={createInviteMutation.isPending} className="space-y-4"><label className="block text-sm font-medium">Название будущего узла<input required type="text" value={inviteName} onChange={event => setFormInviteName(event.target.value)} className="mt-2 w-full rounded-lg border p-3" /></label><label className="block text-sm font-medium">Ссылка на хостера <span className="font-normal text-neutral-400">· необязательно</span><input type="url" maxLength={2048} value={hostingUrl} onChange={event => setHostingUrl(event.target.value)} placeholder="https://hoster.example/servers" className="mt-2 w-full rounded-lg border p-3" /><span className="mt-2 block text-xs font-normal text-neutral-500">Личный кабинет или страница сервера. Без логина и пароля в ссылке.</span></label><label className="block text-sm font-medium">Срок действия токена<select className="mt-2 w-full rounded-lg border p-3" value={ttlHours} onChange={event => setFormTtlHours(Number(event.target.value))}><option value={1}>1 час</option><option value={24}>24 часа (1 день)</option><option value={168}>7 дней</option></select></label></fieldset>
         <fieldset disabled={createInviteMutation.isPending}><NodeTransportField value={inviteTransport} onChange={setInviteTransport} /></fieldset>
         {createInviteMutation.isError && <p role="alert" className="text-sm text-red-700">{createInviteMutation.error.message}</p>}
         <button className="ui-button ui-button-primary w-full" disabled={createInviteMutation.isPending}>{createInviteMutation.isPending ? 'Создаём…' : 'Сгенерировать одноразовую команду'}</button>

@@ -23,7 +23,7 @@ IDENTITY_TIMEOUT = 30
 def read_state():
     try:
         state = json.loads((STATE_DIR / 'status.json').read_text(encoding='utf-8'))
-        return {key: state[key] for key in ('phase', 'message', 'commit', 'backup', 'started_at', 'finished_at') if key in state}
+        return {key: state[key] for key in ('phase', 'message', 'commit', 'backup', 'started_at', 'finished_at', 'stage', 'failure') if key in state}
     except (OSError, ValueError):
         return {'phase': 'idle', 'message': 'Обновление ещё не запускалось.'}
 
@@ -52,6 +52,9 @@ async def get_status():
         code, output, error = await call('update-status')
         if code: raise RuntimeError(error)
         state = json.loads(output)
+    else:
+        from app.services.update_errors import enrich_failure
+        state = await asyncio.to_thread(enrich_failure, state, STATE_DIR / 'update.log')
     if state.get('phase') in BUSY:
         try:
             code, active, _ = await run_cmd('systemctl', 'is-active', 'md-next-panel-update.service', timeout=5)

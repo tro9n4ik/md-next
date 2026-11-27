@@ -101,6 +101,8 @@ jobs:
           sudo nginx -t
           sudo nginx -T 2>/dev/null | grep -q 'worker_connections 8192;'
           test "$(systemctl show nginx -p LimitNOFILE --value)" -ge 65536
+      - name: Проверка безопасной автоочистки с настоящим systemd
+        run: sudo --preserve-env=GITHUB_ACTIONS python3 scripts/test-disk-maintenance.py --run
   network:
     runs-on: ubuntu-latest
     steps:

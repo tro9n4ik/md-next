@@ -24,7 +24,7 @@ from app.models.node import Node
 from app.models.node_invite import NodeInvite
 from app.models.setting import Setting
 from app.api.auth import get_current_user, require_admin
-from app.schemas.node import NodePublicResponse, NodeAdminResponse
+from app.schemas.node import NodePublicResponse, NodeAdminResponse, NodeHosting
 from app.services.xray import XrayService
 from app.services.cluster import get_failover_settings, is_manual_direct_route
 from app.services.client_service import ClientService
@@ -139,14 +139,17 @@ def node_response(node, user):
         "transport",
     )}
     values["is_online"] = bool(node.is_enabled and node.is_active and node.status == "healthy")
+    if user.role == 'admin':
+        values['hosting_url'] = node.hosting_url
     return model.model_validate(values)
 
-class NodeInviteCreate(BaseModel):
+class NodeInviteCreate(NodeHosting):
     name: str = "Новый узел"
     ttl_hours: int = 24
     transport: NodeTransport = "xray"
 
 class NodeInviteResponse(BaseModel):
+    hosting_url: str | None = None
     id: int
     name: str
     token: str
@@ -154,6 +157,7 @@ class NodeInviteResponse(BaseModel):
     expires_at: datetime.datetime
 
 class NodeInviteItem(BaseModel):
+    hosting_url: str | None = None
     id: int
     name: str
     transport: NodeTransport = "xray"
@@ -184,6 +188,17 @@ async def get_nodes(db: AsyncSession = Depends(get_db), current_user = Depends(g
 
 class NodeReorder(BaseModel):
     ids: List[int]
+
+
+@router.patch('/{node_id}/hosting', response_model=NodeAdminResponse)
+async def update_node_hosting(node_id: int, data: NodeHosting, db: AsyncSession = Depends(get_db), current_user=Depends(require_admin)):
+    node = await db.get(Node, node_id)
+    if node is None:
+        raise HTTPException(404, 'Нода не найдена')
+    node.hosting_url = data.hosting_url
+    await db.commit()
+    await db.refresh(node)
+    return node_response(node, current_user)
 
 @router.post("/reorder")
 async def reorder_nodes(data: NodeReorder, db: AsyncSession = Depends(get_db), current_user = Depends(require_admin)):
@@ -346,8 +361,8 @@ async def create_node_invite(
     expires_at = now + datetime.timedelta(hours=max(1, data.ttl_hours))
     pending = select(func.count()).select_from(NodeInvite).where(*active_invite_conditions(now)).scalar_subquery()
     statement = insert(NodeInvite).from_select(
-        ["name", "token_hash", "expires_at", "revoked", "transport"],
-        select(literal(data.name), literal(token_hash), literal(expires_at), literal(False), literal(data.transport))
+        ["name", "token_hash", "expires_at", "revoked", "transport", "hosting_url"],
+        select(literal(data.name), literal(token_hash), literal(expires_at), literal(False), literal(data.transport), literal(data.hosting_url))
         .where(pending < NODE_PENDING_INVITE_LIMIT),
     ).returning(NodeInvite)
     invite = (await db.execute(statement)).scalar_one_or_none()
@@ -361,6 +376,7 @@ async def create_node_invite(
         name=invite.name,
         token=plain_token,
         transport=invite.transport,
+        hosting_url=invite.hosting_url,
         expires_at=invite.expires_at
     )
 
@@ -517,6 +533,8 @@ async def _register_node(node_data, db):
     target_node = node_res.scalar_one_or_none()
 
     if target_node:
+        if invite.hosting_url is not None:
+            target_node.hosting_url = invite.hosting_url
         target_node.is_active = True
         target_node.port = node_data.port
         target_node.protocol = node_data.protocol
@@ -531,6 +549,7 @@ async def _register_node(node_data, db):
         node_name = invite.name if invite.name != "Новый узел" else f"node-{node_data.host}"
         last_priority = (await db.execute(select(Node.priority).order_by(Node.priority.desc()).limit(1))).scalar_one_or_none()
         target_node = Node(
+            hosting_url=invite.hosting_url,
             name=node_name,
             host=node_data.host,
             port=node_data.port,

@@ -24,6 +24,7 @@ class Node(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True, nullable=False)
+    hosting_url = Column(String(2048), nullable=True)
     host = Column(String, nullable=False)
     country_code = Column(String(2), nullable=True)
     port = Column(Integer, nullable=False)

@@ -1,7 +1,26 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
+
+
+class NodeHosting(BaseModel):
+    hosting_url: str | None = Field(default=None, max_length=2048)
+
+    @field_validator('hosting_url')
+    @classmethod
+    def valid_hosting_url(cls, value):
+        if value is None or not value.strip():
+            return None
+        if any(ord(char) < 32 or ord(char) == 127 for char in value):
+            raise ValueError('Ссылка не должна содержать управляющие символы')
+        url = HttpUrl(value.strip())
+        if url.username or url.password:
+            raise ValueError('Укажите ссылку без логина и пароля')
+        result = str(url)
+        if len(result) > 2048:
+            raise ValueError('Ссылка слишком длинная')
+        return result
 
 
 class NodePublicResponse(BaseModel):
@@ -16,6 +35,7 @@ class NodePublicResponse(BaseModel):
 
 
 class NodeAdminResponse(NodePublicResponse):
+    hosting_url: str | None = None
     transport: Literal["xray", "mdnt"] = "xray"
     host: str
     port: int
