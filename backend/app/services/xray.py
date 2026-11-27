@@ -45,7 +45,15 @@ def probe_base_port() -> int:
 
 
 def probe_port_for_node(node_id: int, base_port: int = None) -> int:
-    return (probe_base_port() if base_port is None else base_port) + int(node_id)
+    base = probe_base_port() if base_port is None else base_port
+    port = base + int(node_id)
+    # Пропускаем служебные порты независимо от включённых протоколов:
+    # адрес проверки должен совпадать у генератора, watchdog и Telegram.
+    for reserved in (8000, 8080, 8443, 8444, 8445, 8446, 8447, 10085,
+                     10808, 10909, 10910, 40000, 40001, 40002):
+        if base < reserved <= port:
+            port += 1
+    return port
 
 
 def probe_inbound_tag(node_id: int) -> str:

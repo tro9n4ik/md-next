@@ -151,3 +151,22 @@ def test_probe_port_helpers(monkeypatch):
     assert probe_port_for_node(1) == 12001
     monkeypatch.setenv("NODE_PROBE_BASE_PORT", "не-число")
     assert probe_port_for_node(2) == 10902
+
+
+def test_probes_do_not_collide_with_telegram_ports(monkeypatch):
+    monkeypatch.setenv("NODE_PROBE_ENABLED", "true")
+    monkeypatch.setenv("NODE_PROBE_BASE_PORT", "10900")
+    config = build(active_node=FakeNode(id=9), nodes=[FakeNode(id=10), FakeNode(id=11)],
+                   enabled={"vless_reality_tcp", "mtproto"})
+    probes = {item["tag"]: item["port"] for item in config["inbounds"]
+              if item.get("tag", "").startswith(PROBE_INBOUND_PREFIX)}
+    assert probes == {"probe-9": 10911, "probe-10": 10912, "probe-11": 10913}
+    assert not {10909, 10910}.intersection(probes.values())
+    assert len(set(probes.values())) == len(probes)
+    assert next(item for item in config["inbounds"] if item.get("tag") == "mtproto-in")["port"] == 10909
+
+
+def test_custom_probe_base_skips_reserved_ports():
+    ports = [probe_port_for_node(node_id, 10800) for node_id in range(1, 400)]
+    assert len(set(ports)) == len(ports)
+    assert not {10808, 10909, 10910}.intersection(ports)

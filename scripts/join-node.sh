@@ -151,12 +151,12 @@ PY
 }
 
 register_node() {
-  local node_server_name_json
+  local node_server_name_json registration_result registration_status
   node_server_name_json=$(python3 -c 'import json,os; print(json.dumps(os.getenv("NODE_SERVER_NAME") or None))') || return 1
   PUBLIC_IP=$(curl -fsS --connect-timeout 10 --max-time 20 https://api.ipify.org) || return 1
   SECURE_PANEL_URL=$(echo "$PANEL_URL" | sed 's|^http://|https://|')
 
-  RESPONSE=$(curl -s --fail -X POST "$SECURE_PANEL_URL/api/v1/nodes/register" \
+  registration_result=$(curl -sS --connect-timeout 15 --max-time 120 -w '\n%{http_code}' -X POST "$SECURE_PANEL_URL/api/v1/nodes/register" \
        -H "Content-Type: application/json" \
        -d "{
              \"token\": \"$TOKEN\",
@@ -171,9 +171,22 @@ register_node() {
              \"identity\": \"$NODE_IDENTITY\"
            }") || {
       echo "ОШИБКА: Не удалось зарегистрировать ноду на панели $SECURE_PANEL_URL."
-      echo "Проверьте корректность SSL-сертификата мастер-панели и доступность HTTPS."
+      echo "Не удалось выполнить HTTPS-запрос. Проверьте сеть, доступность панели и сообщение curl выше."
       return 1
   }
+  registration_status=${registration_result##*$'\n'}
+  RESPONSE=${registration_result%$'\n'*}
+  case "$registration_status" in
+    2[0-9][0-9]) ;;
+    502|503|504)
+      echo "ОШИБКА: Панель вернула HTTP $registration_status при регистрации ноды."
+      echo "Проверьте журнал панели и Xray: возможен сбой применения конфигурации или недоступность сервиса."
+      return 1 ;;
+    *)
+      echo "ОШИБКА: Панель отклонила регистрацию (HTTP $registration_status)."
+      echo "Проверьте срок действия и использование приглашения, совместимость версий и журнал панели."
+      return 1 ;;
+  esac
 
   NODE_SECRET=""
   if [ -n "${NODE_SERVER_NAME:-}" ]; then
