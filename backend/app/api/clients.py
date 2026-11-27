@@ -315,13 +315,13 @@ async def create_client(client_data: ClientCreate, db: AsyncSession = Depends(ge
     return await create_client_record(client_data, db, created_by_id=current_user.id, is_admin=current_user.role == "admin")
 
 
-async def create_client_record(client_data: ClientCreate, db: AsyncSession, *, created_by_id: int | None = None, is_admin: bool = True):
+async def create_client_record(client_data: ClientCreate, db: AsyncSession, *, created_by_id: int | None = None, is_admin: bool = True, profile_access: dict[str, bool] | None = None):
     from app.services.cluster import _route_lock
     async with _route_lock:
-        return await _create_client_record(client_data, db, created_by_id=created_by_id, is_admin=is_admin)
+        return await _create_client_record(client_data, db, created_by_id=created_by_id, is_admin=is_admin, profile_access=profile_access)
 
 
-async def _create_client_record(client_data: ClientCreate, db: AsyncSession, *, created_by_id: int | None, is_admin: bool):
+async def _create_client_record(client_data: ClientCreate, db: AsyncSession, *, created_by_id: int | None, is_admin: bool, profile_access: dict[str, bool] | None = None):
     """Shared transaction for the authenticated panel and administrator Telegram bot."""
     if client_data.group_id is not None and await db.get(ClientGroup, client_data.group_id) is None:
         raise HTTPException(status_code=404, detail="Группа не найдена")
@@ -330,6 +330,15 @@ async def _create_client_record(client_data: ClientCreate, db: AsyncSession, *, 
     await _validate_exit_node(db, client_data.exit_node_id)
     enabled = await enabled_profile_kinds(db)
     protocol_settings = await get_profile_settings(db)
+    if profile_access is not None:
+        if not is_admin:
+            raise HTTPException(403, detail="Доступ к профилям назначает администратор")
+        if set(profile_access) - {*PROFILE_KINDS, "cdn"} or any(type(value) is not bool for value in profile_access.values()):
+            raise HTTPException(422, detail="Неизвестный профиль доступа")
+        for kind, allowed in profile_access.items():
+            available = kind in enabled if kind != "cdn" else "vless_xhttp_tls" in enabled and protocol_settings.get("cdn.enabled") == "true"
+            if allowed and not available:
+                raise HTTPException(409, detail="Выбранный профиль выключен в настройках панели")
     if client_data.protocol == "vless" and any(kind.startswith("vless_") for kind in enabled) and not all(protocol_settings.get(key) for key in ("protocol.reality.server_address", "protocol.reality.public_key", "protocol.reality.server_name")):
         raise HTTPException(status_code=503, detail="Сервер не настроен для создания VLESS-профилей")
     now = datetime.now(timezone.utc)
@@ -344,10 +353,16 @@ async def _create_client_record(client_data: ClientCreate, db: AsyncSession, *, 
     try:
         await db.flush()
         profiles = await create_profiles(db, client)
+        if profile_access is not None:
+            for profile in profiles:
+                if profile.kind in profile_access:
+                    profile.is_enabled = profile_access[profile.kind]
+            if "cdn" in profile_access:
+                db.add(Setting(key=f"client.cdn.{client.id}", value="true" if profile_access["cdn"] else "false"))
         await _sync_protocols(db)
         settings = await get_profile_settings(db)
-        legacy_link = next((make_profile_data(client, p, settings) for p in profiles if p.kind == "vless_reality_tcp"), None)
-        legacy_conf = next((make_profile_data(client, p, settings) for p in profiles if p.kind == "awg"), None)
+        legacy_link = next((make_profile_data(client, p, settings) for p in profiles if p.kind == "vless_reality_tcp" and p.is_enabled), None)
+        legacy_conf = next((make_profile_data(client, p, settings) for p in profiles if p.kind == "awg" and p.is_enabled), None)
         legacy_protocol = client_data.protocol or ("vless" if legacy_link else "awg" if legacy_conf else None)
         await db.commit()
         log_event("info", "client", "Клиент создан", {"client_id": client.id, "name": client.name, "actor_id": created_by_id})

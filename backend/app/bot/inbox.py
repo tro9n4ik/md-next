@@ -47,9 +47,9 @@ async def _save(bot,chat,notice,channel):
 
 
 def editing(chat):
-    from . import subscriptions,admin_tools,handlers
+    from . import subscriptions,admin_tools,handlers,admin_console
     admin_tools.clean()
-    return bool(subscriptions.get_draft(chat,chat) or (chat,chat) in admin_tools.inputs
+    return bool(admin_console.editing(chat) or subscriptions.get_draft(chat,chat) or (chat,chat) in admin_tools.inputs
                 or any(value['chat']==chat for value in admin_tools.pending.values())
                 or any(value.chat_id==chat and value.expires_at>time.monotonic() for value in handlers.pending_actions.values())
                 or (chat,chat) in admin_tools.diagnostic_running)
